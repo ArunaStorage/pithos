@@ -8,6 +8,9 @@ use tokio::io::{
     AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, BufWriter,
 };
 
+use crate::compressor::Compressor;
+use crate::transformer::Transformer;
+
 const RAW_CHUNK_SIZE: usize = 5_242_880;
 
 pub struct ArunaReadWriter<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> {
@@ -49,56 +52,37 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> ArunaReadWriter<R, W> {
 
     pub async fn process(&mut self) -> Result<()> {
         // The buffer that accumulates the "actual" data
-        let mut read_buf = BytesMut::with_capacity(RAW_CHUNK_SIZE + 65_536);
-        let mut raw_block_size = 0;
-        let mut comp_size = 0;
-        let mut consumed = 0;
-
-        let mut compressor = if self.encrypting {
-            Some(ZstdEncoder::new(Vec::with_capacity(
-                RAW_CHUNK_SIZE + 65_536,
-            )))
-        } else {
-            None
-        };
-
-        let mut encrypter: Vec<u8> = Vec::new();
-
-        let mut last = BytesMut::with_capacity(65_536);
+        let mut bytes_read;
+        let mut read_buf = BytesMut::with_capacity(65_536);
+        let mut comp = Compressor::new(0).await;
 
         loop {
-            // raw_block_size += self.reader.read_buf(&mut read_buf).await?;
+            bytes_read = self.reader.read_buf(&mut read_buf).await?;
+            if bytes_read != 0 {
+                comp.write_bytes(&mut read_buf.split().freeze()).await?;
+            }
 
-            // if raw_block_size > RAW_CHUNK_SIZE {
-            //     last = read_buf.split_to(raw_block_size % RAW_CHUNK_SIZE);
-            //     compressor.write_buf(&mut last).await?;
-            //     compressor.flush().await?;
-            //     compressor = ZstdEncoder::new(Vec::with_capacity(RAW_CHUNK_SIZE + 32_768));
-            //     raw_block_size = read_buf.len();
-            // }
-
-            // compressor.flush().await?;
-            // let internal_len = compressor.get_ref().len();
-            // if internal_len - consumed > 10 {
-            //     let get_data = &compressor.get_ref()[consumed..internal_len];
-            //     consumed += get_data.len();
-            //     encrypter.extend(get_data);
-            //     println!("{:?}", hex::encode(encrypter.clone()));
-            // }
-
-            // compressor.write_buf(&mut read_buf.split()).await?;
-
-            // if bytes_read == 0 {
-            //     compressor.flush().await?;
-            //     compressor.shutdown().await?;
-            //     break;
-            // }
+            loop {
+                if let Some(chunk) = comp.get_chunk().await? {
+                    self.writer.write(&chunk).await?;
+                } else {
+                    break;
+                }
+            }
+            if bytes_read == 0 {
+                comp.finish(false).await?;
+                if let Some(chunk) = comp.get_chunk().await? {
+                    dbg!(chunk.len());
+                    self.writer.write(&chunk).await?;
+                    continue;
+                }
+                break;
+            }
         }
+        self.writer.flush().await?;
 
-        Ok(())
-    }
+        println!("{:?}", comp.get_chunk_list().await.1.len());
 
-    async fn compress(&self) -> Result<()> {
         Ok(())
     }
 }

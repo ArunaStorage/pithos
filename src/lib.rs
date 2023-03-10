@@ -8,12 +8,10 @@ mod readwrite;
 pub mod transformer;
 
 pub async fn read_file() -> Result<()> {
-    let file = File::open("test.txt").await?;
+    let file = File::open("hg381").await?;
+    let file2 = File::create("hg381.zstd").await?;
 
-    let testvec = Vec::with_capacity(1000);
-
-    let mut rw = ArunaReadWriter::new(file, testvec).await;
-
+    let mut rw = ArunaReadWriter::new(file, file2).await;
     rw.process().await
 }
 
