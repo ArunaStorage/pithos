@@ -1,4 +1,5 @@
 mod compressor;
+mod decompressor;
 mod decrypt;
 mod encrypt;
 mod finalizer;
