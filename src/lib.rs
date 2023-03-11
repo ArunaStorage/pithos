@@ -1,4 +1,5 @@
 mod compressor;
+mod decrypt;
 mod encrypt;
 mod finalizer;
 pub mod readwrite;
