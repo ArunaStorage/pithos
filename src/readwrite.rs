@@ -9,43 +9,43 @@ use tokio::io::{
 };
 
 use crate::compressor::Compressor;
+use crate::finalizer::Finalizer;
 use crate::transformer::Transformer;
 
 const RAW_CHUNK_SIZE: usize = 5_242_880;
 
-pub struct ArunaReadWriter<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> {
+pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin + 'a> {
     reader: BufReader<R>,
-    writer: BufWriter<W>,
-    compressing: bool,
-    encrypting: bool,
+    sink: Box<dyn Transformer + Send + 'a>,
     encryption_key: bytes::Bytes,
     expected_size: u64,
 }
 
-impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> ArunaReadWriter<R, W> {
-    pub async fn new(reader: R, writer: W) -> Self {
+impl<'a, R: AsyncRead + Unpin + 'a> ArunaReadWriter<'a, R> {
+    pub async fn new<W: AsyncWrite + Unpin + Send + 'a>(
+        reader: R,
+        writer: W,
+    ) -> ArunaReadWriter<'a, R> {
         ArunaReadWriter {
             reader: BufReader::new(reader),
-            writer: BufWriter::new(writer),
-            compressing: false,
-            encrypting: false,
+            sink: Box::new(Finalizer::new(BufWriter::new(writer)).await),
             encryption_key: Bytes::new(),
             expected_size: 0,
         }
     }
 
-    pub async fn add_compressor(mut self) -> Self {
-        self.compressing = true;
+    pub async fn add_compressor(mut self) -> ArunaReadWriter<'a, R> {
+        let old = self.sink;
+        self.sink = Box::new(Compressor::new(0, false, Some(old)).await);
         self
     }
 
-    pub async fn add_encryption(mut self, enc_key: bytes::Bytes) -> Self {
-        self.encrypting = true;
+    pub async fn _add_encryption(mut self, enc_key: bytes::Bytes) -> ArunaReadWriter<'a, R> {
         self.encryption_key = enc_key;
         self
     }
 
-    pub async fn set_expected_size(mut self, expected_size: u64) -> Self {
+    pub async fn _set_expected_size(mut self, expected_size: u64) -> ArunaReadWriter<'a, R> {
         self.expected_size = expected_size;
         self
     }
@@ -54,35 +54,24 @@ impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> ArunaReadWriter<R, W> {
         // The buffer that accumulates the "actual" data
         let mut bytes_read;
         let mut read_buf = BytesMut::with_capacity(65_536);
-        let mut comp = Compressor::new(0).await;
 
         loop {
             bytes_read = self.reader.read_buf(&mut read_buf).await?;
             if bytes_read != 0 {
-                comp.write_bytes(&mut read_buf.split().freeze()).await?;
-            }
-
-            loop {
-                if let Some(chunk) = comp.get_chunk().await? {
-                    self.writer.write(&chunk).await?;
-                } else {
+                self.sink
+                    .process_bytes(&mut read_buf.split().freeze(), false)
+                    .await?;
+            } else {
+                if self
+                    .sink
+                    .process_bytes(&mut read_buf.split().freeze(), true)
+                    .await?
+                    == true
+                {
                     break;
                 }
             }
-            if bytes_read == 0 {
-                comp.finish(false).await?;
-                if let Some(chunk) = comp.get_chunk().await? {
-                    dbg!(chunk.len());
-                    self.writer.write(&chunk).await?;
-                    continue;
-                }
-                break;
-            }
         }
-        self.writer.flush().await?;
-
-        println!("{:?}", comp.get_chunk_list().await.1.len());
-
         Ok(())
     }
 }

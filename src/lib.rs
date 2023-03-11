@@ -4,14 +4,18 @@ use tokio::fs::File;
 
 mod compressor;
 mod encrypt;
+mod finalizer;
 mod readwrite;
 pub mod transformer;
 
 pub async fn read_file() -> Result<()> {
-    let file = File::open("hg381").await?;
-    let file2 = File::create("hg381.zstd").await?;
+    let file = File::open("test.txt").await?;
+    let file2 = File::create("tst.cmp").await?;
 
-    let mut rw = ArunaReadWriter::new(file, file2).await;
+    let mut rw = ArunaReadWriter::new(file, file2)
+        .await
+        .add_compressor()
+        .await;
     rw.process().await
 }
 
