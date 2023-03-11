@@ -24,7 +24,7 @@ pub struct Compressor<'a> {
     next: Option<Box<dyn Transformer + Send + 'a>>,
 }
 
-impl<'a> Compressor<'_> {
+impl<'a> Compressor<'a> {
     pub fn new(comp_num: usize, last: bool) -> Compressor<'a> {
         Compressor {
             internal_buf: ZstdEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK)),
@@ -53,28 +53,39 @@ impl Transformer for Compressor<'_> {
             self.internal_buf.write_buf(&mut buf.split_to(dif)).await?;
             self.internal_buf.shutdown().await?;
             self.prev_buf.extend_from_slice(self.internal_buf.get_ref());
-            self.add_skippable(finished).await;
+            self.internal_buf = ZstdEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
+            self.add_skippable().await;
+            self.size_counter = 0;
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?)
-        } else {
+        }
+
+        if buf.len() != 0 && !self.finished {
+            self.size_counter += buf.len();
             self.internal_buf.write_buf(buf).await?;
         }
 
         // Add the "last" skippable frame
-        if !self.finished && finished {
+        if !self.finished && finished && buf.len() == 0 {
             self.internal_buf.shutdown().await?;
             self.prev_buf.extend_from_slice(self.internal_buf.get_ref());
-            self.add_skippable(finished).await;
+            self.add_skippable().await;
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
             self.finished = true;
         }
 
         if let Some(next) = &mut self.next {
             if self.prev_buf.len() / CHUNK > 0 {
-                next.process_bytes(&mut self.prev_buf.split_to(CHUNK).freeze(), finished)
-                    .await
+                next.process_bytes(
+                    &mut self.prev_buf.split_to(CHUNK).freeze(),
+                    self.finished && self.prev_buf.len() == 0,
+                )
+                .await
             } else {
-                next.process_bytes(&mut self.prev_buf.split().freeze(), finished)
-                    .await
+                next.process_bytes(
+                    &mut self.prev_buf.split().freeze(),
+                    self.finished && self.prev_buf.len() == 0,
+                )
+                .await
             }
         } else {
             Ok(false)
@@ -86,9 +97,9 @@ impl Transformer for Compressor<'_> {
 }
 
 impl Compressor<'_> {
-    async fn add_skippable(&mut self, finished: bool) {
+    async fn add_skippable(&mut self) {
         // Add the frame only when finished == true and is_last
-        if !(finished == true && self.is_last) {
+        if !self.is_last {
             if CHUNK - (self.prev_buf.len() % CHUNK) > 8 {
                 self.prev_buf.extend(create_skippable_padding_frame(
                     CHUNK - (self.prev_buf.len() % CHUNK),
