@@ -6,7 +6,8 @@ pub mod transformer;
 
 #[cfg(test)]
 mod tests {
-    use crate::compressor::Compressor;
+    use crate::compressor::ZstdEnc;
+    use crate::encrypt::ChaCha20Enc;
     use crate::readwrite::ArunaReadWriter;
     use tokio::fs::File;
 
@@ -18,11 +19,13 @@ mod tests {
         // Create a new ArunaReadWriter
         // Add transformer in reverse order -> from "last" to first
         // input -> 1 -> 2 -> 3 -> output
-        // .add(3).add(2).add(1)
+        // .add(3).add(2).add(1)println!("{}", self.internal_buf.len());
         ArunaReadWriter::new(file, file2)
-            .add_transformer(Compressor::new(3, true)) // Tripple compression because we can
-            .add_transformer(Compressor::new(2, false)) // Double compression because we can
-            .add_transformer(Compressor::new(1, false))
+            .add_transformer(
+                ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            ) // Tripple compression because we can
+            .add_transformer(ZstdEnc::new(2, false)) // Double compression because we can
+            .add_transformer(ZstdEnc::new(1, false))
             .process()
             .await
             .unwrap()

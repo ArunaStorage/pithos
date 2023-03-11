@@ -1,7 +1,5 @@
 use anyhow::anyhow;
 use anyhow::Result;
-use byteorder::LittleEndian;
-use byteorder::WriteBytesExt;
 use bytes::BufMut;
 use bytes::Bytes;
 use bytes::BytesMut;
@@ -9,64 +7,114 @@ use sodiumoxide::crypto::aead::chacha20poly1305_ietf;
 use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Key;
 use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Nonce;
 
+use crate::transformer::AddTransformer;
+use crate::transformer::Stats;
+use crate::transformer::Transformer;
+
 const ENCRYPTION_BLOCK_SIZE: usize = 65_536;
-const CIPHER_DIFF: usize = 28;
-const CIPHER_SEGMENT_SIZE: usize = ENCRYPTION_BLOCK_SIZE + CIPHER_DIFF;
+//const CIPHER_DIFF: usize = 28;
+//const CIPHER_SEGMENT_SIZE: usize = ENCRYPTION_BLOCK_SIZE + CIPHER_DIFF;
 
-pub fn calculate_padding(size: usize) -> usize {
-    let remainder = size % ENCRYPTION_BLOCK_SIZE;
+pub struct ChaCha20Enc<'a> {
+    internal_buf: BytesMut,
+    add_padding: bool,
+    encryption_key: Key,
+    finished: bool,
+    next: Option<Box<dyn Transformer + Send + 'a>>,
+}
 
-    if remainder == 0 {
-        0
-    } else {
-        // The minimum padding size is 8 bytes, so if the remainder plus minimum padding is larger than the blocksize
-        // -> Add a full 64kB block
-        // else return the missing bytes to the next "full" block
-        if remainder + 8 > ENCRYPTION_BLOCK_SIZE {
-            (ENCRYPTION_BLOCK_SIZE - remainder) + ENCRYPTION_BLOCK_SIZE
+impl<'a> ChaCha20Enc<'a> {
+    #[allow(dead_code)]
+    pub fn new(add_padding: bool, enc_key: Vec<u8>) -> Result<ChaCha20Enc<'a>> {
+        sodiumoxide::init().map_err(|_| anyhow!("sodiuminit failed"))?;
+        Ok(ChaCha20Enc {
+            internal_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
+            add_padding,
+            finished: false,
+            encryption_key: Key::from_slice(&enc_key).ok_or(anyhow!("Unable to parse Key"))?,
+            next: None,
+        })
+    }
+}
+
+impl<'a> AddTransformer<'a> for ChaCha20Enc<'a> {
+    fn add_transformer(&mut self, t: Box<dyn Transformer + Send + 'a>) {
+        self.next = Some(t)
+    }
+}
+
+#[async_trait::async_trait]
+impl Transformer for ChaCha20Enc<'_> {
+    async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
+        // Only write if the buffer contains data and the current process is not finished
+
+        if buf.len() != 0 {
+            self.internal_buf.put(buf);
+        }
+
+        // Try to write the buf to the "next" in the chain, even if the buf is empty
+        if let Some(next) = &mut self.next {
+            let mut bytes = if self.internal_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
+                encrypt_chunk(
+                    &self.internal_buf.split_to(ENCRYPTION_BLOCK_SIZE),
+                    None,
+                    &self.encryption_key,
+                )?
+            } else {
+                if finished && !self.finished {
+                    if self.add_padding {
+                        self.finished = true;
+                        encrypt_chunk(
+                            &self.internal_buf.split_to(ENCRYPTION_BLOCK_SIZE),
+                            Some(
+                                vec![
+                                    0;
+                                    ENCRYPTION_BLOCK_SIZE
+                                        - (self.internal_buf.len() % ENCRYPTION_BLOCK_SIZE)
+                                ]
+                                .as_ref(),
+                            ),
+                            &self.encryption_key,
+                        )?
+                    } else {
+                        self.finished = true;
+                        encrypt_chunk(&self.internal_buf.split(), None, &self.encryption_key)?
+                    }
+                } else {
+                    Bytes::new()
+                }
+            };
+            // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
+            next.process_bytes(&mut bytes, self.finished && self.internal_buf.len() == 0)
+                .await
         } else {
-            ENCRYPTION_BLOCK_SIZE - remainder
+            Err(anyhow!(
+                "This compressor is designed to always contain a 'next'"
+            ))
         }
     }
-}
-
-pub fn create_skippable_padding_frame(size: usize) -> Result<Vec<u8>> {
-    if size < 8 {
-        return Err(anyhow!("{size} is too small, minimum is 8 bytes"));
+    async fn get_info(&mut self, _is_last: bool) -> Result<Vec<Stats>> {
+        todo!();
     }
-    // Add frame_header
-    let mut frame = hex::decode("502A4D18")?;
-    // 4 Bytes (little-endian) for size
-    frame.write_u32::<LittleEndian>(size as u32 - 8)?;
-    frame.extend(vec![0; size - 8]);
-    Ok(frame)
 }
 
-pub fn create_skippable_footer_frame(numbers: Vec<u8>) -> Result<Vec<u8>> {
-    // Add frame_header
-    let mut frame = hex::decode("502A4D18")?;
-    // 4 Bytes (little-endian) for size
-    frame.write_u32::<LittleEndian>(0 as u32 - 8)?;
-    frame.extend(vec![0; 0 - 8]);
-    Ok(frame)
-}
+// pub fn decrypt_chunk(&self, chunk: &[u8], decryption_key: &Key) -> Result<Bytes> {
+//     let (nonce_slice, data) = chunk.split_at(12);
+//     let nonce = Nonce::from_slice(nonce_slice).ok_or(anyhow!("unable to read nonce"))?;
 
-pub fn decrypt_chunk(chunk: &[u8], decryption_key: &Key) -> Result<Bytes> {
-    let (nonce_slice, data) = chunk.split_at(12);
-    let nonce = Nonce::from_slice(nonce_slice).ok_or(anyhow!("unable to read nonce"))?;
+//     Ok(
+//         chacha20poly1305_ietf::open(data, None, &nonce, decryption_key)
+//             .map_err(|_| anyhow!("unable to decrypt part"))?
+//             .into(),
+//     )
+// }
+// }
 
-    Ok(
-        chacha20poly1305_ietf::open(data, None, &nonce, decryption_key)
-            .map_err(|_| anyhow!("unable to decrypt part"))?
-            .into(),
-    )
-}
-
-pub fn encrypt_chunk(chunk: &[u8], encryption_key: &Key) -> Result<Bytes> {
+pub fn encrypt_chunk(chunk: &[u8], padding: Option<&[u8]>, enc: &Key) -> Result<Bytes> {
     let nonce = Nonce::from_slice(&sodiumoxide::randombytes::randombytes(12))
         .ok_or(anyhow!("Unable to create nonce"))?;
     let mut bytes = BytesMut::new();
     bytes.put(nonce.0.as_ref());
-    bytes.put(chacha20poly1305_ietf::seal(chunk, None, &nonce, encryption_key).as_ref());
+    bytes.put(chacha20poly1305_ietf::seal(chunk, padding, &nonce, &enc).as_ref());
     Ok(bytes.freeze())
 }

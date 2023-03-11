@@ -13,7 +13,7 @@ use crate::transformer::Transformer;
 const RAW_FRAME_SIZE: usize = 5_242_880;
 const CHUNK: usize = 65_536;
 
-pub struct Compressor<'a> {
+pub struct ZstdEnc<'a> {
     internal_buf: ZstdEncoder<Vec<u8>>,
     prev_buf: BytesMut,
     size_counter: usize,
@@ -24,10 +24,10 @@ pub struct Compressor<'a> {
     next: Option<Box<dyn Transformer + Send + 'a>>,
 }
 
-impl<'a> Compressor<'a> {
+impl<'a> ZstdEnc<'a> {
     #[allow(dead_code)]
-    pub fn new(comp_num: usize, last: bool) -> Compressor<'a> {
-        Compressor {
+    pub fn new(comp_num: usize, last: bool) -> ZstdEnc<'a> {
+        ZstdEnc {
             internal_buf: ZstdEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK)),
             prev_buf: BytesMut::with_capacity(RAW_FRAME_SIZE + CHUNK),
             size_counter: 0,
@@ -40,14 +40,14 @@ impl<'a> Compressor<'a> {
     }
 }
 
-impl<'a> AddTransformer<'a> for Compressor<'a> {
+impl<'a> AddTransformer<'a> for ZstdEnc<'a> {
     fn add_transformer(&mut self, t: Box<dyn Transformer + Send + 'a>) {
         self.next = Some(t)
     }
 }
 
 #[async_trait::async_trait]
-impl Transformer for Compressor<'_> {
+impl Transformer for ZstdEnc<'_> {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
         // Create a new frame if buf would increase size_counter to more than RAW_FRAME_SIZE
         if self.size_counter + buf.len() > RAW_FRAME_SIZE {
@@ -105,7 +105,7 @@ impl Transformer for Compressor<'_> {
     }
 }
 
-impl Compressor<'_> {
+impl ZstdEnc<'_> {
     async fn add_skippable(&mut self) {
         // Add the frame only when finished == true and is_last
         if !self.is_last {
