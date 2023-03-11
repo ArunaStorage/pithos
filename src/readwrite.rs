@@ -1,52 +1,28 @@
-use std::io::Cursor;
-
-use anyhow::anyhow;
-use anyhow::Result;
-use async_compression::tokio::write::ZstdEncoder;
-use bytes::{BufMut, Bytes, BytesMut};
-use tokio::io::{
-    AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, BufWriter,
-};
-
-use crate::compressor::Compressor;
-use crate::finalizer::Finalizer;
 use crate::transformer::Transformer;
+use crate::{finalizer::Finalizer, transformer::AddTransformer};
+use anyhow::Result;
+use bytes::BytesMut;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, BufWriter};
 
-const RAW_CHUNK_SIZE: usize = 5_242_880;
-
-pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin + 'a> {
+pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin> {
     reader: BufReader<R>,
     sink: Box<dyn Transformer + Send + 'a>,
-    encryption_key: bytes::Bytes,
-    expected_size: u64,
 }
 
-impl<'a, R: AsyncRead + Unpin + 'a> ArunaReadWriter<'a, R> {
-    pub async fn new<W: AsyncWrite + Unpin + Send + 'a>(
-        reader: R,
-        writer: W,
-    ) -> ArunaReadWriter<'a, R> {
+impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
+    pub fn new<W: AsyncWrite + Unpin + Send + 'a>(reader: R, writer: W) -> ArunaReadWriter<'a, R> {
         ArunaReadWriter {
             reader: BufReader::new(reader),
-            sink: Box::new(Finalizer::new(BufWriter::new(writer)).await),
-            encryption_key: Bytes::new(),
-            expected_size: 0,
+            sink: Box::new(Finalizer::new(BufWriter::new(writer))),
         }
     }
 
-    pub async fn add_compressor(mut self) -> ArunaReadWriter<'a, R> {
-        let old = self.sink;
-        self.sink = Box::new(Compressor::new(0, false, Some(old)).await);
-        self
-    }
-
-    pub async fn _add_encryption(mut self, enc_key: bytes::Bytes) -> ArunaReadWriter<'a, R> {
-        self.encryption_key = enc_key;
-        self
-    }
-
-    pub async fn _set_expected_size(mut self, expected_size: u64) -> ArunaReadWriter<'a, R> {
-        self.expected_size = expected_size;
+    pub fn add_transformer<T: Transformer + AddTransformer<'a> + Send + 'a>(
+        mut self,
+        mut t: T,
+    ) -> ArunaReadWriter<'a, R> {
+        t.add_transformer(self.sink);
+        self.sink = Box::new(t);
         self
     }
 

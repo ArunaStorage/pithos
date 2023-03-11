@@ -1,30 +1,81 @@
-use anyhow::Result;
-use readwrite::ArunaReadWriter;
-use tokio::fs::File;
-
 mod compressor;
+mod decompressor;
+mod decrypt;
 mod encrypt;
 mod finalizer;
-mod readwrite;
+pub mod readwrite;
 pub mod transformer;
-
-pub async fn read_file() -> Result<()> {
-    let file = File::open("test.txt").await?;
-    let file2 = File::create("tst.cmp").await?;
-
-    let mut rw = ArunaReadWriter::new(file, file2)
-        .await
-        .add_compressor()
-        .await;
-    rw.process().await
-}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::compressor::ZstdEnc;
+    use crate::decompressor::ZstdDec;
+    use crate::decrypt::ChaCha20Dec;
+    use crate::encrypt::ChaCha20Enc;
+    use crate::readwrite::ArunaReadWriter;
+    use tokio::fs::File;
 
     #[tokio::test]
     async fn test_with_file() {
-        read_file().await.unwrap();
+        let file = File::open("test.txt").await.unwrap();
+        let file2 = File::create("tst.cmp").await.unwrap();
+
+        // Create a new ArunaReadWriter
+        // Add transformer in reverse order -> from "last" to first
+        // input -> 1 -> 2 -> 3 -> output
+        // .add(3).add(2).add(1)println!("{}", self.internal_buf.len());
+        ArunaReadWriter::new(file, file2)
+            .add_transformer(ZstdDec::new()) // Double compression because we can
+            .add_transformer(ZstdDec::new()) // Double compression because we can
+            .add_transformer(
+                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Dec::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            ) // Tripple compression because we can
+            .add_transformer(ZstdEnc::new(2, false)) // Double compression because we can
+            .add_transformer(ZstdEnc::new(1, false))
+            .process()
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_with_vec() {
+        let file = b"This is a very very important test".to_vec();
+        let mut file2 = Vec::new();
+
+        // Create a new ArunaReadWriter
+        // Add transformer in reverse order -> from "last" to first
+        // input -> 1 -> 2 -> 3 -> output
+        // .add(3).add(2).add(1)println!("{}", self.internal_buf.len());
+        ArunaReadWriter::new(file.as_ref(), &mut file2)
+            .add_transformer(ZstdDec::new()) // Double compression because we can
+            .add_transformer(ZstdDec::new()) // Double compression because we can
+            .add_transformer(
+                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Dec::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            ) // Tripple compression because we can
+            .add_transformer(ZstdEnc::new(2, false)) // Double compression because we can
+            .add_transformer(ZstdEnc::new(1, false))
+            .process()
+            .await
+            .unwrap();
+
+        assert_eq!(file, file2)
     }
 }

@@ -1,3 +1,4 @@
+use crate::transformer::AddTransformer;
 use crate::transformer::Stats;
 use crate::transformer::Transformer;
 use anyhow::Result;
@@ -10,9 +11,13 @@ pub struct Finalizer<W: AsyncWrite + Unpin + Send> {
 }
 
 impl<W: AsyncWrite + Unpin + Send> Finalizer<W> {
-    pub async fn new(writer: BufWriter<W>) -> Self {
+    pub fn new(writer: BufWriter<W>) -> Self {
         Self { writer: writer }
     }
+}
+
+impl<'a, W: AsyncWrite + Unpin + Send> AddTransformer<'a> for Finalizer<W> {
+    fn add_transformer(self: &mut Finalizer<W>, _t: Box<dyn Transformer + Send + 'a>) {}
 }
 
 #[async_trait::async_trait]

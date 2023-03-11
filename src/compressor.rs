@@ -6,13 +6,14 @@ use byteorder::WriteBytesExt;
 use bytes::{Bytes, BytesMut};
 use tokio::io::AsyncWriteExt;
 
+use crate::transformer::AddTransformer;
 use crate::transformer::Stats;
 use crate::transformer::Transformer;
 
 const RAW_FRAME_SIZE: usize = 5_242_880;
 const CHUNK: usize = 65_536;
 
-pub struct Compressor<'a> {
+pub struct ZstdEnc<'a> {
     internal_buf: ZstdEncoder<Vec<u8>>,
     prev_buf: BytesMut,
     size_counter: usize,
@@ -23,13 +24,10 @@ pub struct Compressor<'a> {
     next: Option<Box<dyn Transformer + Send + 'a>>,
 }
 
-impl<'a> Compressor<'a> {
-    pub async fn new(
-        comp_num: usize,
-        last: bool,
-        next: Option<Box<dyn Transformer + Send + 'a>>,
-    ) -> Compressor<'a> {
-        Compressor {
+impl<'a> ZstdEnc<'a> {
+    #[allow(dead_code)]
+    pub fn new(comp_num: usize, last: bool) -> ZstdEnc<'a> {
+        ZstdEnc {
             internal_buf: ZstdEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK)),
             prev_buf: BytesMut::with_capacity(RAW_FRAME_SIZE + CHUNK),
             size_counter: 0,
@@ -37,44 +35,69 @@ impl<'a> Compressor<'a> {
             chunks: Vec::new(),
             is_last: last,
             finished: false,
-            next,
+            next: None,
         }
     }
 }
 
+impl<'a> AddTransformer<'a> for ZstdEnc<'a> {
+    fn add_transformer(&mut self, t: Box<dyn Transformer + Send + 'a>) {
+        self.next = Some(t)
+    }
+}
+
 #[async_trait::async_trait]
-impl Transformer for Compressor<'_> {
+impl Transformer for ZstdEnc<'_> {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
+        // Create a new frame if buf would increase size_counter to more than RAW_FRAME_SIZE
         if self.size_counter + buf.len() > RAW_FRAME_SIZE {
+            // Check how much bytes are missing
             let dif = self.size_counter - RAW_FRAME_SIZE;
+            // Write the "missing" bytes until RAW_FRAME_SIZE is reached to the "old" buffer
             self.internal_buf.write_buf(&mut buf.split_to(dif)).await?;
+            // Shut the writer down -> Calls flush()
             self.internal_buf.shutdown().await?;
+            // Get data from the vector buffer to the "prev_buf" -> Output buffer
             self.prev_buf.extend_from_slice(self.internal_buf.get_ref());
-            self.add_skippable(finished).await;
-            self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?)
-        } else {
+            // Create a new Encoder
+            self.internal_buf = ZstdEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
+            // Add a skippable frame to the output buffer
+            self.add_skippable().await;
+            // Reset the size_counter
+            self.size_counter = 0;
+            // Add the number of chunks to the chunksvec (for indexing)
+            self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
+        }
+
+        // Only write if the buffer contains data and the current process is not finished
+        if buf.len() != 0 && !self.finished {
+            self.size_counter += buf.len();
             self.internal_buf.write_buf(buf).await?;
         }
 
-        // Add the "last" skippable frame
-        if !self.finished && finished {
+        // Add the "last" skippable frame if the previous writer is finished but this one is not!
+        if !self.finished && finished && buf.len() == 0 {
             self.internal_buf.shutdown().await?;
             self.prev_buf.extend_from_slice(self.internal_buf.get_ref());
-            self.add_skippable(finished).await;
+            self.add_skippable().await;
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
             self.finished = true;
         }
 
+        // Try to write the buf to the "next" in the chain, even if the buf is empty
         if let Some(next) = &mut self.next {
-            if self.prev_buf.len() / CHUNK > 0 {
-                next.process_bytes(&mut self.prev_buf.split_to(CHUNK).freeze(), finished)
-                    .await
+            let mut bytes = if self.prev_buf.len() / CHUNK > 0 {
+                self.prev_buf.split_to(CHUNK).freeze()
             } else {
-                next.process_bytes(&mut self.prev_buf.split().freeze(), finished)
-                    .await
-            }
+                self.prev_buf.split().freeze()
+            };
+            // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
+            next.process_bytes(&mut bytes, self.finished && self.prev_buf.len() == 0)
+                .await
         } else {
-            Ok(false)
+            Err(anyhow!(
+                "This compressor is designed to always contain a 'next'"
+            ))
         }
     }
     async fn get_info(&mut self, _is_last: bool) -> Result<Vec<Stats>> {
@@ -82,10 +105,10 @@ impl Transformer for Compressor<'_> {
     }
 }
 
-impl Compressor<'_> {
-    async fn add_skippable(&mut self, finished: bool) {
+impl ZstdEnc<'_> {
+    async fn add_skippable(&mut self) {
         // Add the frame only when finished == true and is_last
-        if !(finished == true && self.is_last) {
+        if !self.is_last {
             if CHUNK - (self.prev_buf.len() % CHUNK) > 8 {
                 self.prev_buf.extend(create_skippable_padding_frame(
                     CHUNK - (self.prev_buf.len() % CHUNK),

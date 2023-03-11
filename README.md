@@ -1,3 +1,73 @@
+# ArunaReadWriter
+
+Short guidance for usage of the `ArunaReadWriter` custom component. For the formal file specification click [here](#the-aruna-file-format).
+
+This is the first working generic version of customisable data transformer component for the Aruna Object Storage (AOS).
+The idea is simple, you implement these two base traits with your custom data transformation logic:
+
+```rust
+
+pub trait AddTransformer<'a> {
+    fn add_transformer(&mut self, t: Box<dyn Transformer + Send + 'a>);
+}
+
+#[async_trait::async_trait]
+pub trait Transformer {
+    async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool>;
+    async fn get_info(&mut self, is_last: bool) -> Result<Vec<Stats>>;
+}
+```
+
+And afterwards the structs implementing `Transformer` + `AddTransformer`  can be registered in the `ArunaReadWriter` to be plugged between the `Read` and `Write` parts of the ReadWriter.
+
+Example:
+
+```rust
+        let file = b"This is a very very important test".to_vec();
+        let mut file2 = Vec::new();
+
+        ArunaReadWriter::new(file.as_ref(), &mut file2)
+            .add_transformer(ZstdDec::new()) // Double compression because we can
+            .add_transformer(ZstdDec::new()) // Double compression because we can
+            .add_transformer(
+                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Dec::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            ) // Tripple compression because we can
+            .add_transformer(ZstdEnc::new(2, false)) // Double compression because we can
+            .add_transformer(ZstdEnc::new(1, false))
+            .process()
+            .await
+            .unwrap();
+        assert_eq!(file, file2)
+```
+
+This example creates a `Vec<u8>` from a bytes array (implements [AsyncRead](https://docs.rs/tokio/1.26.0/tokio/io/trait.AsyncRead.html)) and sinks it in another `Vec<u8>` (impl [AsynWrite](https://docs.rs/tokio/1.26.0/tokio/io/trait.AsyncWrite.html)). In between, custom data transformations can take place. Please note: the order of execution is reversed from the add_transformer calls, so you have to start with the "last" step and end with the "first". 
+
+The example compresses the vector first double compresses the vector with a custom padded Zstandard compression component and afterwards encrypts the result also two times with ChaCha20-Poly1305. Afterwards all steps are reversed resulting in the original data.
+
+### Notes for own implementations
+
+The `AddTransformer` trait is used to register the transformer and chain it via a dynamic dispatch of multiple `Transformer`. For this your struct should contain a `Option<Box<dyn Transformer + Send + 'a>>` field that is set via `add_transformer`. 
+
+The rest of the main logic is build around, the process_bytes function.
+
+```rust
+async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool>;
+```
+
+The idea is that your Transformer receives a mutable buffer with bytes that you can transform. If you have transformed (either all or via an internal buffer) the data is transferred to the next transformers `process_bytes` method. To work properly the following rules should be followed:
+
+- The `finished` flag indicates that the previous transformer has finished processing its data. Use this to initiate clean-up logic. Although the previous step might be finished, its internal buffers might still contain data, so wait for the first call that contains a buffer with 0 bytes length after finished was set to `true`.
+- `Result<bool>` should only return `Ok(true)` if the next transformer also responds with `Ok(true)` and the current transformer has finished all processing and emptied its buffer. This way the iteration can be stopped by backtracing the `Ok(true)` call from the ultimate writer back to the reader.
+
 # The ARUNA file format
 
 This document contains the formal description for the aruna (`.aruna` equivalent to `.zst.c4gh`) file format. A file format that enables compression and encryption while still maintaining a resonable performant indexing solution for large multi-gigabyte files. Optimized for usage with object storage solutions, like S3.
