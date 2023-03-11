@@ -1,4 +1,5 @@
 use anyhow::Result;
+use compressor::Compressor;
 use readwrite::ArunaReadWriter;
 use tokio::fs::File;
 
@@ -12,10 +13,7 @@ pub async fn read_file() -> Result<()> {
     let file = File::open("test.txt").await?;
     let file2 = File::create("tst.cmp").await?;
 
-    let mut rw = ArunaReadWriter::new(file, file2)
-        .await
-        .add_compressor()
-        .await;
+    let mut rw = ArunaReadWriter::new(file, file2).add_transformer(Compressor::new(0, false));
     rw.process().await
 }
 

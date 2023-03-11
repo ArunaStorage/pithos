@@ -7,6 +7,10 @@ pub struct Stats {
     _items: HashMap<String, String>,
 }
 
+pub trait AddTransformer<'a> {
+    fn add_transformer(&mut self, t: Box<dyn Transformer + Send + 'a>);
+}
+
 #[async_trait::async_trait]
 pub trait Transformer {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool>;

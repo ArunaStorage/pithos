@@ -6,6 +6,7 @@ use byteorder::WriteBytesExt;
 use bytes::{Bytes, BytesMut};
 use tokio::io::AsyncWriteExt;
 
+use crate::transformer::AddTransformer;
 use crate::transformer::Stats;
 use crate::transformer::Transformer;
 
@@ -23,12 +24,8 @@ pub struct Compressor<'a> {
     next: Option<Box<dyn Transformer + Send + 'a>>,
 }
 
-impl<'a> Compressor<'a> {
-    pub async fn new(
-        comp_num: usize,
-        last: bool,
-        next: Option<Box<dyn Transformer + Send + 'a>>,
-    ) -> Compressor<'a> {
+impl<'a> Compressor<'_> {
+    pub fn new(comp_num: usize, last: bool) -> Compressor<'a> {
         Compressor {
             internal_buf: ZstdEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK)),
             prev_buf: BytesMut::with_capacity(RAW_FRAME_SIZE + CHUNK),
@@ -37,8 +34,14 @@ impl<'a> Compressor<'a> {
             chunks: Vec::new(),
             is_last: last,
             finished: false,
-            next,
+            next: None,
         }
+    }
+}
+
+impl<'a> AddTransformer<'a> for Compressor<'a> {
+    fn add_transformer(&mut self, t: Box<dyn Transformer + Send + 'a>) {
+        self.next = Some(t)
     }
 }
 
