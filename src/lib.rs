@@ -17,6 +17,8 @@ mod tests {
 
         // Create a new ArunaReadWriter
         // Add transformer in reverse order -> from "last" to first
+        // input -> 1 -> 2 -> 3 -> output
+        // .add(3).add(2).add(1)
         ArunaReadWriter::new(file, file2)
             .add_transformer(Compressor::new(3, true)) // Tripple compression because we can
             .add_transformer(Compressor::new(2, false)) // Double compression because we can
