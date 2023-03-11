@@ -44,17 +44,18 @@ impl Transformer for ZstdDec<'_> {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
         // Only write if the buffer contains data and the current process is not finished
         if buf.len() != 0 && !self.finished {
-            self.size_counter += buf.len();
-            self.internal_buf.write_buf(buf).await?;
-        }
-
-        if self.size_counter > CHUNK * 20 {
-            self.internal_buf.shutdown().await?;
-            self.prev_buf.put(self.internal_buf.get_ref().as_slice());
-            self.internal_buf = ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
+            self.size_counter += self.internal_buf.write_buf(buf).await?;
+            if buf.len() != 0 {
+                self.internal_buf.shutdown().await?;
+                self.prev_buf.put(self.internal_buf.get_ref().as_slice());
+                self.internal_buf = ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
+                self.size_counter += self.internal_buf.write_buf(buf).await?;
+            }
         }
 
         if !self.finished && buf.len() == 0 && finished {
+            self.internal_buf.shutdown().await?;
+            self.prev_buf.put(self.internal_buf.get_ref().as_slice());
             self.finished = true;
         }
 

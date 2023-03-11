@@ -66,7 +66,7 @@ impl Transformer for ZstdEnc<'_> {
             // Reset the size_counter
             self.size_counter = 0;
             // Add the number of chunks to the chunksvec (for indexing)
-            self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?)
+            self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
         }
 
         // Only write if the buffer contains data and the current process is not finished
