@@ -1,9 +1,10 @@
-mod compressor;
-mod decompressor;
-mod decrypt;
-mod encrypt;
+pub mod compressor;
+pub mod decompressor;
+pub mod decrypt;
+pub mod encrypt;
 mod finalizer;
-mod footer;
+pub mod footer;
+pub mod helpers;
 pub mod readwrite;
 pub mod transformer;
 
@@ -14,8 +15,10 @@ mod tests {
     use crate::decrypt::ChaCha20Dec;
     use crate::encrypt::ChaCha20Enc;
     use crate::footer::FooterGenerator;
+    use crate::helpers::footer_parser::FooterParser;
     use crate::readwrite::ArunaReadWriter;
     use tokio::fs::File;
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
     #[tokio::test]
     async fn test_with_file() {
@@ -98,5 +101,23 @@ mod tests {
             .process()
             .await
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_footer_parsing() {
+        let mut file2 = File::open("test.txt.out").await.unwrap();
+
+        file2
+            .seek(std::io::SeekFrom::End(-65536 * 2))
+            .await
+            .unwrap();
+
+        let buf: &mut [u8; 65536 * 2] = &mut [0; 65536 * 2];
+        file2.read_exact(buf).await.unwrap();
+
+        let mut fp = FooterParser::new(buf);
+
+        fp.parse().unwrap();
+        fp.debug();
     }
 }
