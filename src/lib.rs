@@ -90,9 +90,9 @@ mod tests {
         let file2 = File::create("test.txt.out").await.unwrap();
         ArunaReadWriter::new(file, file2)
             //.add_transformer(ZstdDec::new()) // Double compression because we can
-            .add_transformer(
-                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
-            )
+            // .add_transformer(
+            //     ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            // )
             .add_transformer(
                 ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
@@ -117,6 +117,24 @@ mod tests {
 
         let mut fp = FooterParser::new(buf);
 
+        fp.parse().unwrap();
+        fp.debug();
+    }
+
+    #[tokio::test]
+    async fn test_footer_parsing_encrypted() {
+        let mut file2 = File::open("test.txt.out").await.unwrap();
+
+        file2
+            .seek(std::io::SeekFrom::End((-65536 - 28) * 2))
+            .await
+            .unwrap();
+
+        let buf: &mut [u8; (65536 + 28) * 2] = &mut [0; (65536 + 28) * 2];
+        file2.read_exact(buf).await.unwrap();
+
+        let mut fp =
+            FooterParser::from_encrypted(buf, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea").unwrap();
         fp.parse().unwrap();
         fp.debug();
     }

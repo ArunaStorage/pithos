@@ -2,20 +2,38 @@ use anyhow::anyhow;
 use anyhow::Result;
 use byteorder::LittleEndian;
 use byteorder::ReadBytesExt;
+use bytes::Bytes;
+use sodiumoxide::crypto::aead::chacha20poly1305_ietf;
+use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Key;
+use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Nonce;
 
-pub struct FooterParser<'a> {
-    footer: &'a [u8; 65536 * 2],
+pub struct FooterParser {
+    footer: [u8; 65536 * 2],
     blocklist: Vec<u8>,
     total: u32,
 }
 
-impl<'a> FooterParser<'a> {
-    pub fn new(footer: &'a [u8; 65536 * 2]) -> Self {
+impl FooterParser {
+    pub fn new(footer: &[u8; 65536 * 2]) -> Self {
         FooterParser {
-            footer,
+            footer: footer.clone(),
             blocklist: Vec::new(),
             total: 0,
         }
+    }
+
+    pub fn from_encrypted(
+        encrypted_footer: &[u8; (65536 + 28) * 2],
+        decryption_key: &[u8],
+    ) -> Result<Self> {
+        Ok(FooterParser {
+            footer: decrypt_chunks(encrypted_footer, decryption_key)?
+                .iter()
+                .as_slice()
+                .try_into()?,
+            blocklist: Vec::new(),
+            total: 0,
+        })
     }
 
     pub fn parse(&mut self) -> Result<()> {
@@ -28,7 +46,7 @@ impl<'a> FooterParser<'a> {
 
             while x < 65536 {
                 match self.footer[12 + x] {
-                    0 => {
+                    0u8 => {
                         break;
                     }
                     a => self.blocklist.push(a),
@@ -46,7 +64,7 @@ impl<'a> FooterParser<'a> {
 
             while x < self.footer.len() {
                 match self.footer[65536 + x + 12] {
-                    0 => {
+                    0u8 => {
                         break;
                     }
                     a => self.blocklist.push(a),
@@ -79,7 +97,6 @@ impl<'a> FooterParser<'a> {
             while x < self.footer.len() {
                 match self.footer[65536 + x + 12] {
                     0u8 => {
-                        println!("War hier");
                         break;
                     }
                     a => {
@@ -97,4 +114,26 @@ impl<'a> FooterParser<'a> {
         dbg!(&self.blocklist);
         dbg!(&self.total);
     }
+}
+
+pub fn decrypt_chunks(chunk: &[u8; (65536 + 28) * 2], decryption_key: &[u8]) -> Result<Bytes> {
+    let key = Key::from_slice(decryption_key).ok_or(anyhow!("unable to parse decryption key"))?;
+
+    let first = &chunk[0..65536 + 28];
+    let second = &chunk[65536 + 28..];
+
+    let (first_nonce_slice, first_data) = first.split_at(12);
+    let (second_nonce_slice, second_data) = second.split_at(12);
+    let first_nonce =
+        Nonce::from_slice(first_nonce_slice).ok_or(anyhow!("unable to read nonce"))?;
+    let second_nonce =
+        Nonce::from_slice(second_nonce_slice).ok_or(anyhow!("unable to read nonce"))?;
+
+    let mut first_dec = chacha20poly1305_ietf::open(first_data, None, &first_nonce, &key)
+        .map_err(|_| anyhow!("unable to decrypt part"))?;
+    first_dec.extend(
+        chacha20poly1305_ietf::open(second_data, None, &second_nonce, &key)
+            .map_err(|_| anyhow!("unable to decrypt part"))?,
+    );
+    Ok(first_dec.into())
 }
