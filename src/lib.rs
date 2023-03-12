@@ -86,6 +86,10 @@ mod tests {
         let file = File::open("test.txt").await.unwrap();
         let file2 = File::create("test.txt.out").await.unwrap();
         ArunaReadWriter::new(file, file2)
+            .add_transformer(ZstdDec::new()) // Double compression because we can
+            .add_transformer(
+                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
             .add_transformer(
                 ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
