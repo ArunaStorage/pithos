@@ -2,6 +2,7 @@ pub mod compressor;
 pub mod decompressor;
 pub mod decrypt;
 pub mod encrypt;
+pub mod filter;
 mod finalizer;
 pub mod footer;
 pub mod helpers;
