@@ -13,13 +13,14 @@ mod tests {
     use crate::decompressor::ZstdDec;
     use crate::decrypt::ChaCha20Dec;
     use crate::encrypt::ChaCha20Enc;
+    use crate::footer::FooterGenerator;
     use crate::readwrite::ArunaReadWriter;
     use tokio::fs::File;
 
     #[tokio::test]
     async fn test_with_file() {
         let file = File::open("test.txt").await.unwrap();
-        let file2 = File::create("tst.cmp").await.unwrap();
+        let file2 = File::create("test.txt.out").await.unwrap();
 
         // Create a new ArunaReadWriter
         // Add transformer in reverse order -> from "last" to first
@@ -78,5 +79,20 @@ mod tests {
             .unwrap();
 
         assert_eq!(file, file2)
+    }
+
+    #[tokio::test]
+    async fn test_with_file_footer() {
+        let file = File::open("test.txt").await.unwrap();
+        let file2 = File::create("test.txt.out").await.unwrap();
+        ArunaReadWriter::new(file, file2)
+            .add_transformer(
+                ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(FooterGenerator::new(None, true))
+            .add_transformer(ZstdEnc::new(1, false))
+            .process()
+            .await
+            .unwrap()
     }
 }

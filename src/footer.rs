@@ -59,7 +59,7 @@ impl Transformer for FooterGenerator<'_> {
                 )
                 .await?;
             }
-            self.finished;
+            self.finished = true;
         }
 
         if let Some(next) = &mut self.next {
@@ -94,7 +94,7 @@ fn create_skippable_footer_frame(mut footer_list: Vec<u8>) -> Result<Bytes> {
     // 2. Size (4) -> The number 65536 - 8 bytes for needed skippable frame header
     // 3. BlockTotal -> footer_list.len() + frames
     // Up to 65_536 - 12 footer entries for one frame
-    let frames = if footer_list.len() > (65_536 - 12) {
+    let frames = if footer_list.len() < (65_536 - 12) {
         1
     } else {
         2
