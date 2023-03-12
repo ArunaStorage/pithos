@@ -58,11 +58,14 @@ impl Transformer for ChaCha20Dec<'_> {
                     &self.encryption_key,
                 )?
             } else {
-                if finished && !self.finished && self.internal_buf.len() != 0 {
+                if finished && !self.finished {
                     self.finished = true;
-                    decrypt_chunk(&self.internal_buf.split(), &self.encryption_key)?
+                    if self.internal_buf.len() != 0 {
+                        decrypt_chunk(&self.internal_buf.split(), &self.encryption_key)?
+                    } else {
+                        Bytes::new()
+                    }
                 } else {
-                    self.finished = true;
                     Bytes::new()
                 }
             };
