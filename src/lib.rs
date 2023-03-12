@@ -3,6 +3,7 @@ mod decompressor;
 mod decrypt;
 mod encrypt;
 mod finalizer;
+mod footer;
 pub mod readwrite;
 pub mod transformer;
 

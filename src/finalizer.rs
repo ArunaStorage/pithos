@@ -1,5 +1,5 @@
 use crate::transformer::AddTransformer;
-use crate::transformer::Stats;
+use crate::transformer::Notifications;
 use crate::transformer::Transformer;
 use anyhow::Result;
 
@@ -32,7 +32,7 @@ impl<W: AsyncWrite + Unpin + Send> Transformer for Finalizer<W> {
         }
         Ok(false)
     }
-    async fn get_info(&mut self, _is_last: bool) -> Result<Vec<Stats>> {
-        todo!();
+    async fn notify(&mut self, notes: &mut Vec<Notifications>) -> Result<()> {
+        Ok(())
     }
 }

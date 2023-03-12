@@ -7,7 +7,7 @@ use bytes::{Bytes, BytesMut};
 use tokio::io::AsyncWriteExt;
 
 use crate::transformer::AddTransformer;
-use crate::transformer::Stats;
+use crate::transformer::Notifications;
 use crate::transformer::Transformer;
 
 const RAW_FRAME_SIZE: usize = 5_242_880;
@@ -100,8 +100,11 @@ impl Transformer for ZstdEnc<'_> {
             ))
         }
     }
-    async fn get_info(&mut self, _is_last: bool) -> Result<Vec<Stats>> {
-        todo!();
+    async fn notify(&mut self, notes: &mut Vec<Notifications>) -> Result<()> {
+        if let Some(next) = &mut self.next {
+            next.notify(notes).await?
+        }
+        Ok(())
     }
 }
 

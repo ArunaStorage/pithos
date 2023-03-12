@@ -8,7 +8,7 @@ use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Key;
 use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Nonce;
 
 use crate::transformer::AddTransformer;
-use crate::transformer::Stats;
+use crate::transformer::Notifications;
 use crate::transformer::Transformer;
 
 const ENCRYPTION_BLOCK_SIZE: usize = 65_536;
@@ -93,8 +93,11 @@ impl Transformer for ChaCha20Enc<'_> {
             ))
         }
     }
-    async fn get_info(&mut self, _is_last: bool) -> Result<Vec<Stats>> {
-        todo!();
+    async fn notify(&mut self, notes: &mut Vec<Notifications>) -> Result<()> {
+        if let Some(next) = &mut self.next {
+            next.notify(notes).await?
+        }
+        Ok(())
     }
 }
 

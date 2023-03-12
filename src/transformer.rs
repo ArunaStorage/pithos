@@ -1,10 +1,13 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
 
-pub struct Stats {
-    _origin: String,
-    _items: HashMap<String, String>,
+pub struct Data {
+    recipient: String,
+    info: Option<Vec<u8>>,
+}
+
+pub enum Notifications {
+    Message(Data),
+    Response(Data),
 }
 
 pub trait AddTransformer<'a> {
@@ -14,5 +17,5 @@ pub trait AddTransformer<'a> {
 #[async_trait::async_trait]
 pub trait Transformer {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool>;
-    async fn get_info(&mut self, is_last: bool) -> Result<Vec<Stats>>;
+    async fn notify(&mut self, notes: &mut Vec<Notifications>) -> Result<()>;
 }
