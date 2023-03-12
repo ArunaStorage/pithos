@@ -15,7 +15,7 @@ mod tests {
     use crate::decrypt::ChaCha20Dec;
     use crate::encrypt::ChaCha20Enc;
     use crate::footer::FooterGenerator;
-    use crate::helpers::footer_parser::FooterParser;
+    use crate::helpers::footer_parser::{FooterParser, Range};
     use crate::readwrite::ArunaReadWriter;
     use tokio::fs::File;
     use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -137,5 +137,18 @@ mod tests {
             FooterParser::from_encrypted(buf, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea").unwrap();
         fp.parse().unwrap();
         fp.debug();
+
+        let (a, b) = fp
+            .get_offsets_by_range(Range { from: 0, to: 1000 })
+            .unwrap();
+
+        dbg!(a, b);
+        assert!(
+            a == Range {
+                from: 0,
+                to: 3 * (65536 + 28)
+            }
+        );
+        assert!(b == Range { from: 0, to: 1000 })
     }
 }
