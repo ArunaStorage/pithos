@@ -32,7 +32,7 @@ impl<W: AsyncWrite + Unpin + Send> Transformer for Finalizer<W> {
         }
         Ok(false)
     }
-    async fn notify(&mut self, notes: &mut Vec<Notifications>) -> Result<()> {
+    async fn notify(&mut self, _notes: &mut Vec<Notifications>) -> Result<()> {
         Ok(())
     }
 }

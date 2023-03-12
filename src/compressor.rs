@@ -7,6 +7,7 @@ use bytes::{Bytes, BytesMut};
 use tokio::io::AsyncWriteExt;
 
 use crate::transformer::AddTransformer;
+use crate::transformer::Data;
 use crate::transformer::Notifications;
 use crate::transformer::Transformer;
 
@@ -82,6 +83,11 @@ impl Transformer for ZstdEnc<'_> {
             self.add_skippable().await;
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
             self.finished = true;
+            self.notify(&mut vec![Notifications::Message(Data {
+                recipient: "FOOTER".to_string(),
+                info: Some(self.chunks.clone()),
+            })])
+            .await?;
         }
 
         // Try to write the buf to the "next" in the chain, even if the buf is empty

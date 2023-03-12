@@ -1,8 +1,8 @@
 use anyhow::Result;
 
 pub struct Data {
-    recipient: String,
-    info: Option<Vec<u8>>,
+    pub recipient: String,
+    pub info: Option<Vec<u8>>,
 }
 
 pub enum Notifications {
