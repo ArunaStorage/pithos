@@ -87,7 +87,7 @@ For Compression the data SHOULD first be split into raw data chunks with exactly
  
 The resulting blocks consisting of compressed data MUST be encrypted in ChaCha20-Poly1305_ietf encrypted blocks as specified in [RFC7539](https://www.rfc-editor.org/rfc/rfc7539) with 65536 Bytes size, using a securely generated random encryption secret. All blocks SHOULD be preceeded by a per block random generated 12 byte Nonce and end with a 16 byte message authentication code (MAC). This results in a total blocksize of 65562 Bytes. The last encrypted block of the file CAN have a smaller size than this if the file has an uncompressed size of less than 5 Mib.
 
-If the file is larger than 5 Mib the number of blocks that build 5 Mib of raw data SHOULD be summed up resulting in a 1 Byte unsigned integer between 1 and 81. 81 is the maximum because 5 Mebibytes are exactly 80 x 65536 Bytes chunks and in the worst case with no compression the skippable frame could extend this by a maximum of one block. This index number is stored in the last one or two encrypted blocks of skippable frames in the file as index for fast access of data in order.
+If the file is larger than 5 Mib the number of blocks that build 5 Mib of raw data SHOULD be summed up resulting in a 1 Byte unsigned integer between 1 and 81 (with last chunk +2 = 83). 81 is the maximum because 5 Mebibytes are exactly 80 x 65536 Bytes chunks and in the worst case with no compression the skippable frame could extend this by a maximum of one block. This index number is stored in the last one or two encrypted blocks of skippable frames in the file as index for fast access of data in order.
 
 #### **Header**
 
@@ -99,8 +99,8 @@ The footer consists of one or two encrypted 65536 Byte sized blocks of skippable
 
 - `Header` with `Magic_Number` `0x184D2A51` for one block `0x184D2A52` if two blocks are attached. (4 Bytes)
 - `Frame_Size` = 65536 as unsigned 32 bit integer
-- `Block_Total` = 32 bit unsigned integer with the total number of 64Kib + 26 Byte blocks.
-- `Block_List` = The size of each 5 Mib segment in multiples of 64Kib + 26 Byte blocks as unsigned 8 Bit integer in order
+- `Block_Total` = 32 bit unsigned integer with the total number of 64Kib + 28 Byte blocks.
+- `Block_List` = The size of each 5 Mib segment in multiples of 64Kib + 28 Byte blocks as unsigned 8 Bit integer in order
 - `Padding` = 0x00 Bytes to fill the 64 Kib block.
 
 If the footer contains two blocks (indicated by the Magic_Number `0x184D2A52`) both blocks should repeat the `Header` / `Frame_Size` / `Block_number` sections with the same information.
@@ -147,13 +147,13 @@ This procedure has two options a simple single threaded one and a more paralleli
  
   - Obtain the content-length of the compressed and encrypted file
   - If the file is significantly smaller than 5 Mib -> Proceed with Option A
-  - Read and decrypt the last two encrypted blocks 2x (64 Kib + 26 Bytes) and store them in separate variables.
+  - Read and decrypt the last two encrypted blocks 2x (64 Kib + 28 Bytes) and store them in separate variables.
   - Check the last block for its `Magic_Number`, if it is `0x184D2A51` discard the penultimate block, if the number is `0x184D2A52` begin with the penultimate.
   - Decide how many parallel decryption and decompression threads should be spawned.
   - Read and split the `Block_Total` described in the [Footer](#footer) section roughly in your number of parallel threads. This results in a number of 64 Kib blocks that should be handled by each thread.
   - Start iterating through the `Block_List` section of the Footer and sum up the number of blocks for each entry in the blocklist, remember the **initial block** beginning with 0. If the sum surpasses the determined block count from the previous step spawn a separate thread handling the section from your **initial block** up to the end of the current block. Set the initial block to the beginning of the next block and repeat the process.
     - Each thread gets a "initial" and an "up-to" block index to process
-    - These number relate to byte offsets in the file via the formular: `blocknumber * (65536 + 26)`
+    - These number relate to byte offsets in the file via the formular: `blocknumber * (65536 + 28)`
     - **Example 1**: Handle all blocks from 0 to 222 -> Range: 0 - 14554764 Byte
     - **Example 2**: Handle all blocks from 222 to 444 -> Range: 14554765 (14554764 + 1) - 29109528 Byte
     - Because the data is aligned it can be handled equivalent to **Option A**
@@ -167,7 +167,7 @@ If you want to get only a specific range from the file the procedure is as follo
 - Determine the needed sections based on your Range request. The data is compressed in chunks of 5 Mib, so the range must first be converted to an index of 5 Mib Blocks. This can be done by integer dividing the index with 5Mib (5242880)
 - Example: Range: Begin: 5242111 - End: 20971320 -> Begin // 5 Mib = 0, End // 5 Mib = 3 -> The 5 Mib blocks with the indizes from 0 up to 3 are needed.
 - Iterate the Blocklist from the beginning, sum up all counts up to Begin index in Variable A and sum up the counts from Begin to end index separately in Variable B.
-- The resulting variables A and B indicate the the Range of compressed and decrypted bytes that needs to be decrypted and compressed to get all data of the requested Range. The formular to calculate the Ranges is: From: `Variable A * (65536 + 26)` to `Variable A * (65536 + 26) + Variable B * (65536 + 26)` This Range should contain only full encrypted / compressed blocks of 5 Mib size that are needed for the request.
+- The resulting variables A and B indicate the the Range of compressed and decrypted bytes that needs to be decrypted and compressed to get all data of the requested Range. The formular to calculate the Ranges is: From: `Variable A * (65536 + 28)` to `Variable A * (65536 + 28) + Variable B * (65536 + 28)` This Range should contain only full encrypted / compressed blocks of 5 Mib size that are needed for the request.
 - The blocks can be decrypted and decompressed as in [Option A](#option-a-single-threaded) or [Option B](#option-b-multi-threaded).
 - To get the "true" requested range afterwards the first `Begin Range % 5 Mib` Bytes and the last `5 Mib - End Range % 5 Mib` Bytes or must be discarded. This can also be done by first discarding the beginning and afterwards only returning the "size" of the requested range (`Begin Range - End Range`)
 

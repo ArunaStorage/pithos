@@ -12,8 +12,6 @@ use crate::transformer::Notifications;
 use crate::transformer::Transformer;
 
 const ENCRYPTION_BLOCK_SIZE: usize = 65_536;
-//const CIPHER_DIFF: usize = 28;
-//const CIPHER_SEGMENT_SIZE: usize = ENCRYPTION_BLOCK_SIZE + CIPHER_DIFF;
 
 pub struct ChaCha20Enc<'a> {
     internal_buf: BytesMut,
@@ -105,18 +103,6 @@ impl Transformer for ChaCha20Enc<'_> {
         Ok(())
     }
 }
-
-// pub fn decrypt_chunk(&self, chunk: &[u8], decryption_key: &Key) -> Result<Bytes> {
-//     let (nonce_slice, data) = chunk.split_at(12);
-//     let nonce = Nonce::from_slice(nonce_slice).ok_or(anyhow!("unable to read nonce"))?;
-
-//     Ok(
-//         chacha20poly1305_ietf::open(data, None, &nonce, decryption_key)
-//             .map_err(|_| anyhow!("unable to decrypt part"))?
-//             .into(),
-//     )
-// }
-// }
 
 pub fn encrypt_chunk(chunk: &[u8], padding: Option<&[u8]>, enc: &Key) -> Result<Bytes> {
     let nonce = Nonce::from_slice(&sodiumoxide::randombytes::randombytes(12))

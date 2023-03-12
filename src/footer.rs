@@ -94,6 +94,8 @@ fn create_skippable_footer_frame(mut footer_list: Vec<u8>) -> Result<Bytes> {
     // 2. Size (4) -> The number 65536 - 8 bytes for needed skippable frame header
     // 3. BlockTotal -> footer_list.len() + frames
     // Up to 65_536 - 12 footer entries for one frame
+    let total: u32 = footer_list.iter().map(|e| *e as u32).sum();
+
     let frames = if footer_list.len() < (65_536 - 12) {
         1
     } else {
@@ -106,7 +108,7 @@ fn create_skippable_footer_frame(mut footer_list: Vec<u8>) -> Result<Bytes> {
         let target_size = 65_536 - footer_list.len() - 12;
         //
         WriteBytesExt::write_u32::<LittleEndian>(&mut frame, 65_536 - 8)?;
-        WriteBytesExt::write_u32::<LittleEndian>(&mut frame, footer_list.len() as u32)?;
+        WriteBytesExt::write_u32::<LittleEndian>(&mut frame, total)?;
         match footer_list.last_mut() {
             Some(e) => *e += 1,
             None => (),
@@ -122,7 +124,7 @@ fn create_skippable_footer_frame(mut footer_list: Vec<u8>) -> Result<Bytes> {
         // Magic frame "size"
         WriteBytesExt::write_u32::<LittleEndian>(&mut frame, 65_536 - 8)?;
         // Footerlist count
-        WriteBytesExt::write_u32::<LittleEndian>(&mut frame, footer_list.len() as u32)?;
+        WriteBytesExt::write_u32::<LittleEndian>(&mut frame, total)?;
 
         match footer_list.last_mut() {
             Some(e) => *e += 2,
@@ -139,7 +141,7 @@ fn create_skippable_footer_frame(mut footer_list: Vec<u8>) -> Result<Bytes> {
         // Magic frame "size"
         WriteBytesExt::write_u32::<LittleEndian>(&mut frame, 65_536 - 8)?;
         // Repeat footerlist count
-        WriteBytesExt::write_u32::<LittleEndian>(&mut frame, footer_list.len() as u32)?;
+        WriteBytesExt::write_u32::<LittleEndian>(&mut frame, total)?;
 
         // Write the whole footerlist
         for size in &footer_list[(65_536 - 12)..] {
