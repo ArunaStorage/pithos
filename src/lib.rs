@@ -31,7 +31,7 @@ mod tests {
         // Add transformer in reverse order -> from "last" to first
         // input -> 1 -> 2 -> 3 -> output
         // .add(3).add(2).add(1)println!("{}", self.internal_buf.len());
-        ArunaReadWriter::new(file, file2)
+        ArunaReadWriter::new_with_writer(file, file2)
             .add_transformer(ZstdDec::new()) // Double compression because we can
             .add_transformer(ZstdDec::new()) // Double compression because we can
             .add_transformer(
@@ -62,7 +62,7 @@ mod tests {
         // Add transformer in reverse order -> from "last" to first
         // input -> 1 -> 2 -> 3 -> output
         // .add(3).add(2).add(1)println!("{}", self.internal_buf.len());
-        ArunaReadWriter::new(file.as_ref(), &mut file2)
+        ArunaReadWriter::new_with_writer(file.as_ref(), &mut file2)
             .add_transformer(ZstdDec::new()) // Double compression because we can
             .add_transformer(ZstdDec::new()) // Double compression because we can
             .add_transformer(
@@ -90,7 +90,7 @@ mod tests {
     async fn test_with_file_footer() {
         let file = File::open("test.txt").await.unwrap();
         let file2 = File::create("test.txt.out").await.unwrap();
-        ArunaReadWriter::new(file, file2)
+        ArunaReadWriter::new_with_writer(file, file2)
             //.add_transformer(ZstdDec::new()) // Double compression because we can
             // .add_transformer(
             //     ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
@@ -163,7 +163,7 @@ mod tests {
         // Add transformer in reverse order -> from "last" to first
         // input -> 1 -> 2 -> 3 -> output
         // .add(3).add(2).add(1)println!("{}", self.internal_buf.len());
-        ArunaReadWriter::new(file.as_ref(), &mut file2)
+        ArunaReadWriter::new_with_writer(file.as_ref(), &mut file2)
             .add_transformer(Filter::new(Range { from: 0, to: 3 }))
             .add_transformer(ZstdDec::new()) // Double compression because we can
             .add_transformer(ZstdDec::new()) // Double compression because we can

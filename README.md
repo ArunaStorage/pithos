@@ -26,7 +26,7 @@ Example:
         let file = b"This is a very very important test".to_vec();
         let mut file2 = Vec::new();
 
-        ArunaReadWriter::new(file.as_ref(), &mut file2)
+        ArunaReadWriter::new_with_writer(file.as_ref(), &mut file2)
             .add_transformer(ZstdDec::new()) // Double compression because we can
             .add_transformer(ZstdDec::new()) // Double compression because we can
             .add_transformer(

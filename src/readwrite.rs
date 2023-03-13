@@ -1,5 +1,5 @@
-use crate::transformer::Transformer;
-use crate::{finalizer::Finalizer, transformer::AddTransformer};
+use crate::transformer::{Sink, Transformer};
+use crate::{finalizer::WriterSink, transformer::AddTransformer};
 use anyhow::Result;
 use bytes::BytesMut;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, BufWriter};
@@ -10,10 +10,23 @@ pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin> {
 }
 
 impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
-    pub fn new<W: AsyncWrite + Unpin + Send + 'a>(reader: R, writer: W) -> ArunaReadWriter<'a, R> {
+    pub fn new_with_writer<W: AsyncWrite + Unpin + Send + 'a>(
+        reader: R,
+        writer: W,
+    ) -> ArunaReadWriter<'a, R> {
         ArunaReadWriter {
             reader: BufReader::new(reader),
-            sink: Box::new(Finalizer::new(BufWriter::new(writer))),
+            sink: Box::new(WriterSink::new(BufWriter::new(writer))),
+        }
+    }
+
+    pub fn new_with_sink<T: Transformer + AddTransformer<'a> + Sink + Send + 'a>(
+        reader: R,
+        transformer: T,
+    ) -> ArunaReadWriter<'a, R> {
+        ArunaReadWriter {
+            reader: BufReader::new(reader),
+            sink: Box::new(transformer),
         }
     }
 

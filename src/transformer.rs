@@ -10,6 +10,8 @@ pub enum Notifications {
     Response(Data),
 }
 
+pub trait Sink {}
+
 pub trait AddTransformer<'a> {
     fn add_transformer(&mut self, t: Box<dyn Transformer + Send + 'a>);
 }
