@@ -1,5 +1,5 @@
 use crate::transformer::{Sink, Transformer};
-use crate::{finalizer::WriterSink, transformer::AddTransformer};
+use crate::{transformer::AddTransformer, transformers::writer_sink::WriterSink};
 use anyhow::Result;
 use bytes::BytesMut;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, BufWriter};

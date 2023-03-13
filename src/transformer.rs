@@ -10,6 +10,7 @@ pub enum Notifications {
     Response(Data),
 }
 
+// Marker trait to signal that this Transformer can be a "final" destination for data
 pub trait Sink {}
 
 pub trait AddTransformer<'a> {

@@ -1,24 +1,18 @@
-pub mod compressor;
-pub mod decompressor;
-pub mod decrypt;
-pub mod encrypt;
-pub mod filter;
-mod finalizer;
-pub mod footer;
 pub mod helpers;
 pub mod readwrite;
 pub mod transformer;
+pub mod transformers;
 
 #[cfg(test)]
 mod tests {
-    use crate::compressor::ZstdEnc;
-    use crate::decompressor::ZstdDec;
-    use crate::decrypt::ChaCha20Dec;
-    use crate::encrypt::ChaCha20Enc;
-    use crate::filter::Filter;
-    use crate::footer::FooterGenerator;
     use crate::helpers::footer_parser::{FooterParser, Range};
     use crate::readwrite::ArunaReadWriter;
+    use crate::transformers::compressor::ZstdEnc;
+    use crate::transformers::decompressor::ZstdDec;
+    use crate::transformers::decrypt::ChaCha20Dec;
+    use crate::transformers::encrypt::ChaCha20Enc;
+    use crate::transformers::filter::Filter;
+    use crate::transformers::footer::FooterGenerator;
     use tokio::fs::File;
     use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
