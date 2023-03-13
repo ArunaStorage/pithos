@@ -19,7 +19,7 @@ mod tests {
     #[tokio::test]
     async fn test_with_file() {
         let file = File::open("test.txt").await.unwrap();
-        let file2 = File::create("test.txt.out").await.unwrap();
+        let file2 = File::create("test.txt.out.1").await.unwrap();
 
         // Create a new ArunaReadWriter
         // Add transformer in reverse order -> from "last" to first
@@ -44,7 +44,15 @@ mod tests {
             .add_transformer(ZstdEnc::new(1, false))
             .process()
             .await
-            .unwrap()
+            .unwrap();
+
+        let mut file = File::open("test.txt").await.unwrap();
+        let mut file2 = File::open("test.txt.out.1").await.unwrap();
+        let mut buf1 = String::new();
+        let mut buf2 = String::new();
+        file.read_to_string(&mut buf1).await.unwrap();
+        file2.read_to_string(&mut buf2).await.unwrap();
+        assert_eq!(buf1, buf2)
     }
 
     #[tokio::test]
@@ -83,12 +91,12 @@ mod tests {
     #[tokio::test]
     async fn test_with_file_footer() {
         let file = File::open("test.txt").await.unwrap();
-        let file2 = File::create("test.txt.out").await.unwrap();
+        let file2 = File::create("test.txt.out.2").await.unwrap();
         ArunaReadWriter::new_with_writer(file, file2)
-            //.add_transformer(ZstdDec::new()) // Double compression because we can
-            // .add_transformer(
-            //     ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
-            // )
+            .add_transformer(ZstdDec::new()) // Double compression because we can
+            .add_transformer(
+                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
             .add_transformer(
                 ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
@@ -96,12 +104,36 @@ mod tests {
             .add_transformer(ZstdEnc::new(1, false))
             .process()
             .await
-            .unwrap()
+            .unwrap();
+
+        let mut file = File::open("test.txt").await.unwrap();
+        let mut file2 = File::open("test.txt.out.2").await.unwrap();
+        let mut buf1 = String::new();
+        let mut buf2 = String::new();
+        file.read_to_string(&mut buf1).await.unwrap();
+        file2.read_to_string(&mut buf2).await.unwrap();
+        assert_eq!(buf1, buf2)
     }
 
     #[tokio::test]
     async fn test_footer_parsing() {
-        let mut file2 = File::open("test.txt.out").await.unwrap();
+        let file = File::open("test.txt").await.unwrap();
+        let file2 = File::create("test.txt.out.3").await.unwrap();
+        ArunaReadWriter::new_with_writer(file, file2)
+            //.add_transformer(ZstdDec::new())
+            .add_transformer(
+                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(FooterGenerator::new(None, true))
+            .add_transformer(ZstdEnc::new(1, false))
+            .process()
+            .await
+            .unwrap();
+
+        let mut file2 = File::open("test.txt.out.3").await.unwrap();
 
         file2
             .seek(std::io::SeekFrom::End(-65536 * 2))
@@ -114,13 +146,37 @@ mod tests {
         let mut fp = FooterParser::new(buf);
 
         fp.parse().unwrap();
-        fp.debug();
+
+        let (a, b) = fp
+            .get_offsets_by_range(Range { from: 0, to: 1000 })
+            .unwrap();
+
+        assert!(a.to % (65536) == 0);
+
+        assert!(
+            a == Range {
+                from: 0,
+                to: 25 * 65536
+            }
+        );
+        assert!(b == Range { from: 0, to: 1000 })
     }
 
     #[tokio::test]
     async fn test_footer_parsing_encrypted() {
-        let mut file2 = File::open("test.txt.out").await.unwrap();
+        let file = File::open("test.txt").await.unwrap();
+        let file2 = File::create("test.txt.out.4").await.unwrap();
+        ArunaReadWriter::new_with_writer(file, file2)
+            .add_transformer(
+                ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(FooterGenerator::new(None, true))
+            .add_transformer(ZstdEnc::new(1, false))
+            .process()
+            .await
+            .unwrap();
 
+        let mut file2 = File::open("test.txt.out.4").await.unwrap();
         file2
             .seek(std::io::SeekFrom::End((-65536 - 28) * 2))
             .await
@@ -132,17 +188,17 @@ mod tests {
         let mut fp =
             FooterParser::from_encrypted(buf, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea").unwrap();
         fp.parse().unwrap();
-        fp.debug();
 
         let (a, b) = fp
             .get_offsets_by_range(Range { from: 0, to: 1000 })
             .unwrap();
 
-        dbg!(a, b);
+        assert!(a.to % (65536 + 28) == 0);
+
         assert!(
             a == Range {
                 from: 0,
-                to: 3 * (65536 + 28)
+                to: 25 * (65536 + 28)
             }
         );
         assert!(b == Range { from: 0, to: 1000 })
