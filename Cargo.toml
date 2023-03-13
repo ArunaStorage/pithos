@@ -1,7 +1,9 @@
 [package]
+authors = ["Sebastian <sb@pus.de>"]
 name = "aruna-file"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
 description = "The central aruna component for encrypting and compression of .aruna file"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
