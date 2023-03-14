@@ -1,5 +1,6 @@
 pub mod helpers;
 pub mod readwrite;
+pub mod streamreadwrite;
 pub mod transformer;
 pub mod transformers;
 
