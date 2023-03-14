@@ -1,3 +1,4 @@
+pub mod async_sender_sink;
 pub mod compressor;
 pub mod decompressor;
 pub mod decrypt;
