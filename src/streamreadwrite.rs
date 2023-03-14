@@ -1,9 +1,11 @@
 use crate::transformer::AddTransformer;
 use crate::transformer::{Sink, Transformer};
+use crate::transformers::writer_sink::WriterSink;
 use anyhow::anyhow;
 use anyhow::Result;
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
+use tokio::io::{AsyncWrite, BufWriter};
 
 pub struct ArunaStreamReadWriter<
     'a,
@@ -25,6 +27,16 @@ impl<
         ArunaStreamReadWriter {
             input_stream,
             sink: Box::new(transformer),
+        }
+    }
+
+    pub fn new_with_writer<W: AsyncWrite + Unpin + Send + 'a>(
+        input_stream: R,
+        writer: W,
+    ) -> ArunaStreamReadWriter<'a, R> {
+        ArunaStreamReadWriter {
+            input_stream,
+            sink: Box::new(WriterSink::new(BufWriter::new(writer))),
         }
     }
 
