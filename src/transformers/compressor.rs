@@ -108,6 +108,10 @@ impl Transformer for ZstdEnc<'_> {
     }
     async fn notify(&mut self, notes: &mut Vec<Notifications>) -> Result<()> {
         if let Some(next) = &mut self.next {
+            notes.push(Notifications::Response(Data {
+                recipient: format!("COMPRESSOR_CHUNKS_{}", self._comp_num),
+                info: Some(self.chunks.clone()),
+            }));
             next.notify(notes).await?
         }
         Ok(())

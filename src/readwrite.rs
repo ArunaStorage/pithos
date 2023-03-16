@@ -1,4 +1,4 @@
-use crate::transformer::{Sink, Transformer};
+use crate::transformer::{Notifications, Sink, Transformer};
 use crate::{transformer::AddTransformer, transformers::writer_sink::WriterSink};
 use anyhow::Result;
 use bytes::BytesMut;
@@ -62,5 +62,10 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
             }
         }
         Ok(())
+    }
+    pub async fn query_notifications(&mut self) -> Result<Vec<Notifications>> {
+        let mut notes = Vec::new();
+        self.sink.notify(&mut notes).await?;
+        Ok(notes)
     }
 }

@@ -1,4 +1,4 @@
-use crate::transformer::AddTransformer;
+use crate::transformer::{AddTransformer, Notifications};
 use crate::transformer::{Sink, Transformer};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::anyhow;
@@ -71,5 +71,11 @@ impl<
             }
         }
         Ok(())
+    }
+
+    pub async fn query_notifications(&mut self) -> Result<Vec<Notifications>> {
+        let mut notes = Vec::new();
+        self.sink.notify(&mut notes).await?;
+        Ok(notes)
     }
 }
