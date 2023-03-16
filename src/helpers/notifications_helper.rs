@@ -1,4 +1,6 @@
 use crate::transformer::Notifications;
+use anyhow::anyhow;
+use anyhow::Result;
 
 pub fn parse_compressor_chunks(notes: Vec<Notifications>) -> Result<Vec<u8>> {
     // TODO: filter for the right order
