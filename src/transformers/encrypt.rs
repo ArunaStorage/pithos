@@ -67,7 +67,7 @@ impl Transformer for ChaCha20Enc<'_> {
                         if self.add_padding {
                             self.finished = true;
                             encrypt_chunk(
-                                &self.internal_buf.split_to(ENCRYPTION_BLOCK_SIZE),
+                                &self.internal_buf.split(),
                                 Some(
                                     vec![
                                         0;
