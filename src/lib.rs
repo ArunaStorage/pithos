@@ -270,10 +270,10 @@ mod tests {
                 ChaCha20Dec::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
             .add_transformer(
-                ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Enc::new(true, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
             .add_transformer(
-                ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Enc::new(true, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             ) // Tripple compression because we can
             .add_transformer(ZstdEnc::new(2, false)) // Double compression because we can
             .add_transformer(ZstdEnc::new(1, false))

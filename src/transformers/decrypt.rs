@@ -25,11 +25,12 @@ pub struct ChaCha20Dec<'a> {
 impl<'a> ChaCha20Dec<'a> {
     #[allow(dead_code)]
     pub fn new(dec_key: Vec<u8>) -> Result<ChaCha20Dec<'a>> {
-        sodiumoxide::init().map_err(|_| anyhow!("sodiuminit failed"))?;
+        sodiumoxide::init().map_err(|_| anyhow!("[AF_DECRYPT] sodiuminit failed"))?;
         Ok(ChaCha20Dec {
             internal_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
             finished: false,
-            encryption_key: Key::from_slice(&dec_key).ok_or(anyhow!("Unable to parse Key"))?,
+            encryption_key: Key::from_slice(&dec_key)
+                .ok_or(anyhow!("[AF_DECRYPT] Unable to parse Key"))?,
             next: None,
         })
     }
@@ -74,7 +75,7 @@ impl Transformer for ChaCha20Dec<'_> {
                 .await
         } else {
             Err(anyhow!(
-                "This decrypter is designed to always contain a 'next'"
+                "[AF_DECRYPT] This decrypter is designed to always contain a 'next'"
             ))
         }
     }
@@ -88,11 +89,38 @@ impl Transformer for ChaCha20Dec<'_> {
 
 pub fn decrypt_chunk(chunk: &[u8], decryption_key: &Key) -> Result<Bytes> {
     let (nonce_slice, data) = chunk.split_at(12);
-    let nonce = Nonce::from_slice(nonce_slice).ok_or(anyhow!("unable to read nonce"))?;
+    let nonce =
+        Nonce::from_slice(nonce_slice).ok_or(anyhow!("[AF_DECRYPT] unable to read nonce"))?;
 
-    Ok(
-        chacha20poly1305_ietf::open(data, None, &nonce, decryption_key)
-            .map_err(|_| anyhow!("unable to decrypt part"))?
-            .into(),
+    let (data, padding) = if chunk.ends_with(&[0u8]) {
+        let padding = chunk
+            .iter()
+            .rev()
+            .fold((BytesMut::new(), false), |mut acc, elem| {
+                if *elem == 0u8 && !acc.1 {
+                    acc.0.put_u8(*elem);
+                    (acc.0, false)
+                } else {
+                    (acc.0, true)
+                }
+            })
+            .0
+            .freeze();
+
+        (
+            data.split_at(CIPHER_SEGMENT_SIZE - padding.len() - 12).0,
+            Some(padding),
+        )
+    } else {
+        (data, None)
+    };
+
+    Ok(chacha20poly1305_ietf::open(
+        data,
+        padding.as_ref().map(|e| e.as_ref()),
+        &nonce,
+        decryption_key,
     )
+    .map_err(|_| anyhow!("[AF_DECRYPT] unable to decrypt part"))?
+    .into())
 }

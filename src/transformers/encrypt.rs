@@ -66,18 +66,21 @@ impl Transformer for ChaCha20Enc<'_> {
                     } else {
                         if self.add_padding {
                             self.finished = true;
-                            encrypt_chunk(
+                            let padding = vec![
+                                0u8;
+                                ENCRYPTION_BLOCK_SIZE
+                                    - (self.internal_buf.len()
+                                        % ENCRYPTION_BLOCK_SIZE)
+                            ];
+                            let mut bytesmut = BytesMut::with_capacity(ENCRYPTION_BLOCK_SIZE);
+
+                            bytesmut.put(encrypt_chunk(
                                 &self.internal_buf.split(),
-                                Some(
-                                    vec![
-                                        0;
-                                        ENCRYPTION_BLOCK_SIZE
-                                            - (self.internal_buf.len() % ENCRYPTION_BLOCK_SIZE)
-                                    ]
-                                    .as_ref(),
-                                ),
+                                Some(&padding),
                                 &self.encryption_key,
-                            )?
+                            )?);
+                            bytesmut.put(padding.as_ref());
+                            bytesmut.freeze()
                         } else {
                             self.finished = true;
                             encrypt_chunk(&self.internal_buf.split(), None, &self.encryption_key)?
@@ -87,6 +90,7 @@ impl Transformer for ChaCha20Enc<'_> {
                     Bytes::new()
                 }
             };
+
             // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
             next.process_bytes(&mut bytes, self.finished && self.internal_buf.len() == 0)
                 .await
