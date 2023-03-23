@@ -23,6 +23,7 @@ dependencies = [
  "hex",
  "hyper",
  "libsodium-sys",
+ "log",
  "sodiumoxide",
  "tokio",
 ]

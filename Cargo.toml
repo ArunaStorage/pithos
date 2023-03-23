@@ -22,3 +22,4 @@ hyper = {version = "0.14.25", features = ["full"]}
 futures = "0.3.27"
 async-channel = "1.8.0"
 async-stream = "0.3.4"
+log = "0.4.17"

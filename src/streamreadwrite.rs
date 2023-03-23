@@ -69,6 +69,8 @@ impl<
                     break;
                 }
             }
+
+            log::debug!("StreamReadWriter: Processed {}", bytes_read);
         }
         Ok(())
     }
