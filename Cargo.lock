@@ -10,7 +10,7 @@ checksum = "224afbd727c3d6e4b90103ece64b8d1b67fbb1973b1046c2281eed3f3803f800"
 
 [[package]]
 name = "aruna-file"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "anyhow",
  "async-channel",
