@@ -113,6 +113,18 @@ pub fn encrypt_chunk(chunk: &[u8], padding: Option<&[u8]>, enc: &Key) -> Result<
         .ok_or(anyhow!("Unable to create nonce"))?;
     let mut bytes = BytesMut::new();
     bytes.put(nonce.0.as_ref());
-    bytes.put(chacha20poly1305_ietf::seal(chunk, padding, &nonce, &enc).as_ref());
+
+    let mut sealed_result = chacha20poly1305_ietf::seal(chunk, padding, &nonce, &enc);
+
+    bytes.put(sealed_result.as_ref());
+
+    while sealed_result.last().ok_or_else(|| anyhow!("Wrong data"))? == &0u8 {
+        bytes.clear();
+        let nonce = Nonce::from_slice(&sodiumoxide::randombytes::randombytes(12))
+            .ok_or(anyhow!("Unable to create nonce"))?;
+        bytes.put(nonce.0.as_ref());
+        sealed_result = chacha20poly1305_ietf::seal(chunk, padding, &nonce, &enc);
+        bytes.put(sealed_result.as_ref());
+    }
     Ok(bytes.freeze())
 }
