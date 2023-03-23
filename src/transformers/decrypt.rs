@@ -16,7 +16,8 @@ const CIPHER_DIFF: usize = 28;
 const CIPHER_SEGMENT_SIZE: usize = ENCRYPTION_BLOCK_SIZE + CIPHER_DIFF;
 
 pub struct ChaCha20Dec<'a> {
-    internal_buf: BytesMut,
+    input_buffer: BytesMut,
+    output_buffer: BytesMut,
     encryption_key: Key,
     finished: bool,
     next: Option<Box<dyn Transformer + Send + 'a>>,
@@ -27,7 +28,8 @@ impl<'a> ChaCha20Dec<'a> {
     pub fn new(dec_key: Vec<u8>) -> Result<ChaCha20Dec<'a>> {
         sodiumoxide::init().map_err(|_| anyhow!("[AF_DECRYPT] sodiuminit failed"))?;
         Ok(ChaCha20Dec {
-            internal_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
+            input_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
+            output_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
             finished: false,
             encryption_key: Key::from_slice(&dec_key)
                 .ok_or(anyhow!("[AF_DECRYPT] Unable to parse Key"))?,
@@ -48,31 +50,35 @@ impl Transformer for ChaCha20Dec<'_> {
         // Only write if the buffer contains data and the current process is not finished
 
         if buf.len() != 0 {
-            self.internal_buf.put_slice(buf);
+            self.input_buffer.put_slice(buf);
         }
 
         // Try to write the buf to the "next" in the chain, even if the buf is empty
         if let Some(next) = &mut self.next {
-            let mut bytes = if self.internal_buf.len() / CIPHER_SEGMENT_SIZE > 0 {
-                decrypt_chunk(
-                    &self.internal_buf.split_to(CIPHER_SEGMENT_SIZE),
-                    &self.encryption_key,
-                )?
+            if self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
+                while self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
+                    self.output_buffer.put_slice(&decrypt_chunk(
+                        &self.input_buffer.split_to(CIPHER_SEGMENT_SIZE),
+                        &self.encryption_key,
+                    )?)
+                }
             } else {
                 if finished && !self.finished {
                     self.finished = true;
-                    if self.internal_buf.len() != 0 {
-                        decrypt_chunk(&self.internal_buf.split(), &self.encryption_key)?
-                    } else {
-                        Bytes::new()
+                    if self.input_buffer.len() != 0 {
+                        self.output_buffer.put_slice(&decrypt_chunk(
+                            &self.input_buffer.split(),
+                            &self.encryption_key,
+                        )?);
                     }
-                } else {
-                    Bytes::new()
                 }
             };
             // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
-            next.process_bytes(&mut bytes, self.finished && self.internal_buf.len() == 0)
-                .await
+            next.process_bytes(
+                &mut self.output_buffer.split().freeze(),
+                self.finished && self.input_buffer.len() == 0,
+            )
+            .await
         } else {
             Err(anyhow!(
                 "[AF_DECRYPT] This decrypter is designed to always contain a 'next'"
