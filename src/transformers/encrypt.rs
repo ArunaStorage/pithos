@@ -14,7 +14,8 @@ use crate::transformer::Transformer;
 const ENCRYPTION_BLOCK_SIZE: usize = 65_536;
 
 pub struct ChaCha20Enc<'a> {
-    internal_buf: BytesMut,
+    input_buf: BytesMut,
+    output_buf: BytesMut,
     add_padding: bool,
     encryption_key: Key,
     finished: bool,
@@ -26,7 +27,8 @@ impl<'a> ChaCha20Enc<'a> {
     pub fn new(add_padding: bool, enc_key: Vec<u8>) -> Result<ChaCha20Enc<'a>> {
         sodiumoxide::init().map_err(|_| anyhow!("sodiuminit failed"))?;
         Ok(ChaCha20Enc {
-            internal_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
+            input_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
+            output_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
             add_padding,
             finished: false,
             encryption_key: Key::from_slice(&enc_key).ok_or(anyhow!("Unable to parse Key"))?,
@@ -47,53 +49,56 @@ impl Transformer for ChaCha20Enc<'_> {
         // Only write if the buffer contains data and the current process is not finished
 
         if buf.len() != 0 {
-            self.internal_buf.put_slice(buf);
+            self.input_buf.put_slice(buf);
         }
 
         // Try to write the buf to the "next" in the chain, even if the buf is empty
         if let Some(next) = &mut self.next {
-            let mut bytes = if self.internal_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
-                encrypt_chunk(
-                    &self.internal_buf.split_to(ENCRYPTION_BLOCK_SIZE),
-                    None,
-                    &self.encryption_key,
-                )?
+            if self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
+                while self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
+                    self.output_buf.put_slice(&encrypt_chunk(
+                        &self.input_buf.split_to(ENCRYPTION_BLOCK_SIZE),
+                        None,
+                        &self.encryption_key,
+                    )?)
+                }
             } else {
                 if finished && !self.finished {
-                    if self.internal_buf.len() == 0 {
+                    if self.input_buf.len() == 0 {
                         self.finished = true;
-                        Bytes::new()
                     } else {
                         if self.add_padding {
                             self.finished = true;
                             let padding = vec![
                                 0u8;
                                 ENCRYPTION_BLOCK_SIZE
-                                    - (self.internal_buf.len()
-                                        % ENCRYPTION_BLOCK_SIZE)
+                                    - (self.input_buf.len() % ENCRYPTION_BLOCK_SIZE)
                             ];
-                            let mut bytesmut = BytesMut::with_capacity(ENCRYPTION_BLOCK_SIZE);
 
-                            bytesmut.put_slice(&encrypt_chunk(
-                                &self.internal_buf.split(),
+                            self.output_buf.put_slice(&encrypt_chunk(
+                                &self.input_buf.split(),
                                 Some(&padding),
                                 &self.encryption_key,
                             )?);
-                            bytesmut.put_slice(padding.as_ref());
-                            bytesmut.freeze()
+                            self.output_buf.put_slice(padding.as_ref());
                         } else {
                             self.finished = true;
-                            encrypt_chunk(&self.internal_buf.split(), None, &self.encryption_key)?
+                            self.output_buf.put_slice(&encrypt_chunk(
+                                &self.input_buf.split(),
+                                None,
+                                &self.encryption_key,
+                            )?)
                         }
                     }
-                } else {
-                    Bytes::new()
                 }
             };
 
             // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
-            next.process_bytes(&mut bytes, self.finished && self.internal_buf.len() == 0)
-                .await
+            next.process_bytes(
+                &mut self.output_buf.split().freeze(),
+                self.finished && self.input_buf.len() == 0,
+            )
+            .await
         } else {
             Err(anyhow!(
                 "This compressor is designed to always contain a 'next'"
