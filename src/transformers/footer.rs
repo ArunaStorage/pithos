@@ -77,8 +77,9 @@ impl Transformer for FooterGenerator<'_> {
                 if let Notifications::Message(mes) = note {
                     if mes.recipient == "FOOTER" {
                         self.notifications = Some(true);
-                        self.external_info
-                            .put(mes.info.clone().ok_or(anyhow!("Expected info"))?.as_slice());
+                        self.external_info.put_slice(
+                            mes.info.clone().ok_or(anyhow!("Expected info"))?.as_slice(),
+                        );
                     };
                 };
             }
@@ -137,7 +138,7 @@ fn create_skippable_footer_frame(mut footer_list: Vec<u8>) -> Result<Bytes> {
         }
         assert!(frame.len() == 65_536);
         // Repeat the header
-        frame.put(hex::decode(format!("5{frames}2A4D18"))?.as_slice());
+        frame.put_slice(hex::decode(format!("5{frames}2A4D18"))?.as_slice());
         // Magic frame "size"
         WriteBytesExt::write_u32::<LittleEndian>(&mut frame, 65_536 - 8)?;
         // Repeat footerlist count

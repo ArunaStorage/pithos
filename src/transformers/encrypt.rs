@@ -47,7 +47,7 @@ impl Transformer for ChaCha20Enc<'_> {
         // Only write if the buffer contains data and the current process is not finished
 
         if buf.len() != 0 {
-            self.internal_buf.put(buf);
+            self.internal_buf.put_slice(buf);
         }
 
         // Try to write the buf to the "next" in the chain, even if the buf is empty
@@ -74,12 +74,12 @@ impl Transformer for ChaCha20Enc<'_> {
                             ];
                             let mut bytesmut = BytesMut::with_capacity(ENCRYPTION_BLOCK_SIZE);
 
-                            bytesmut.put(encrypt_chunk(
+                            bytesmut.put_slice(&encrypt_chunk(
                                 &self.internal_buf.split(),
                                 Some(&padding),
                                 &self.encryption_key,
                             )?);
-                            bytesmut.put(padding.as_ref());
+                            bytesmut.put_slice(padding.as_ref());
                             bytesmut.freeze()
                         } else {
                             self.finished = true;
@@ -112,19 +112,19 @@ pub fn encrypt_chunk(chunk: &[u8], padding: Option<&[u8]>, enc: &Key) -> Result<
     let nonce = Nonce::from_slice(&sodiumoxide::randombytes::randombytes(12))
         .ok_or(anyhow!("Unable to create nonce"))?;
     let mut bytes = BytesMut::new();
-    bytes.put(nonce.0.as_ref());
+    bytes.put_slice(nonce.0.as_ref());
 
     let mut sealed_result = chacha20poly1305_ietf::seal(chunk, padding, &nonce, &enc);
 
-    bytes.put(sealed_result.as_ref());
+    bytes.put_slice(sealed_result.as_ref());
 
     while sealed_result.last().ok_or_else(|| anyhow!("Wrong data"))? == &0u8 {
         bytes.clear();
         let nonce = Nonce::from_slice(&sodiumoxide::randombytes::randombytes(12))
             .ok_or(anyhow!("Unable to create nonce"))?;
-        bytes.put(nonce.0.as_ref());
+        bytes.put_slice(nonce.0.as_ref());
         sealed_result = chacha20poly1305_ietf::seal(chunk, padding, &nonce, &enc);
-        bytes.put(sealed_result.as_ref());
+        bytes.put_slice(sealed_result.as_ref());
     }
     Ok(bytes.freeze())
 }

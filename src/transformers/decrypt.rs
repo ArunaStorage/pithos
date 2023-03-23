@@ -48,7 +48,7 @@ impl Transformer for ChaCha20Dec<'_> {
         // Only write if the buffer contains data and the current process is not finished
 
         if buf.len() != 0 {
-            self.internal_buf.put(buf);
+            self.internal_buf.put_slice(buf);
         }
 
         // Try to write the buf to the "next" in the chain, even if the buf is empty

@@ -47,7 +47,8 @@ impl Transformer for ZstdDec<'_> {
             self.size_counter += self.internal_buf.write_buf(buf).await?;
             if buf.len() != 0 {
                 self.internal_buf.shutdown().await?;
-                self.prev_buf.put(self.internal_buf.get_ref().as_slice());
+                self.prev_buf
+                    .put_slice(self.internal_buf.get_ref().as_slice());
                 self.internal_buf = ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
                 self.size_counter += self.internal_buf.write_buf(buf).await?;
             }
@@ -55,7 +56,8 @@ impl Transformer for ZstdDec<'_> {
 
         if !self.finished && buf.len() == 0 && finished {
             self.internal_buf.shutdown().await?;
-            self.prev_buf.put(self.internal_buf.get_ref().as_slice());
+            self.prev_buf
+                .put_slice(self.internal_buf.get_ref().as_slice());
             self.finished = true;
         }
 
