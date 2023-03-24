@@ -50,14 +50,14 @@ impl Transformer for ChaCha20Dec<'_> {
         // Only write if the buffer contains data and the current process is not finished
 
         if buf.len() != 0 {
-            self.input_buffer.put_slice(buf);
+            self.input_buffer.put(buf);
         }
 
         // Try to write the buf to the "next" in the chain, even if the buf is empty
         if let Some(next) = &mut self.next {
             if self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
                 while self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
-                    self.output_buffer.put_slice(&decrypt_chunk(
+                    self.output_buffer.put(decrypt_chunk(
                         &self.input_buffer.split_to(CIPHER_SEGMENT_SIZE),
                         &self.encryption_key,
                     )?)
@@ -66,7 +66,7 @@ impl Transformer for ChaCha20Dec<'_> {
                 if finished && !self.finished {
                     self.finished = true;
                     if self.input_buffer.len() != 0 {
-                        self.output_buffer.put_slice(&decrypt_chunk(
+                        self.output_buffer.put(decrypt_chunk(
                             &self.input_buffer.split(),
                             &self.encryption_key,
                         )?);

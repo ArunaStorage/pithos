@@ -49,14 +49,14 @@ impl Transformer for ChaCha20Enc<'_> {
         // Only write if the buffer contains data and the current process is not finished
 
         if buf.len() != 0 {
-            self.input_buf.put_slice(buf);
+            self.input_buf.put(buf);
         }
 
         // Try to write the buf to the "next" in the chain, even if the buf is empty
         if let Some(next) = &mut self.next {
             if self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
                 while self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
-                    self.output_buf.put_slice(&encrypt_chunk(
+                    self.output_buf.put(encrypt_chunk(
                         &self.input_buf.split_to(ENCRYPTION_BLOCK_SIZE),
                         None,
                         &self.encryption_key,
@@ -75,15 +75,15 @@ impl Transformer for ChaCha20Enc<'_> {
                                     - (self.input_buf.len() % ENCRYPTION_BLOCK_SIZE)
                             ];
 
-                            self.output_buf.put_slice(&encrypt_chunk(
+                            self.output_buf.put(encrypt_chunk(
                                 &self.input_buf.split(),
                                 Some(&padding),
                                 &self.encryption_key,
                             )?);
-                            self.output_buf.put_slice(padding.as_ref());
+                            self.output_buf.put(padding.as_ref());
                         } else {
                             self.finished = true;
-                            self.output_buf.put_slice(&encrypt_chunk(
+                            self.output_buf.put(encrypt_chunk(
                                 &self.input_buf.split(),
                                 None,
                                 &self.encryption_key,
@@ -117,19 +117,19 @@ pub fn encrypt_chunk(chunk: &[u8], padding: Option<&[u8]>, enc: &Key) -> Result<
     let nonce = Nonce::from_slice(&sodiumoxide::randombytes::randombytes(12))
         .ok_or(anyhow!("Unable to create nonce"))?;
     let mut bytes = BytesMut::new();
-    bytes.put_slice(nonce.0.as_ref());
+    bytes.put(nonce.0.as_ref());
 
     let mut sealed_result = chacha20poly1305_ietf::seal(chunk, padding, &nonce, &enc);
 
-    bytes.put_slice(sealed_result.as_ref());
+    bytes.put(sealed_result.as_ref());
 
     while sealed_result.last().ok_or_else(|| anyhow!("Wrong data"))? == &0u8 {
         bytes.clear();
         let nonce = Nonce::from_slice(&sodiumoxide::randombytes::randombytes(12))
             .ok_or(anyhow!("Unable to create nonce"))?;
-        bytes.put_slice(nonce.0.as_ref());
+        bytes.put(nonce.0.as_ref());
         sealed_result = chacha20poly1305_ietf::seal(chunk, padding, &nonce, &enc);
-        bytes.put_slice(sealed_result.as_ref());
+        bytes.put(sealed_result.as_ref());
     }
     Ok(bytes.freeze())
 }
