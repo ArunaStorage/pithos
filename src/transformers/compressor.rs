@@ -53,11 +53,7 @@ impl Transformer for ZstdEnc<'_> {
         // Create a new frame if buf would increase size_counter to more than RAW_FRAME_SIZE
         while self.size_counter + buf.len() > RAW_FRAME_SIZE {
             // Check how much bytes are missing
-            let dif = if self.size_counter + buf.len() - RAW_FRAME_SIZE > RAW_FRAME_SIZE {
-                RAW_FRAME_SIZE
-            } else {
-                self.size_counter + buf.len() - RAW_FRAME_SIZE
-            };
+            let dif = RAW_FRAME_SIZE - self.size_counter;
             // Make sure that dif is <= RAW_FRAME_SIZE
             assert!(dif <= RAW_FRAME_SIZE);
             self.internal_buf.write_buf(&mut buf.split_to(dif)).await?;

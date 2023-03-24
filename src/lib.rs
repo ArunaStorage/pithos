@@ -55,7 +55,7 @@ mod tests {
         let mut buf2 = String::new();
         file.read_to_string(&mut buf1).await.unwrap();
         file2.read_to_string(&mut buf2).await.unwrap();
-        assert_eq!(buf1, buf2)
+        assert!(buf1 == buf2)
     }
 
     #[tokio::test]
@@ -88,7 +88,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(file, file2)
+        assert!(file == file2)
     }
 
     #[tokio::test]
@@ -115,7 +115,7 @@ mod tests {
         let mut buf2 = String::new();
         file.read_to_string(&mut buf1).await.unwrap();
         file2.read_to_string(&mut buf2).await.unwrap();
-        assert_eq!(buf1, buf2)
+        assert!(buf1 == buf2)
     }
 
     #[tokio::test]

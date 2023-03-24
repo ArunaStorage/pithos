@@ -27,7 +27,9 @@ impl<'a, W: AsyncWrite + Unpin + Send> AddTransformer<'a> for WriterSink<W> {
 impl<W: AsyncWrite + Unpin + Send> Transformer for WriterSink<W> {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
         if buf.len() != 0 {
-            self.writer.write_buf(buf).await?;
+            while buf.len() != 0 {
+                self.writer.write_buf(buf).await?;
+            }
         } else if finished {
             self.writer.flush().await?;
             self.writer.shutdown().await?;
