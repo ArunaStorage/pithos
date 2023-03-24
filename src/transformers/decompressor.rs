@@ -61,14 +61,12 @@ impl Transformer for ZstdDec<'_> {
 
         // Try to write the buf to the "next" in the chain, even if the buf is empty
         if let Some(next) = &mut self.next {
-            let mut bytes = if self.prev_buf.len() / CHUNK > 0 {
-                self.prev_buf.split_to(CHUNK).freeze()
-            } else {
-                self.prev_buf.split().freeze()
-            };
             // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
-            next.process_bytes(&mut bytes, self.finished && self.prev_buf.len() == 0)
-                .await
+            next.process_bytes(
+                &mut self.prev_buf.split().freeze(),
+                self.finished && self.prev_buf.len() == 0,
+            )
+            .await
         } else {
             Err(anyhow!(
                 "This compressor is designed to always contain a 'next'"
