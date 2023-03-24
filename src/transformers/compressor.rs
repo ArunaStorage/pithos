@@ -51,10 +51,15 @@ impl<'a> AddTransformer<'a> for ZstdEnc<'a> {
 impl Transformer for ZstdEnc<'_> {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
         // Create a new frame if buf would increase size_counter to more than RAW_FRAME_SIZE
-        if self.size_counter + buf.len() > RAW_FRAME_SIZE {
+        while self.size_counter + buf.len() > RAW_FRAME_SIZE {
             // Check how much bytes are missing
-            let dif = self.size_counter - RAW_FRAME_SIZE;
-            // Write the "missing" bytes until RAW_FRAME_SIZE is reached to the "old" buffer
+            let dif = if self.size_counter + buf.len() - RAW_FRAME_SIZE > RAW_FRAME_SIZE {
+                RAW_FRAME_SIZE
+            } else {
+                self.size_counter + buf.len() - RAW_FRAME_SIZE
+            };
+            // Make sure that dif is <= RAW_FRAME_SIZE
+            assert!(dif <= RAW_FRAME_SIZE);
             self.internal_buf.write_buf(&mut buf.split_to(dif)).await?;
             // Shut the writer down -> Calls flush()
             self.internal_buf.shutdown().await?;
@@ -68,6 +73,20 @@ impl Transformer for ZstdEnc<'_> {
             self.size_counter = 0;
             // Add the number of chunks to the chunksvec (for indexing)
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
+
+            // Try to write the buf to the "next" in the chain, even if the buf is empty
+            if let Some(next) = &mut self.next {
+                // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
+                next.process_bytes(
+                    &mut self.prev_buf.split().freeze(),
+                    self.finished && self.prev_buf.len() == 0,
+                )
+                .await?;
+            } else {
+                return Err(anyhow!(
+                    "This compressor is designed to always contain a 'next'"
+                ));
+            }
         }
 
         // Only write if the buffer contains data and the current process is not finished
@@ -88,18 +107,30 @@ impl Transformer for ZstdEnc<'_> {
                 info: Some(self.chunks.clone()),
             })])
             .await?;
+
+            // Try to write the buf to the "next" in the chain, even if the buf is empty
+            if let Some(next) = &mut self.next {
+                // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
+                next.process_bytes(
+                    &mut self.prev_buf.split().freeze(),
+                    self.finished && self.prev_buf.len() == 0,
+                )
+                .await?;
+            } else {
+                return Err(anyhow!(
+                    "This compressor is designed to always contain a 'next'"
+                ));
+            }
         }
 
         // Try to write the buf to the "next" in the chain, even if the buf is empty
         if let Some(next) = &mut self.next {
-            let mut bytes = if self.prev_buf.len() / CHUNK > 0 {
-                self.prev_buf.split_to(CHUNK).freeze()
-            } else {
-                self.prev_buf.split().freeze()
-            };
             // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
-            next.process_bytes(&mut bytes, self.finished && self.prev_buf.len() == 0)
-                .await
+            next.process_bytes(
+                &mut self.prev_buf.split().freeze(),
+                self.finished && self.prev_buf.len() == 0,
+            )
+            .await
         } else {
             Err(anyhow!(
                 "This compressor is designed to always contain a 'next'"
