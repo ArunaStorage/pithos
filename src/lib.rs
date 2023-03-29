@@ -7,6 +7,7 @@ pub mod transformers;
 #[cfg(test)]
 mod tests {
     use crate::helpers::footer_parser::{FooterParser, Range};
+    use crate::helpers::notifications_helper::parse_size_from_notifications;
     use crate::readwrite::ArunaReadWriter;
     use crate::streamreadwrite::ArunaStreamReadWriter;
     use crate::transformers::compressor::ZstdEnc;
@@ -15,9 +16,10 @@ mod tests {
     use crate::transformers::encrypt::ChaCha20Enc;
     use crate::transformers::filter::Filter;
     use crate::transformers::footer::FooterGenerator;
+    use crate::transformers::size_probe::SizeProbe;
     use bytes::Bytes;
     use tokio::fs::File;
-    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    use tokio::io::{self, AsyncReadExt, AsyncSeekExt};
 
     #[tokio::test]
     async fn test_with_file() {
@@ -283,5 +285,35 @@ mod tests {
 
         println!("{}", format!("{:?}", file2));
         assert_eq!(file2, b"Thi".to_vec());
+    }
+
+    #[tokio::test]
+    async fn size_tester() {
+        let file = File::open("test.txt").await.unwrap();
+        let file2 = io::sink();
+        let mut arw = ArunaReadWriter::new_with_writer(file, file2)
+            .add_transformer(SizeProbe::new(2))
+            .add_transformer(ZstdEnc::new(0, false))
+            .add_transformer(SizeProbe::new(1));
+
+        arw.process().await.unwrap();
+
+        let notes = arw.query_notifications().await.unwrap();
+
+        let size_1 = parse_size_from_notifications(notes.clone(), 1).unwrap();
+        let size_2 = parse_size_from_notifications(notes, 2).unwrap();
+
+        assert!(
+            size_1
+                == File::open("test.txt")
+                    .await
+                    .unwrap()
+                    .metadata()
+                    .await
+                    .unwrap()
+                    .len()
+        );
+
+        assert!(size_1 > size_2)
     }
 }

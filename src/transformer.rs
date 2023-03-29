@@ -1,10 +1,12 @@
 use anyhow::Result;
 
+#[derive(Clone)]
 pub struct Data {
     pub recipient: String,
     pub info: Option<Vec<u8>>,
 }
 
+#[derive(Clone)]
 pub enum Notifications {
     Message(Data),
     Response(Data),
