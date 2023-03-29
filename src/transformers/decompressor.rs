@@ -15,7 +15,6 @@ const CHUNK: usize = 65_536;
 pub struct ZstdDec<'a> {
     internal_buf: ZstdDecoder<Vec<u8>>,
     prev_buf: BytesMut,
-    size_counter: usize,
     finished: bool,
     next: Option<Box<dyn Transformer + Send + 'a>>,
 }
@@ -26,7 +25,6 @@ impl<'a> ZstdDec<'a> {
         ZstdDec {
             internal_buf: ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK)),
             prev_buf: BytesMut::with_capacity(RAW_FRAME_SIZE + CHUNK),
-            size_counter: 0,
             finished: false,
             next: None,
         }
@@ -44,12 +42,12 @@ impl Transformer for ZstdDec<'_> {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
         // Only write if the buffer contains data and the current process is not finished
         if buf.len() != 0 && !self.finished {
-            self.size_counter += self.internal_buf.write_buf(buf).await?;
-            if buf.len() != 0 {
+            self.internal_buf.write_buf(buf).await?;
+            while buf.len() != 0 {
                 self.internal_buf.shutdown().await?;
                 self.prev_buf.put(self.internal_buf.get_ref().as_slice());
                 self.internal_buf = ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
-                self.size_counter += self.internal_buf.write_buf(buf).await?;
+                self.internal_buf.write_buf(buf).await?;
             }
         }
 

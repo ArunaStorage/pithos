@@ -95,7 +95,9 @@ impl Transformer for ZstdEnc<'_> {
         if !self.finished && finished && buf.len() == 0 {
             self.internal_buf.shutdown().await?;
             self.prev_buf.extend_from_slice(self.internal_buf.get_ref());
-            self.add_skippable().await;
+            if !self.is_last {
+                self.add_skippable().await;
+            };
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
             self.finished = true;
             self.notify(&mut vec![Notifications::Message(Data {
@@ -147,17 +149,14 @@ impl Transformer for ZstdEnc<'_> {
 
 impl ZstdEnc<'_> {
     async fn add_skippable(&mut self) {
-        // Add the frame only when finished == true and is_last
-        if !self.is_last {
-            if CHUNK - (self.prev_buf.len() % CHUNK) > 8 {
-                self.prev_buf.extend(create_skippable_padding_frame(
-                    CHUNK - (self.prev_buf.len() % CHUNK),
-                ));
-            } else {
-                self.prev_buf.extend(create_skippable_padding_frame(
-                    (CHUNK - (self.prev_buf.len() % CHUNK)) + CHUNK,
-                ));
-            }
+        if CHUNK - (self.prev_buf.len() % CHUNK) > 8 {
+            self.prev_buf.extend(create_skippable_padding_frame(
+                CHUNK - (self.prev_buf.len() % CHUNK),
+            ));
+        } else {
+            self.prev_buf.extend(create_skippable_padding_frame(
+                (CHUNK - (self.prev_buf.len() % CHUNK)) + CHUNK,
+            ));
         }
     }
 }
