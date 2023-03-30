@@ -20,6 +20,7 @@ pub struct ChaCha20Dec<'a> {
     output_buffer: BytesMut,
     encryption_key: Key,
     finished: bool,
+    backoff_counter: usize,
     next: Option<Box<dyn Transformer + Send + 'a>>,
 }
 
@@ -31,6 +32,7 @@ impl<'a> ChaCha20Dec<'a> {
             input_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
             output_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
             finished: false,
+            backoff_counter: 0,
             encryption_key: Key::from_slice(&dec_key)
                 .ok_or(anyhow!("[AF_DECRYPT] Unable to parse Key"))?,
             next: None,
@@ -64,12 +66,31 @@ impl Transformer for ChaCha20Dec<'_> {
                 }
             } else {
                 if finished && !self.finished {
-                    self.finished = true;
-                    if self.input_buffer.len() != 0 {
-                        self.output_buffer.put(decrypt_chunk(
-                            &self.input_buffer.split(),
-                            &self.encryption_key,
-                        )?);
+                    if self.input_buffer.len() != 0 && self.input_buffer.len() < 28 {
+                        self.finished = true;
+                        if self.input_buffer.len() != 0 {
+                            self.output_buffer.put(decrypt_chunk(
+                                &self.input_buffer.split(),
+                                &self.encryption_key,
+                            )?);
+                        }
+                    } else {
+                        log::debug!(
+                            "[AF_DECRYPT] Buffer too small {}, starting backoff_counter: {}",
+                            self.input_buffer.len(),
+                            self.backoff_counter
+                        );
+
+                        self.backoff_counter += 1;
+
+                        if self.backoff_counter > 100 {
+                            self.input_buffer.clear();
+                            self.finished = true;
+                            log::debug!(
+                                "[AF_DECRYPT] Buffer too small {}, backoff reached, discarding rest",
+                                self.input_buffer.len()
+                            );
+                        }
                     }
                 }
             };
