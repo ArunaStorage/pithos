@@ -43,13 +43,10 @@ impl<'a> AddTransformer<'a> for FooterGenerator<'a> {
 impl Transformer for FooterGenerator<'_> {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
         if buf.is_empty() && !self.finished && finished {
-            match self.notifications {
-                Some(a) => {
-                    if !a {
-                        return Err(anyhow!("Missing notifications"));
-                    }
+            if let Some(a) = self.notifications {
+                if !a {
+                    return Err(anyhow!("Missing notifications"));
                 }
-                None => {}
             }
 
             if let Some(next) = &mut self.next {
@@ -77,8 +74,12 @@ impl Transformer for FooterGenerator<'_> {
                 if let Notifications::Message(mes) = note {
                     if mes.recipient == "FOOTER" {
                         self.notifications = Some(true);
-                        self.external_info
-                            .put(mes.info.clone().ok_or(anyhow!("Expected info"))?.as_slice());
+                        self.external_info.put(
+                            mes.info
+                                .clone()
+                                .ok_or_else(|| anyhow!("Expected info"))?
+                                .as_slice(),
+                        );
                     };
                 };
             }
@@ -109,10 +110,10 @@ fn create_skippable_footer_frame(mut footer_list: Vec<u8>) -> Result<Bytes> {
         //
         WriteBytesExt::write_u32::<LittleEndian>(&mut frame, 65_536 - 8)?;
         WriteBytesExt::write_u32::<LittleEndian>(&mut frame, total + frames)?;
-        match footer_list.last_mut() {
-            Some(e) => *e += 1,
-            None => (),
-        }
+
+        if let Some(e) = footer_list.last_mut() {
+            *e += 1
+        };
         for size in footer_list {
             WriteBytesExt::write_u8(&mut frame, size)?;
             assert!(size < 84)
@@ -126,10 +127,9 @@ fn create_skippable_footer_frame(mut footer_list: Vec<u8>) -> Result<Bytes> {
         // Footerlist count
         WriteBytesExt::write_u32::<LittleEndian>(&mut frame, total + frames)?;
 
-        match footer_list.last_mut() {
-            Some(e) => *e += 2,
-            None => (),
-        }
+        if let Some(e) = footer_list.last_mut() {
+            *e += 2
+        };
         // Blocklist
         for size in &footer_list[..(65_536 - 12)] {
             WriteBytesExt::write_u8(&mut frame, *size)?;

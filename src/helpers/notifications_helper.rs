@@ -10,7 +10,7 @@ pub fn parse_compressor_chunks(notes: Vec<Notifications>) -> Result<Vec<u8>> {
         match note {
             Notifications::Response(data) => {
                 if data.recipient.starts_with("COMPRESSOR_CHUNKS") {
-                    results.extend(data.info.ok_or(anyhow!("No chunks responded"))?)
+                    results.extend(data.info.ok_or_else(|| anyhow!("No chunks responded"))?)
                 }
             }
             _ => continue,
@@ -30,7 +30,7 @@ pub fn parse_size_from_notifications(notes: Vec<Notifications>, id: usize) -> Re
                 {
                     result = u64::from_le_bytes(
                         data.info
-                            .ok_or(anyhow!("No chunks responded"))?
+                            .ok_or_else(|| anyhow!("No chunks responded"))?
                             .as_slice()
                             .try_into()?,
                     );

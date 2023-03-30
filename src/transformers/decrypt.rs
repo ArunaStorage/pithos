@@ -34,7 +34,7 @@ impl<'a> ChaCha20Dec<'a> {
             finished: false,
             backoff_counter: 0,
             encryption_key: Key::from_slice(&dec_key)
-                .ok_or(anyhow!("[AF_DECRYPT] Unable to parse Key"))?,
+                .ok_or_else(|| anyhow!("[AF_DECRYPT] Unable to parse Key"))?,
             next: None,
         })
     }
@@ -118,8 +118,8 @@ impl Transformer for ChaCha20Dec<'_> {
 
 pub fn decrypt_chunk(chunk: &[u8], decryption_key: &Key) -> Result<Bytes> {
     let (nonce_slice, data) = chunk.split_at(12);
-    let nonce =
-        Nonce::from_slice(nonce_slice).ok_or(anyhow!("[AF_DECRYPT] unable to read nonce"))?;
+    let nonce = Nonce::from_slice(nonce_slice)
+        .ok_or_else(|| anyhow!("[AF_DECRYPT] unable to read nonce"))?;
 
     let (data, padding) = if chunk.ends_with(&[0u8]) {
         let padding = chunk

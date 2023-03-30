@@ -31,6 +31,12 @@ impl<'a> ZstdDec<'a> {
     }
 }
 
+impl<'a> Default for ZstdDec<'a> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a> AddTransformer<'a> for ZstdDec<'a> {
     fn add_transformer(&mut self, t: Box<dyn Transformer + Send + 'a>) {
         self.next = Some(t)

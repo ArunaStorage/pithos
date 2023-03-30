@@ -55,11 +55,8 @@ impl<
         let mut data = Bytes::new();
 
         loop {
-            match self.input_stream.next().await {
-                Some(b) => {
-                    data = b.map_err(|_| anyhow!("Received error in stream"))?;
-                }
-                None => (),
+            if let Some(b) = self.input_stream.next().await {
+                data = b.map_err(|_| anyhow!("Received error in stream"))?;
             };
             bytes_read = data.len();
             if bytes_read != 0 {

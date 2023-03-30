@@ -240,7 +240,7 @@ mod tests {
             .await
             .unwrap();
 
-        println!("{}", format!("{:?}", file2));
+        println!("{:?}", file2);
         assert_eq!(file2, b"Thi".to_vec());
     }
 
@@ -283,7 +283,7 @@ mod tests {
             .await
             .unwrap();
 
-        println!("{}", format!("{:?}", file2));
+        println!("{:?}", file2);
         assert_eq!(file2, b"Thi".to_vec());
     }
 

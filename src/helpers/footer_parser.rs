@@ -60,6 +60,7 @@ impl FooterParser {
                     }
                     a => self.blocklist.push(a),
                 }
+                x += 1;
             }
             x = 0;
 
@@ -167,7 +168,8 @@ impl FooterParser {
 }
 
 pub fn decrypt_chunks(chunk: &[u8; (65536 + 28) * 2], decryption_key: &[u8]) -> Result<Bytes> {
-    let key = Key::from_slice(decryption_key).ok_or(anyhow!("unable to parse decryption key"))?;
+    let key =
+        Key::from_slice(decryption_key).ok_or_else(|| anyhow!("unable to parse decryption key"))?;
 
     let first = &chunk[0..65536 + 28];
     let second = &chunk[65536 + 28..];
@@ -175,9 +177,9 @@ pub fn decrypt_chunks(chunk: &[u8; (65536 + 28) * 2], decryption_key: &[u8]) -> 
     let (first_nonce_slice, first_data) = first.split_at(12);
     let (second_nonce_slice, second_data) = second.split_at(12);
     let first_nonce =
-        Nonce::from_slice(first_nonce_slice).ok_or(anyhow!("unable to read nonce"))?;
+        Nonce::from_slice(first_nonce_slice).ok_or_else(|| anyhow!("unable to read nonce"))?;
     let second_nonce =
-        Nonce::from_slice(second_nonce_slice).ok_or(anyhow!("unable to read nonce"))?;
+        Nonce::from_slice(second_nonce_slice).ok_or_else(|| anyhow!("unable to read nonce"))?;
 
     let mut first_dec = chacha20poly1305_ietf::open(first_data, None, &first_nonce, &key)
         .map_err(|_| anyhow!("unable to decrypt part"))?;

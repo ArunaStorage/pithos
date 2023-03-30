@@ -31,7 +31,8 @@ impl<'a> ChaCha20Enc<'a> {
             output_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
             add_padding,
             finished: false,
-            encryption_key: Key::from_slice(&enc_key).ok_or(anyhow!("Unable to parse Key"))?,
+            encryption_key: Key::from_slice(&enc_key)
+                .ok_or_else(|| anyhow!("Unable to parse Key"))?,
             next: None,
         })
     }
@@ -111,7 +112,7 @@ impl Transformer for ChaCha20Enc<'_> {
 
 pub fn encrypt_chunk(chunk: &[u8], padding: Option<&[u8]>, enc: &Key) -> Result<Bytes> {
     let nonce = Nonce::from_slice(&sodiumoxide::randombytes::randombytes(12))
-        .ok_or(anyhow!("Unable to create nonce"))?;
+        .ok_or_else(|| anyhow!("Unable to create nonce"))?;
     let mut bytes = BytesMut::new();
     bytes.put(nonce.0.as_ref());
 
@@ -122,7 +123,7 @@ pub fn encrypt_chunk(chunk: &[u8], padding: Option<&[u8]>, enc: &Key) -> Result<
     while sealed_result.last().ok_or_else(|| anyhow!("Wrong data"))? == &0u8 {
         bytes.clear();
         let nonce = Nonce::from_slice(&sodiumoxide::randombytes::randombytes(12))
-            .ok_or(anyhow!("Unable to create nonce"))?;
+            .ok_or_else(|| anyhow!("Unable to create nonce"))?;
         bytes.put(nonce.0.as_ref());
         sealed_result = chacha20poly1305_ietf::seal(chunk, padding, &nonce, enc);
         bytes.put(sealed_result.as_ref());
