@@ -24,7 +24,16 @@ impl AddTransformer<'_> for AsyncSenderSink {
 #[async_trait::async_trait]
 impl Transformer for AsyncSenderSink {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
-        self.sender.send(Ok(buf.to_owned())).await?;
+        if !self.sender.is_closed() {
+            self.sender.send(Ok(buf.to_owned())).await?;
+        } else {
+            if !buf.is_empty() {
+                log::debug!(
+                    "[AF_ASYNCSINK] Output closed but still {:?} bytes in buffer",
+                    buf.len()
+                )
+            }
+        }
         if buf.is_empty() && finished {
             return Ok(true);
         }
