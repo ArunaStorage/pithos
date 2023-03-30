@@ -64,10 +64,8 @@ impl<
             bytes_read = data.len();
             if bytes_read != 0 {
                 self.sink.process_bytes(&mut data, false).await?;
-            } else {
-                if self.sink.process_bytes(&mut data, true).await? == true {
-                    break;
-                }
+            } else if self.sink.process_bytes(&mut data, true).await? {
+                break;
             }
 
             log::debug!("StreamReadWriter: Processed {}", bytes_read);

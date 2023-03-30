@@ -30,12 +30,12 @@ impl<'a> AddTransformer<'a> for SizeProbe<'a> {
 
 #[async_trait::async_trait]
 impl Transformer for SizeProbe<'_> {
-    async fn process_bytes(&mut self, mut buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
+    async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
         self.size_counter += buf.len() as u64;
         // Try to write the buf to the "next" in the chain, even if the buf is empty
         if let Some(next) = &mut self.next {
             // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
-            next.process_bytes(&mut buf, finished).await
+            next.process_bytes(buf, finished).await
         } else {
             Err(anyhow!(
                 "This transformer is designed to always contain a 'next'"

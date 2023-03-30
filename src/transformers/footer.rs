@@ -42,7 +42,7 @@ impl<'a> AddTransformer<'a> for FooterGenerator<'a> {
 #[async_trait::async_trait]
 impl Transformer for FooterGenerator<'_> {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
-        if buf.len() == 0 && !self.finished && finished {
+        if buf.is_empty() && !self.finished && finished {
             match self.notifications {
                 Some(a) => {
                     if !a {
@@ -55,7 +55,7 @@ impl Transformer for FooterGenerator<'_> {
             if let Some(next) = &mut self.next {
                 next.process_bytes(
                     &mut create_skippable_footer_frame(self.external_info.to_vec())?,
-                    self.finished && buf.len() == 0 && finished,
+                    self.finished && buf.is_empty() && finished,
                 )
                 .await?;
             }
@@ -63,7 +63,7 @@ impl Transformer for FooterGenerator<'_> {
         }
 
         if let Some(next) = &mut self.next {
-            next.process_bytes(buf, self.finished && buf.len() == 0 && finished)
+            next.process_bytes(buf, self.finished && buf.is_empty() && finished)
                 .await
         } else {
             Err(anyhow!(

@@ -15,7 +15,7 @@ impl<W: AsyncWrite + Unpin + Send> Sink for WriterSink<W> {}
 
 impl<W: AsyncWrite + Unpin + Send> WriterSink<W> {
     pub fn new(writer: BufWriter<W>) -> Self {
-        Self { writer: writer }
+        Self { writer }
     }
 }
 
@@ -26,8 +26,8 @@ impl<'a, W: AsyncWrite + Unpin + Send> AddTransformer<'a> for WriterSink<W> {
 #[async_trait::async_trait]
 impl<W: AsyncWrite + Unpin + Send> Transformer for WriterSink<W> {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
-        if buf.len() != 0 {
-            while buf.len() != 0 {
+        if !buf.is_empty() {
+            while !buf.is_empty() {
                 self.writer.write_buf(buf).await?;
             }
         } else if finished {

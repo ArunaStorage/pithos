@@ -50,15 +50,12 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
                 self.sink
                     .process_bytes(&mut read_buf.split().freeze(), false)
                     .await?;
-            } else {
-                if self
-                    .sink
-                    .process_bytes(&mut read_buf.split().freeze(), true)
-                    .await?
-                    == true
-                {
-                    break;
-                }
+            } else if self
+                .sink
+                .process_bytes(&mut read_buf.split().freeze(), true)
+                .await?
+            {
+                break;
             }
         }
         Ok(())

@@ -75,7 +75,7 @@ impl Transformer for ZstdEnc<'_> {
                 // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
                 next.process_bytes(
                     &mut self.prev_buf.split().freeze(),
-                    self.finished && self.prev_buf.len() == 0,
+                    self.finished && self.prev_buf.is_empty(),
                 )
                 .await?;
             } else {
@@ -86,13 +86,13 @@ impl Transformer for ZstdEnc<'_> {
         }
 
         // Only write if the buffer contains data and the current process is not finished
-        if buf.len() != 0 && !self.finished {
+        if !buf.is_empty() && !self.finished {
             self.size_counter += buf.len();
             self.internal_buf.write_buf(buf).await?;
         }
 
         // Add the "last" skippable frame if the previous writer is finished but this one is not!
-        if !self.finished && finished && buf.len() == 0 {
+        if !self.finished && finished && buf.is_empty() {
             self.internal_buf.shutdown().await?;
             self.prev_buf.extend_from_slice(self.internal_buf.get_ref());
             if !self.is_last {
@@ -111,7 +111,7 @@ impl Transformer for ZstdEnc<'_> {
                 // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
                 next.process_bytes(
                     &mut self.prev_buf.split().freeze(),
-                    self.finished && self.prev_buf.len() == 0,
+                    self.finished && self.prev_buf.is_empty(),
                 )
                 .await?;
             } else {
@@ -126,7 +126,7 @@ impl Transformer for ZstdEnc<'_> {
             // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
             next.process_bytes(
                 &mut self.prev_buf.split().freeze(),
-                self.finished && self.prev_buf.len() == 0,
+                self.finished && self.prev_buf.is_empty(),
             )
             .await
         } else {

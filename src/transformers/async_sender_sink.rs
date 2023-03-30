@@ -25,7 +25,7 @@ impl AddTransformer<'_> for AsyncSenderSink {
 impl Transformer for AsyncSenderSink {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
         self.sender.send(Ok(buf.to_owned())).await?;
-        if buf.len() == 0 && finished {
+        if buf.is_empty() && finished {
             return Ok(true);
         }
         Ok(false)

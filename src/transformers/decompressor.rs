@@ -41,9 +41,9 @@ impl<'a> AddTransformer<'a> for ZstdDec<'a> {
 impl Transformer for ZstdDec<'_> {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
         // Only write if the buffer contains data and the current process is not finished
-        if buf.len() != 0 && !self.finished {
+        if !buf.is_empty() && !self.finished {
             self.internal_buf.write_buf(buf).await?;
-            while buf.len() != 0 {
+            while !buf.is_empty() {
                 self.internal_buf.shutdown().await?;
                 self.prev_buf.put(self.internal_buf.get_ref().as_slice());
                 self.internal_buf = ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
@@ -51,7 +51,7 @@ impl Transformer for ZstdDec<'_> {
             }
         }
 
-        if !self.finished && buf.len() == 0 && finished {
+        if !self.finished && buf.is_empty() && finished {
             self.internal_buf.shutdown().await?;
             self.prev_buf.put(self.internal_buf.get_ref().as_slice());
             self.finished = true;
@@ -62,7 +62,7 @@ impl Transformer for ZstdDec<'_> {
             // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
             next.process_bytes(
                 &mut self.prev_buf.split().freeze(),
-                self.finished && self.prev_buf.len() == 0,
+                self.finished && self.prev_buf.is_empty(),
             )
             .await
         } else {

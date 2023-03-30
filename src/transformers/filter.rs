@@ -36,10 +36,10 @@ impl<'a> AddTransformer<'a> for Filter<'a> {
 
 #[async_trait::async_trait]
 impl Transformer for Filter<'_> {
-    async fn process_bytes(&mut self, mut buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
+    async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
         self.captured_buf_len = buf.len();
         self.advanced_by = 0;
-        if buf.len() != 0 {
+        if !buf.is_empty() {
             if ((self.counter + self.captured_buf_len) as u64) > self.filter.from {
                 self.advanced_by = self.filter.from as usize - self.counter;
                 buf.advance(self.advanced_by);
@@ -49,10 +49,8 @@ impl Transformer for Filter<'_> {
 
             if self.counter as u64 > self.filter.to {
                 buf.clear();
-            } else {
-                if self.counter as u64 + self.captured_buf_len as u64 > self.filter.to {
-                    buf.truncate(self.filter.to as usize - self.advanced_by - self.counter);
-                }
+            } else if self.counter as u64 + self.captured_buf_len as u64 > self.filter.to {
+                buf.truncate(self.filter.to as usize - self.advanced_by - self.counter);
             }
         }
 
@@ -61,7 +59,7 @@ impl Transformer for Filter<'_> {
         // Try to write the buf to the "next" in the chain, even if the buf is empty
         if let Some(next) = &mut self.next {
             // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
-            next.process_bytes(&mut buf, finished).await
+            next.process_bytes(buf, finished).await
         } else {
             Err(anyhow!(
                 "This decrypter is designed to always contain a 'next'"

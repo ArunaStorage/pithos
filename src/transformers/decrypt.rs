@@ -51,7 +51,7 @@ impl Transformer for ChaCha20Dec<'_> {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
         // Only write if the buffer contains data and the current process is not finished
 
-        if buf.len() != 0 {
+        if !buf.is_empty() {
             self.input_buffer.put(buf);
         }
 
@@ -64,11 +64,11 @@ impl Transformer for ChaCha20Dec<'_> {
                         &self.encryption_key,
                     )?)
                 }
-            } else {
-                if finished && !self.finished {
-                    if self.input_buffer.len() != 0 && self.input_buffer.len() < 28 {
+            } else if finished && !self.finished {
+                if !self.input_buffer.is_empty() {
+                    if self.input_buffer.len() > 28 {
                         self.finished = true;
-                        if self.input_buffer.len() != 0 {
+                        if !self.input_buffer.is_empty() {
                             self.output_buffer.put(decrypt_chunk(
                                 &self.input_buffer.split(),
                                 &self.encryption_key,
@@ -87,17 +87,19 @@ impl Transformer for ChaCha20Dec<'_> {
                             self.input_buffer.clear();
                             self.finished = true;
                             log::debug!(
-                                "[AF_DECRYPT] Buffer too small {}, backoff reached, discarding rest",
-                                self.input_buffer.len()
-                            );
+                            "[AF_DECRYPT] Buffer too small {}, backoff reached, discarding rest",
+                            self.input_buffer.len()
+                        );
                         }
                     }
+                } else {
+                    self.finished = true;
                 }
             };
             // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
             next.process_bytes(
                 &mut self.output_buffer.split().freeze(),
-                self.finished && self.input_buffer.len() == 0,
+                self.finished && self.input_buffer.is_empty(),
             )
             .await
         } else {

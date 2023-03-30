@@ -23,7 +23,7 @@ pub struct Range {
 impl FooterParser {
     pub fn new(footer: &[u8; 65536 * 2]) -> Self {
         FooterParser {
-            footer: footer.clone(),
+            footer: *footer,
             blocklist: Vec::new(),
             total: 0,
             is_encrypted: false,
@@ -47,7 +47,7 @@ impl FooterParser {
 
     pub fn parse(&mut self) -> Result<()> {
         let mut x = 0;
-        if self.footer[0..4] == *hex::decode(format!("522A4D18"))?.as_slice() {
+        if self.footer[0..4] == *hex::decode("522A4D18")?.as_slice() {
             if self.footer[4..8].as_ref().read_u32::<LittleEndian>()? != 65536 - 8 {
                 return Err(anyhow!("Unexpected skippable framesize"));
             };
@@ -83,7 +83,7 @@ impl FooterParser {
 
             // This is a double_footer
         } else {
-            if self.footer[65536..65540] != *hex::decode(format!("512A4D18"))?.as_slice() {
+            if self.footer[65536..65540] != *hex::decode("512A4D18")?.as_slice() {
                 return Err(anyhow!(
                     "Unexpected slice, does not start with magic number 512A4D18"
                 ));

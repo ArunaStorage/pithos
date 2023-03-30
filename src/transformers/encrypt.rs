@@ -48,7 +48,7 @@ impl Transformer for ChaCha20Enc<'_> {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
         // Only write if the buffer contains data and the current process is not finished
 
-        if buf.len() != 0 {
+        if !buf.is_empty() {
             self.input_buf.put(buf);
         }
 
@@ -62,41 +62,37 @@ impl Transformer for ChaCha20Enc<'_> {
                         &self.encryption_key,
                     )?)
                 }
-            } else {
-                if finished && !self.finished {
-                    if self.input_buf.len() == 0 {
-                        self.finished = true;
-                    } else {
-                        if self.add_padding {
-                            self.finished = true;
-                            let padding = vec![
-                                0u8;
-                                ENCRYPTION_BLOCK_SIZE
-                                    - (self.input_buf.len() % ENCRYPTION_BLOCK_SIZE)
-                            ];
+            } else if finished && !self.finished {
+                if self.input_buf.is_empty() {
+                    self.finished = true;
+                } else if self.add_padding {
+                    self.finished = true;
+                    let padding = vec![
+                        0u8;
+                        ENCRYPTION_BLOCK_SIZE
+                            - (self.input_buf.len() % ENCRYPTION_BLOCK_SIZE)
+                    ];
 
-                            self.output_buf.put(encrypt_chunk(
-                                &self.input_buf.split(),
-                                Some(&padding),
-                                &self.encryption_key,
-                            )?);
-                            self.output_buf.put(padding.as_ref());
-                        } else {
-                            self.finished = true;
-                            self.output_buf.put(encrypt_chunk(
-                                &self.input_buf.split(),
-                                None,
-                                &self.encryption_key,
-                            )?)
-                        }
-                    }
+                    self.output_buf.put(encrypt_chunk(
+                        &self.input_buf.split(),
+                        Some(&padding),
+                        &self.encryption_key,
+                    )?);
+                    self.output_buf.put(padding.as_ref());
+                } else {
+                    self.finished = true;
+                    self.output_buf.put(encrypt_chunk(
+                        &self.input_buf.split(),
+                        None,
+                        &self.encryption_key,
+                    )?)
                 }
             };
 
             // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
             next.process_bytes(
                 &mut self.output_buf.split().freeze(),
-                self.finished && self.input_buf.len() == 0,
+                self.finished && self.input_buf.is_empty(),
             )
             .await
         } else {
@@ -119,7 +115,7 @@ pub fn encrypt_chunk(chunk: &[u8], padding: Option<&[u8]>, enc: &Key) -> Result<
     let mut bytes = BytesMut::new();
     bytes.put(nonce.0.as_ref());
 
-    let mut sealed_result = chacha20poly1305_ietf::seal(chunk, padding, &nonce, &enc);
+    let mut sealed_result = chacha20poly1305_ietf::seal(chunk, padding, &nonce, enc);
 
     bytes.put(sealed_result.as_ref());
 
@@ -128,7 +124,7 @@ pub fn encrypt_chunk(chunk: &[u8], padding: Option<&[u8]>, enc: &Key) -> Result<
         let nonce = Nonce::from_slice(&sodiumoxide::randombytes::randombytes(12))
             .ok_or(anyhow!("Unable to create nonce"))?;
         bytes.put(nonce.0.as_ref());
-        sealed_result = chacha20poly1305_ietf::seal(chunk, padding, &nonce, &enc);
+        sealed_result = chacha20poly1305_ietf::seal(chunk, padding, &nonce, enc);
         bytes.put(sealed_result.as_ref());
     }
     Ok(bytes.freeze())
