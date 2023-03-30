@@ -1,7 +1,7 @@
 [package]
 authors = ["Sebastian <sb@pus.de>"]
 name = "aruna-file"
-version = "0.1.13"
+version = "0.1.14"
 edition = "2021"
 repository = "https://github.com/ArunaStorage/aruna-file"
 license = "MIT OR Apache-2.0"
