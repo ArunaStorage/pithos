@@ -77,4 +77,11 @@ impl<
         self.sink.notify(&mut self.notes).await?;
         Ok(self.notes.clone())
     }
+
+
+    pub async fn notify(&mut self, note: Notifications) -> Result<()> {
+        self.notes.push(note);
+        self.sink.notify(&mut self.notes).await?;
+        Ok(())
+    }
 }
