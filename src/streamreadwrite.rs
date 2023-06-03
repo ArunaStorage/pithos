@@ -13,6 +13,7 @@ pub struct ArunaStreamReadWriter<
 > {
     input_stream: R,
     sink: Box<dyn Transformer + Send + 'a>,
+    notes: Vec<Notifications>,
 }
 
 impl<
@@ -27,6 +28,7 @@ impl<
         ArunaStreamReadWriter {
             input_stream,
             sink: Box::new(transformer),
+            notes: Vec::new(),
         }
     }
 
@@ -37,6 +39,7 @@ impl<
         ArunaStreamReadWriter {
             input_stream,
             sink: Box::new(WriterSink::new(BufWriter::new(writer))),
+            notes: Vec::new()
         }
     }
 
@@ -70,9 +73,8 @@ impl<
         Ok(())
     }
 
-    pub async fn query_notifications(&mut self) -> Result<Vec<Notifications>> {
-        let mut notes = Vec::new();
-        self.sink.notify(&mut notes).await?;
-        Ok(notes)
+    pub async fn get_notifications(&mut self) -> Result<Vec<Notifications>> {
+        self.sink.notify(&mut self.notes).await?;
+        Ok(self.notes.clone())
     }
 }
