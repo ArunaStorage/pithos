@@ -51,7 +51,7 @@ Example:
 
 This example creates a `Vec<u8>` from a bytes array (implements [AsyncRead](https://docs.rs/tokio/1.26.0/tokio/io/trait.AsyncRead.html)) and sinks it in another `Vec<u8>` (impl [AsynWrite](https://docs.rs/tokio/1.26.0/tokio/io/trait.AsyncWrite.html)). In between, custom data transformations can take place. Please note: the order of execution is reversed from the add_transformer calls, so you have to start with the "last" step and end with the "first". 
 
-The example compresses the vector first double compresses the vector with a custom padded Zstandard compression component and afterwards encrypts the result also two times with ChaCha20-Poly1305. Afterwards all steps are reversed resulting in the original data.
+The example compresses the vector two times with a custom padded Zstandard compression component and afterwards encrypts the result also two times with ChaCha20-Poly1305. Afterwards all steps are reversed resulting in the original data.
 
 ### Notes for own implementations
 
