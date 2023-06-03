@@ -7,6 +7,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, BufWriter};
 pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin> {
     reader: BufReader<R>,
     sink: Box<dyn Transformer + Send + 'a>,
+    notes: Vec<Notifications>,
 }
 
 impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
@@ -17,6 +18,7 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
         ArunaReadWriter {
             reader: BufReader::new(reader),
             sink: Box::new(WriterSink::new(BufWriter::new(writer))),
+            notes: Vec::new(),
         }
     }
 
@@ -27,6 +29,7 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
         ArunaReadWriter {
             reader: BufReader::new(reader),
             sink: Box::new(transformer),
+            notes: Vec::new()
         }
     }
 
@@ -60,9 +63,15 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
         }
         Ok(())
     }
-    pub async fn query_notifications(&mut self) -> Result<Vec<Notifications>> {
-        let mut notes = Vec::new();
-        self.sink.notify(&mut notes).await?;
-        Ok(notes)
+    pub async fn get_notifications(&mut self) -> Result<Vec<Notifications>> {
+        self.sink.notify(&mut self.notes).await?;
+        Ok(self.notes.clone())
+    }
+
+
+    pub async fn notify(&mut self, note: Notifications) -> Result<()> {
+        self.notes.push(note);
+        self.sink.notify(&mut self.notes).await?;
+        Ok(())
     }
 }

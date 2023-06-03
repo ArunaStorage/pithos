@@ -298,7 +298,7 @@ mod tests {
 
         arw.process().await.unwrap();
 
-        let notes = arw.query_notifications().await.unwrap();
+        let notes = arw.get_notifications().await.unwrap();
 
         let size_1 = parse_size_from_notifications(notes.clone(), 1).unwrap();
         let size_2 = parse_size_from_notifications(notes, 2).unwrap();
