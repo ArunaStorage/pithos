@@ -1,4 +1,5 @@
-use crate::transformer::{Notifications, Sink, Transformer};
+use crate::transformer::{Sink, Transformer};
+use crate::notifications::Notifications;
 use crate::{transformer::AddTransformer, transformers::writer_sink::WriterSink};
 use anyhow::Result;
 use bytes::BytesMut;

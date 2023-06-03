@@ -1,6 +1,6 @@
 use crate::transformer::AddTransformer;
-use crate::transformer::Data;
-use crate::transformer::Notifications;
+use crate::notifications::Data;
+use crate::notifications::Notifications;
 use crate::transformer::Transformer;
 use anyhow::anyhow;
 use anyhow::Result;

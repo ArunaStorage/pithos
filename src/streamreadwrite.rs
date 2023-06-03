@@ -1,5 +1,5 @@
-use crate::transformer::{AddTransformer, Notifications};
-use crate::transformer::{Sink, Transformer};
+use crate::notifications::Notifications;
+use crate::transformer::{Sink, Transformer, AddTransformer};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::anyhow;
 use anyhow::Result;

@@ -1,5 +1,5 @@
 use crate::transformer::AddTransformer;
-use crate::transformer::Notifications;
+use crate::notifications::Notifications;
 use crate::transformer::Sink;
 use crate::transformer::Transformer;
 use anyhow::Result;

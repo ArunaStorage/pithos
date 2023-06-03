@@ -1,16 +1,5 @@
 use anyhow::Result;
-
-#[derive(Clone)]
-pub struct Data {
-    pub recipient: String,
-    pub info: Option<Vec<u8>>,
-}
-
-#[derive(Clone)]
-pub enum Notifications {
-    Message(Data),
-    Response(Data),
-}
+use crate::notifications::Notifications;
 
 // Marker trait to signal that this Transformer can be a "final" destination for data
 pub trait Sink {}

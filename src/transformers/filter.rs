@@ -4,7 +4,7 @@ use bytes::Buf;
 
 use crate::helpers::footer_parser::Range;
 use crate::transformer::AddTransformer;
-use crate::transformer::Notifications;
+use crate::notifications::Notifications;
 use crate::transformer::Transformer;
 
 pub struct Filter<'a> {
