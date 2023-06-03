@@ -17,4 +17,10 @@ impl Notifications {
             Notifications::Response(a) => a.recipient.to_string(),
         }
     }
+    pub fn get_data(self) -> Data {
+        match self {
+            Notifications::Message(a) => a,
+            Notifications::Response(a) => a,
+        }
+    }
 }

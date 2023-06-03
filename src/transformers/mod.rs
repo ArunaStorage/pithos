@@ -8,3 +8,4 @@ pub mod footer;
 pub mod hyper_sink;
 pub mod size_probe;
 pub mod writer_sink;
+pub mod tar;
