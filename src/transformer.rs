@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::notifications::Notifications;
+use anyhow::Result;
 
 // Marker trait to signal that this Transformer can be a "final" destination for data
 pub trait Sink {}

@@ -7,8 +7,8 @@ use sodiumoxide::crypto::aead::chacha20poly1305_ietf;
 use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Key;
 use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Nonce;
 
-use crate::transformer::AddTransformer;
 use crate::notifications::Notifications;
+use crate::transformer::AddTransformer;
 use crate::transformer::Transformer;
 
 const ENCRYPTION_BLOCK_SIZE: usize = 65_536;

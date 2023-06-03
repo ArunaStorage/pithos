@@ -1,5 +1,5 @@
-use crate::transformer::{Sink, Transformer};
 use crate::notifications::Notifications;
+use crate::transformer::{Sink, Transformer};
 use crate::{transformer::AddTransformer, transformers::writer_sink::WriterSink};
 use anyhow::Result;
 use bytes::BytesMut;
@@ -30,7 +30,7 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
         ArunaReadWriter {
             reader: BufReader::new(reader),
             sink: Box::new(transformer),
-            notes: Vec::new()
+            notes: Vec::new(),
         }
     }
 
@@ -68,7 +68,6 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
         self.sink.notify(&mut self.notes).await?;
         Ok(self.notes.clone())
     }
-
 
     pub async fn notify(&mut self, note: Notifications) -> Result<()> {
         self.notes.push(note);

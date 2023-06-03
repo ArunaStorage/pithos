@@ -1,5 +1,5 @@
 use crate::notifications::Notifications;
-use crate::transformer::{Sink, Transformer, AddTransformer};
+use crate::transformer::{AddTransformer, Sink, Transformer};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::anyhow;
 use anyhow::Result;
@@ -39,7 +39,7 @@ impl<
         ArunaStreamReadWriter {
             input_stream,
             sink: Box::new(WriterSink::new(BufWriter::new(writer))),
-            notes: Vec::new()
+            notes: Vec::new(),
         }
     }
 
@@ -77,7 +77,6 @@ impl<
         self.sink.notify(&mut self.notes).await?;
         Ok(self.notes.clone())
     }
-
 
     pub async fn notify(&mut self, note: Notifications) -> Result<()> {
         self.notes.push(note);

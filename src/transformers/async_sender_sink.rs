@@ -1,5 +1,5 @@
-use crate::transformer::AddTransformer;
 use crate::notifications::Notifications;
+use crate::transformer::AddTransformer;
 use crate::transformer::Sink;
 use crate::transformer::Transformer;
 use anyhow::Result;
@@ -26,13 +26,11 @@ impl Transformer for AsyncSenderSink {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
         if !self.sender.is_closed() {
             self.sender.send(Ok(buf.to_owned())).await?;
-        } else {
-            if !buf.is_empty() {
-                log::debug!(
-                    "[AF_ASYNCSINK] Output closed but still {:?} bytes in buffer",
-                    buf.len()
-                )
-            }
+        } else if !buf.is_empty() {
+            log::debug!(
+                "[AF_ASYNCSINK] Output closed but still {:?} bytes in buffer",
+                buf.len()
+            )
         }
         if buf.is_empty() && finished {
             return Ok(true);

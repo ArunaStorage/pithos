@@ -13,8 +13,8 @@ pub enum Notifications {
 impl Notifications {
     pub fn get_recipient(&self) -> String {
         match self {
-            Notifications::Message(a) => return a.recipient.to_string(),
-            Notifications::Response(a) => return a.recipient.to_string(),
+            Notifications::Message(a) => a.recipient.to_string(),
+            Notifications::Response(a) => a.recipient.to_string(),
         }
     }
 }

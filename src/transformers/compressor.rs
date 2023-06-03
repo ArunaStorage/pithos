@@ -6,9 +6,9 @@ use byteorder::WriteBytesExt;
 use bytes::{Bytes, BytesMut};
 use tokio::io::AsyncWriteExt;
 
-use crate::transformer::AddTransformer;
 use crate::notifications::Data;
 use crate::notifications::Notifications;
+use crate::transformer::AddTransformer;
 use crate::transformer::Transformer;
 
 const RAW_FRAME_SIZE: usize = 5_242_880;
