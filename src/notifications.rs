@@ -1,4 +1,4 @@
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Message {
     pub recipient: u64,
     pub info: Option<Vec<u8>>,

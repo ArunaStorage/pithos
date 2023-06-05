@@ -1,14 +1,14 @@
-use crate::notifications::Notifications;
-use crate::transformer::{Sink, Transformer};
-use crate::{transformer::AddTransformer, transformers::writer_sink::WriterSink};
+use crate::notifications::Message;
+use crate::transformer::{Category, Notifier, ReadWriter, Sink, Transformer};
+use crate::transformers::writer_sink::WriterSink;
 use anyhow::Result;
 use bytes::BytesMut;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, BufWriter};
 
 pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin> {
     reader: BufReader<R>,
-    sink: Box<dyn Transformer + Send + 'a>,
-    notes: Vec<Notifications>,
+    transformers: Vec<Box<dyn Transformer>>,
+    sink: Box<dyn Sink + 'a>,
 }
 
 impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
@@ -19,31 +19,28 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
         ArunaReadWriter {
             reader: BufReader::new(reader),
             sink: Box::new(WriterSink::new(BufWriter::new(writer))),
-            notes: Vec::new(),
+            transformers: Vec::new(),
         }
     }
 
-    pub fn new_with_sink<T: Transformer + AddTransformer<'a> + Sink + Send + 'a>(
-        reader: R,
-        transformer: T,
-    ) -> ArunaReadWriter<'a, R> {
+    pub fn new_with_sink<T: Sink + Send + 'a>(reader: R, transformer: T) -> ArunaReadWriter<'a, R> {
         ArunaReadWriter {
             reader: BufReader::new(reader),
             sink: Box::new(transformer),
-            notes: Vec::new(),
+            transformers: Vec::new(),
         }
     }
 
-    pub fn add_transformer<T: Transformer + AddTransformer<'a> + Send + 'a>(
-        mut self,
-        mut t: T,
-    ) -> ArunaReadWriter<'a, R> {
-        t.add_transformer(self.sink);
-        self.sink = Box::new(t);
-        self
+    pub fn add_transformer<T: Sink + Send + 'a>(&mut self, mut transformer: T) -> Self {
+        transformer.set_id(self.transformers.len());
+        transformer.add_root(self);
+        self.transformers.push(transformer)
     }
+}
 
-    pub async fn process(&mut self) -> Result<()> {
+#[async_trait::async_trait]
+impl<'a, R: AsyncRead + Unpin> ReadWriter for ArunaReadWriter<'a, R> {
+    async fn process(&mut self) -> Result<()> {
         // The buffer that accumulates the "actual" data
         let mut bytes_read;
         let mut read_buf = BytesMut::with_capacity(65_536);
@@ -64,14 +61,14 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
         }
         Ok(())
     }
-    pub async fn get_notifications(&mut self) -> Result<Vec<Notifications>> {
-        self.sink.notify(&mut self.notes).await?;
-        Ok(self.notes.clone())
-    }
+}
 
-    pub async fn notify(&mut self, note: Notifications) -> Result<()> {
-        self.notes.push(note);
-        self.sink.notify(&mut self.notes).await?;
-        Ok(())
+#[async_trait::async_trait]
+impl<'a, R: AsyncRead + Unpin> Notifier for ArunaReadWriter<'a, R> {
+    async fn notify(&self, target: u64, message: Message) -> Result<Message> {
+        todo!();
+    }
+    async fn get_next_id_of_type(&self, target: Category) -> Option<u64> {
+        todo!();
     }
 }

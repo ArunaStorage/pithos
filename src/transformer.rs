@@ -33,5 +33,5 @@ pub trait Transformer {
     async fn notify(&mut self, message: Message) -> Result<Message>;
     fn set_id(&mut self, id: u64);
     fn get_id(&self) -> u64;
-    fn add_root<T: Notifier>(&mut self, note: Notifier);
+    fn add_root<T: Notifier>(&mut self, notifier: dyn Notifier);
 }
