@@ -1,5 +1,5 @@
-use crate::notifications::Notifications;
-use crate::transformer::{AddTransformer, Sink, Transformer};
+use crate::notifications::Message;
+use crate::transformer::{Category, Notifier, ReadWriter, Sink, Transformer};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::anyhow;
 use anyhow::Result;
@@ -12,8 +12,8 @@ pub struct ArunaStreamReadWriter<
     R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>> + Unpin,
 > {
     input_stream: R,
-    sink: Box<dyn Transformer + Send + 'a>,
-    notes: Vec<Notifications>,
+    transformers: Vec<Box<dyn Transformer>>,
+    sink: Box<dyn Sink + 'a>,
 }
 
 impl<
@@ -21,38 +21,50 @@ impl<
         R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>> + Unpin,
     > ArunaStreamReadWriter<'a, R>
 {
-    pub fn new_with_sink<T: Transformer + AddTransformer<'a> + Sink + Send + 'a>(
-        input_stream: R,
-        transformer: T,
-    ) -> ArunaStreamReadWriter<'a, R> {
+    pub fn new_with_sink<T: Sink + Send + 'a>(input_stream: R, transformer: T) -> Self {
         ArunaStreamReadWriter {
             input_stream,
             sink: Box::new(transformer),
-            notes: Vec::new(),
+            transformers: Vec::new(),
         }
     }
 
-    pub fn new_with_writer<W: AsyncWrite + Unpin + Send + 'a>(
-        input_stream: R,
-        writer: W,
-    ) -> ArunaStreamReadWriter<'a, R> {
+    pub fn new_with_writer<W: AsyncWrite + Unpin + Send + 'a>(input_stream: R, writer: W) -> Self {
         ArunaStreamReadWriter {
             input_stream,
             sink: Box::new(WriterSink::new(BufWriter::new(writer))),
-            notes: Vec::new(),
+            transformers: Vec::new(),
         }
     }
 
-    pub fn add_transformer<T: Transformer + AddTransformer<'a> + Send + 'a>(
-        mut self,
-        mut t: T,
-    ) -> ArunaStreamReadWriter<'a, R> {
-        t.add_transformer(self.sink);
-        self.sink = Box::new(t);
-        self
+    pub fn add_transformer<T: Sink + Send + 'a>(&mut self, mut transformer: T) -> Self {
+        transformer.set_id(self.transformers.len());
+        transformer.add_root(self);
+        self.transformers.push(transformer)
     }
+}
 
-    pub async fn process(&mut self) -> Result<()> {
+#[async_trait::async_trait]
+impl<
+        'a,
+        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>> + Unpin,
+    > Notifier for ArunaStreamReadWriter<'a, R>
+{
+    async fn notify(&self, target: u64, message: Message) -> Result<Message> {
+        todo!();
+    }
+    async fn get_next_id_of_type(&self, target: Category) -> Option<u64> {
+        todo!();
+    }
+}
+
+#[async_trait::async_trait]
+impl<
+        'a,
+        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>> + Unpin,
+    > ReadWriter for ArunaStreamReadWriter<'a, R>
+{
+    async fn process(&mut self) -> Result<()> {
         // The buffer that accumulates the "actual" data
         let mut bytes_read;
         let mut data = Bytes::new();
@@ -70,17 +82,6 @@ impl<
 
             log::debug!("StreamReadWriter: Processed {}", bytes_read);
         }
-        Ok(())
-    }
-
-    pub async fn get_notifications(&mut self) -> Result<Vec<Notifications>> {
-        self.sink.notify(&mut self.notes).await?;
-        Ok(self.notes.clone())
-    }
-
-    pub async fn notify(&mut self, note: Notifications) -> Result<()> {
-        self.notes.push(note);
-        self.sink.notify(&mut self.notes).await?;
         Ok(())
     }
 }
