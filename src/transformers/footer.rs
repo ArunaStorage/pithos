@@ -45,6 +45,8 @@ impl Transformer for FooterGenerator<'_> {
             buf.put(self.external_info);
             self.finished = true;
         }
+
+        Ok(self.finished && buf.len() == 0)
     }
     async fn notify(&mut self, message: Message) -> Result<Message> {
         if message.recipient == self.id && message.message_type = MessageType::Message {

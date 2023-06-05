@@ -1,4 +1,4 @@
-use crate::notifications::Notifications;
+use crate::notifications::Message;
 use anyhow::anyhow;
 use anyhow::Result;
 

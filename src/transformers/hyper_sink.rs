@@ -20,7 +20,7 @@ impl<HyperSink: Transformer + Sink + Send> Sink for HyperSink {}
 
 #[async_trait::async_trait]
 impl Transformer for HyperSink {
-    async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
+    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         if !buf.is_empty() {
             self.sender.send_data(buf.to_owned()).await?;
         } else if finished {

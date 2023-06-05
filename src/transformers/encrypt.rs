@@ -1,3 +1,5 @@
+use crate::notifications::Message;
+use crate::transformer::Transformer;
 use anyhow::anyhow;
 use anyhow::Result;
 use bytes::BufMut;
@@ -7,10 +9,6 @@ use sodiumoxide::crypto::aead::chacha20poly1305_ietf;
 use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Key;
 use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Nonce;
 
-use crate::notifications::Notifications;
-use crate::transformer::AddTransformer;
-use crate::transformer::Transformer;
-
 const ENCRYPTION_BLOCK_SIZE: usize = 65_536;
 
 pub struct ChaCha20Enc<'a> {
@@ -19,7 +17,7 @@ pub struct ChaCha20Enc<'a> {
     add_padding: bool,
     encryption_key: Key,
     finished: bool,
-    next: Option<Box<dyn Transformer + Send + 'a>>,
+    id: u64,
 }
 
 impl<'a> ChaCha20Enc<'a> {
@@ -33,80 +31,67 @@ impl<'a> ChaCha20Enc<'a> {
             finished: false,
             encryption_key: Key::from_slice(&enc_key)
                 .ok_or_else(|| anyhow!("Unable to parse Key"))?,
-            next: None,
+            id: 0,
         })
-    }
-}
-
-impl<'a> AddTransformer<'a> for ChaCha20Enc<'a> {
-    fn add_transformer(&mut self, t: Box<dyn Transformer + Send + 'a>) {
-        self.next = Some(t)
     }
 }
 
 #[async_trait::async_trait]
 impl Transformer for ChaCha20Enc<'_> {
-    async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
+    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         // Only write if the buffer contains data and the current process is not finished
 
         if !buf.is_empty() {
-            self.input_buf.put(buf);
+            self.input_buf.put(buf.split());
         }
+        if self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
+            while self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
+                self.output_buf.put(encrypt_chunk(
+                    &self.input_buf.split_to(ENCRYPTION_BLOCK_SIZE),
+                    None,
+                    &self.encryption_key,
+                )?)
+            }
+        } else if finished && !self.finished {
+            if self.input_buf.is_empty() {
+                self.finished = true;
+            } else if self.add_padding {
+                self.finished = true;
+                let padding = vec![
+                    0u8;
+                    ENCRYPTION_BLOCK_SIZE
+                        - (self.input_buf.len() % ENCRYPTION_BLOCK_SIZE)
+                ];
 
-        // Try to write the buf to the "next" in the chain, even if the buf is empty
-        if let Some(next) = &mut self.next {
-            if self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
-                while self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
-                    self.output_buf.put(encrypt_chunk(
-                        &self.input_buf.split_to(ENCRYPTION_BLOCK_SIZE),
-                        None,
-                        &self.encryption_key,
-                    )?)
-                }
-            } else if finished && !self.finished {
-                if self.input_buf.is_empty() {
-                    self.finished = true;
-                } else if self.add_padding {
-                    self.finished = true;
-                    let padding = vec![
-                        0u8;
-                        ENCRYPTION_BLOCK_SIZE
-                            - (self.input_buf.len() % ENCRYPTION_BLOCK_SIZE)
-                    ];
-
-                    self.output_buf.put(encrypt_chunk(
-                        &self.input_buf.split(),
-                        Some(&padding),
-                        &self.encryption_key,
-                    )?);
-                    self.output_buf.put(padding.as_ref());
-                } else {
-                    self.finished = true;
-                    self.output_buf.put(encrypt_chunk(
-                        &self.input_buf.split(),
-                        None,
-                        &self.encryption_key,
-                    )?)
-                }
-            };
-
-            // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
-            next.process_bytes(
-                &mut self.output_buf.split().freeze(),
-                self.finished && self.input_buf.is_empty(),
-            )
-            .await
-        } else {
-            Err(anyhow!(
-                "This compressor is designed to always contain a 'next'"
-            ))
-        }
+                self.output_buf.put(encrypt_chunk(
+                    &self.input_buf.split(),
+                    Some(&padding),
+                    &self.encryption_key,
+                )?);
+                self.output_buf.put(padding.as_ref());
+            } else {
+                self.finished = true;
+                self.output_buf.put(encrypt_chunk(
+                    &self.input_buf.split(),
+                    None,
+                    &self.encryption_key,
+                )?)
+            }
+        };
+        buf.put(self.output_buf.split());
+        Ok(self.finished && self.input_buf.is_empty())
     }
-    async fn notify(&mut self, notes: &mut Vec<Notifications>) -> Result<()> {
-        if let Some(next) = &mut self.next {
-            next.notify(notes).await?
-        }
-        Ok(())
+
+    async fn notify(&mut self, message: Message) -> Result<Message> {
+        Ok(Message::default())
+    }
+
+    fn set_id(&mut self, id: u64) {
+        self.id = id
+    }
+
+    fn get_id(&self) -> u64 {
+        self.id
     }
 }
 

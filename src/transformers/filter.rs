@@ -46,6 +46,7 @@ impl Transformer for Filter<'_> {
         }
 
         self.counter += self.captured_buf_len;
+        Ok(true)
     }
     async fn notify(&mut self, message: Message) -> Result<Message> {
         Ok(Message::default())

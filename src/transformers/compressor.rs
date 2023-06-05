@@ -1,3 +1,7 @@
+use crate::notifications::Message;
+use crate::notifications::MessageType;
+use crate::transformer::Notifier;
+use crate::transformer::Transformer;
 use anyhow::anyhow;
 use anyhow::Result;
 use async_compression::tokio::write::ZstdEncoder;
@@ -5,11 +9,6 @@ use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
 use bytes::{Bytes, BytesMut};
 use tokio::io::AsyncWriteExt;
-
-use crate::notifications::Data;
-use crate::notifications::Notifications;
-use crate::transformer::AddTransformer;
-use crate::transformer::Transformer;
 
 const RAW_FRAME_SIZE: usize = 5_242_880;
 const CHUNK: usize = 65_536;
@@ -22,7 +21,8 @@ pub struct ZstdEnc<'a> {
     chunks: Vec<u8>,
     is_last: bool,
     finished: bool,
-    next: Option<Box<dyn Transformer + Send + 'a>>,
+    id: u64,
+    notifier: Option<Box<dyn Notifier>>,
 }
 
 impl<'a> ZstdEnc<'a> {
@@ -36,14 +36,9 @@ impl<'a> ZstdEnc<'a> {
             chunks: Vec::new(),
             is_last: last,
             finished: false,
-            next: None,
+            id: 0,
+            notifier: None,
         }
-    }
-}
-
-impl<'a> AddTransformer<'a> for ZstdEnc<'a> {
-    fn add_transformer(&mut self, t: Box<dyn Transformer + Send + 'a>) {
-        self.next = Some(t)
     }
 }
 
@@ -70,19 +65,8 @@ impl Transformer for ZstdEnc<'_> {
             // Add the number of chunks to the chunksvec (for indexing)
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
 
-            // Try to write the buf to the "next" in the chain, even if the buf is empty
-            if let Some(next) = &mut self.next {
-                // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
-                next.process_bytes(
-                    &mut self.prev_buf.split().freeze(),
-                    self.finished && self.prev_buf.is_empty(),
-                )
-                .await?;
-            } else {
-                return Err(anyhow!(
-                    "This compressor is designed to always contain a 'next'"
-                ));
-            }
+            buf.put(self.prev_buf.split().freeze());
+            Ok(self.finished && self.prev_buf.is_empty())
         }
 
         // Only write if the buffer contains data and the current process is not finished
@@ -100,50 +84,38 @@ impl Transformer for ZstdEnc<'_> {
             };
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
             self.finished = true;
-            self.notify(&mut vec![Notifications::Message(Data {
-                recipient: "FOOTER".to_string(),
-                info: Some(self.chunks.clone()),
-            })])
-            .await?;
-
-            // Try to write the buf to the "next" in the chain, even if the buf is empty
-            if let Some(next) = &mut self.next {
-                // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
-                next.process_bytes(
-                    &mut self.prev_buf.split().freeze(),
-                    self.finished && self.prev_buf.is_empty(),
+            if let Some(n) = self.notifier {
+                let target_id = n.get_next_id_of_type();
+                n.notify(
+                    target_id,
+                    Message {
+                        recipient: target_id,
+                        info: Some(self.chunks),
+                        message_type: MessageType::Message,
+                    },
                 )
-                .await?;
-            } else {
-                return Err(anyhow!(
-                    "This compressor is designed to always contain a 'next'"
-                ));
-            }
+            };
+            buf.put(self.prev_buf.split().freeze());
+            Ok(self.finished && self.prev_buf.is_empty())
         }
-
-        // Try to write the buf to the "next" in the chain, even if the buf is empty
-        if let Some(next) = &mut self.next {
-            // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
-            next.process_bytes(
-                &mut self.prev_buf.split().freeze(),
-                self.finished && self.prev_buf.is_empty(),
-            )
-            .await
-        } else {
-            Err(anyhow!(
-                "This compressor is designed to always contain a 'next'"
-            ))
-        }
+        buf.put(self.prev_buf.split().freeze());
+        Ok(self.finished && self.prev_buf.is_empty())
     }
-    async fn notify(&mut self, notes: &mut Vec<Notifications>) -> Result<()> {
-        if let Some(next) = &mut self.next {
-            notes.push(Notifications::Response(Data {
-                recipient: format!("COMPRESSOR_CHUNKS_{}", self._comp_num),
-                info: Some(self.chunks.clone()),
-            }));
-            next.notify(notes).await?
-        }
-        Ok(())
+
+    async fn notify(&mut self, message: Message) -> Result<Message> {
+        Ok(Message::default())
+    }
+
+    fn set_id(&mut self, id: u64) {
+        self.id = id
+    }
+
+    fn get_id(&self) -> u64 {
+        self.id
+    }
+
+    fn add_root<T: Notifier>(&mut self, notifier: dyn Notifier) {
+        self.notifier = Some(Box::new(notifier))
     }
 }
 

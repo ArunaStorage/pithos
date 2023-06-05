@@ -1,3 +1,5 @@
+use crate::notifications::Message;
+use crate::transformer::Transformer;
 use anyhow::anyhow;
 use anyhow::Result;
 use bytes::BufMut;
@@ -6,10 +8,6 @@ use bytes::BytesMut;
 use sodiumoxide::crypto::aead::chacha20poly1305_ietf;
 use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Key;
 use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Nonce;
-
-use crate::notifications::Notifications;
-use crate::transformer::AddTransformer;
-use crate::transformer::Transformer;
 
 const ENCRYPTION_BLOCK_SIZE: usize = 65_536;
 const CIPHER_DIFF: usize = 28;
@@ -21,7 +19,7 @@ pub struct ChaCha20Dec<'a> {
     encryption_key: Key,
     finished: bool,
     backoff_counter: usize,
-    next: Option<Box<dyn Transformer + Send + 'a>>,
+    id: u64,
 }
 
 impl<'a> ChaCha20Dec<'a> {
@@ -35,84 +33,73 @@ impl<'a> ChaCha20Dec<'a> {
             backoff_counter: 0,
             encryption_key: Key::from_slice(&dec_key)
                 .ok_or_else(|| anyhow!("[AF_DECRYPT] Unable to parse Key"))?,
-            next: None,
+            id: 0,
         })
-    }
-}
-
-impl<'a> AddTransformer<'a> for ChaCha20Dec<'a> {
-    fn add_transformer(&mut self, t: Box<dyn Transformer + Send + 'a>) {
-        self.next = Some(t)
     }
 }
 
 #[async_trait::async_trait]
 impl Transformer for ChaCha20Dec<'_> {
-    async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
+    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         // Only write if the buffer contains data and the current process is not finished
 
         if !buf.is_empty() {
-            self.input_buffer.put(buf);
+            self.input_buffer.put(buf.split());
         }
 
-        // Try to write the buf to the "next" in the chain, even if the buf is empty
-        if let Some(next) = &mut self.next {
-            if self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
-                while self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
-                    self.output_buffer.put(decrypt_chunk(
-                        &self.input_buffer.split_to(CIPHER_SEGMENT_SIZE),
-                        &self.encryption_key,
-                    )?)
-                }
-            } else if finished && !self.finished {
-                if !self.input_buffer.is_empty() {
-                    if self.input_buffer.len() > 28 {
+        if self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
+            while self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
+                self.output_buffer.put(decrypt_chunk(
+                    &self.input_buffer.split_to(CIPHER_SEGMENT_SIZE),
+                    &self.encryption_key,
+                )?)
+            }
+        } else if finished && !self.finished {
+            if !self.input_buffer.is_empty() {
+                if self.input_buffer.len() > 28 {
+                    self.finished = true;
+                    if !self.input_buffer.is_empty() {
+                        self.output_buffer.put(decrypt_chunk(
+                            &self.input_buffer.split(),
+                            &self.encryption_key,
+                        )?);
+                    }
+                } else {
+                    log::debug!(
+                        "[AF_DECRYPT] Buffer too small {}, starting backoff_counter: {}",
+                        self.input_buffer.len(),
+                        self.backoff_counter
+                    );
+
+                    self.backoff_counter += 1;
+
+                    if self.backoff_counter > 100 {
+                        self.input_buffer.clear();
                         self.finished = true;
-                        if !self.input_buffer.is_empty() {
-                            self.output_buffer.put(decrypt_chunk(
-                                &self.input_buffer.split(),
-                                &self.encryption_key,
-                            )?);
-                        }
-                    } else {
                         log::debug!(
-                            "[AF_DECRYPT] Buffer too small {}, starting backoff_counter: {}",
-                            self.input_buffer.len(),
-                            self.backoff_counter
-                        );
-
-                        self.backoff_counter += 1;
-
-                        if self.backoff_counter > 100 {
-                            self.input_buffer.clear();
-                            self.finished = true;
-                            log::debug!(
                             "[AF_DECRYPT] Buffer too small {}, backoff reached, discarding rest",
                             self.input_buffer.len()
                         );
-                        }
                     }
-                } else {
-                    self.finished = true;
                 }
-            };
-            // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
-            next.process_bytes(
-                &mut self.output_buffer.split().freeze(),
-                self.finished && self.input_buffer.is_empty(),
-            )
-            .await
-        } else {
-            Err(anyhow!(
-                "[AF_DECRYPT] This decrypter is designed to always contain a 'next'"
-            ))
-        }
+            } else {
+                self.finished = true;
+            }
+        };
+        buf.put(self.output_buffer.split().freeze());
+        Ok(self.finished && self.input_buffer.is_empty())
     }
-    async fn notify(&mut self, notes: &mut Vec<Notifications>) -> Result<()> {
-        if let Some(next) = &mut self.next {
-            next.notify(notes).await?
-        }
-        Ok(())
+
+    async fn notify(&mut self, message: Message) -> Result<Message> {
+        Ok(Message::default())
+    }
+
+    fn set_id(&mut self, id: u64) {
+        self.id = id
+    }
+
+    fn get_id(&self) -> u64 {
+        self.id
     }
 }
 
