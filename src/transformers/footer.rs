@@ -42,18 +42,18 @@ impl Transformer for FooterGenerator {
                     return Err(anyhow!("Missing notifications"));
                 }
             }
-            buf.put(self.external_info);
+            buf.put(self.external_info.clone());
             self.finished = true;
         }
 
         Ok(self.finished && buf.len() == 0)
     }
     async fn notify(&mut self, message: Message) -> Result<Message> {
-        if message.recipient == self.id && message.message_type = MessageType::Message {
+        if message.recipient == self.id && message.message_type == MessageType::Message {
             if let Some(data) = message.info {
-                self.external_info = data
+                self.external_info.put(data.as_ref())
             } else {
-                Err(anyhow!("No data provided"))
+                return Err(anyhow!("No data provided"));
             }
         }
         Ok(Message::default())

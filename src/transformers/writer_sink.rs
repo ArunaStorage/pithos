@@ -6,14 +6,14 @@ use anyhow::Result;
 use tokio::io::AsyncWriteExt;
 use tokio::io::{AsyncWrite, BufWriter};
 
-pub struct WriterSink<W: AsyncWrite + Unpin + Send> {
+pub struct WriterSink<W: AsyncWrite + Unpin> {
     writer: BufWriter<W>,
     id: u64,
 }
 
-impl<W: AsyncWrite + Unpin + Send> Sink for WriterSink<W> {}
+impl<W: AsyncWrite + Unpin> Sink for WriterSink<W> {}
 
-impl<W: AsyncWrite + Unpin + Send> WriterSink<W> {
+impl<W: AsyncWrite + Unpin> WriterSink<W> {
     pub fn new(writer: BufWriter<W>) -> Self {
         Self { writer, id: 0 }
     }

@@ -9,7 +9,7 @@ use tokio::io::{AsyncWrite, BufWriter};
 
 pub struct ArunaStreamReadWriter<
     'a,
-    R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>> + Unpin,
+    R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static>>> + Unpin + Send + Sync,
 > {
     input_stream: R,
     transformers: Vec<Box<dyn Transformer + Send + Sync>>,
@@ -18,10 +18,7 @@ pub struct ArunaStreamReadWriter<
 
 impl<
         'a,
-        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
-            + Unpin
-            + Send
-            + Sync,
+        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static>>> + Unpin + Send + Sync,
     > ArunaStreamReadWriter<'a, R>
 {
     pub fn new_with_sink<T: Transformer + Sink + Send + Sync + 'a>(
@@ -35,7 +32,7 @@ impl<
         }
     }
 
-    pub fn new_with_writer<W: AsyncWrite + Unpin + Send + Sync + 'a>(
+    pub fn new_with_writer<W: AsyncWrite + Unpin + 'a + Send + Sync>(
         input_stream: R,
         writer: W,
     ) -> Self {
@@ -46,12 +43,11 @@ impl<
         }
     }
 
-    pub fn add_transformer<T: Transformer + Send + Sync + 'a>(
+    pub fn add_transformer<T: Transformer + 'a + Send + Sync + 'static>(
         mut self,
         mut transformer: T,
     ) -> Self {
         transformer.set_id(self.transformers.len() as u64);
-        transformer.add_root(Box::new(self));
         self.transformers.push(Box::new(transformer));
         self
     }
@@ -60,46 +56,20 @@ impl<
 #[async_trait::async_trait]
 impl<
         'a,
-        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
-            + Unpin
-            + Send
-            + Sync,
-    > Notifier for ArunaStreamReadWriter<'a, R>
-{
-    async fn notify(&self, target: u64, message: Message) -> Result<Message> {
-        bail!("error")
-    }
-    async fn get_next_id_of_type(&self, target: Category) -> Option<u64> {
-        todo!();
-    }
-}
-
-#[async_trait::async_trait]
-impl<
-        'a,
-        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
-            + Unpin
-            + Send
-            + Sync,
+        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static>>> + Unpin + Send + Sync,
     > ReadWriter for ArunaStreamReadWriter<'a, R>
 {
     async fn process(&mut self) -> Result<()> {
         // The buffer that accumulates the "actual" data
-        let mut bytes_read;
-        let mut data = BytesMut::new();
+        let mut read_buf = BytesMut::with_capacity(65_536);
 
         loop {
-            if let Some(b) = self.input_stream.next().await {
-                data.put(b.map_err(|_| anyhow!("Received error in stream"))?);
-            };
-            bytes_read = data.len();
-            if bytes_read != 0 {
-                self.sink.process_bytes(&mut data, false).await?;
-            } else if self.sink.process_bytes(&mut data, true).await? {
+            read_buf.put(self.input_stream.next().await.unwrap().unwrap());
+            if read_buf.len() != 0 {
+                self.sink.process_bytes(&mut read_buf, false).await?;
+            } else if self.sink.process_bytes(&mut read_buf, true).await? {
                 break;
             }
-
-            log::debug!("StreamReadWriter: Processed {}", bytes_read);
         }
         Ok(())
     }

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::notifications::Message;
 use crate::notifications::MessageType;
 use crate::transformer::Notifier;
@@ -7,6 +9,7 @@ use anyhow::Result;
 use async_compression::tokio::write::ZstdEncoder;
 use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
+use bytes::BufMut;
 use bytes::{Bytes, BytesMut};
 use tokio::io::AsyncWriteExt;
 
@@ -22,7 +25,7 @@ pub struct ZstdEnc {
     is_last: bool,
     finished: bool,
     id: u64,
-    notifier: Option<Box<dyn Notifier + Send + Sync>>,
+    notifier: Option<Arc<dyn Notifier + Send + Sync>>,
 }
 
 impl ZstdEnc {
@@ -44,7 +47,7 @@ impl ZstdEnc {
 
 #[async_trait::async_trait]
 impl Transformer for ZstdEnc {
-    async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
+    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         // Create a new frame if buf would increase size_counter to more than RAW_FRAME_SIZE
         while self.size_counter + buf.len() > RAW_FRAME_SIZE {
             // Check how much bytes are missing
@@ -66,7 +69,7 @@ impl Transformer for ZstdEnc {
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
 
             buf.put(self.prev_buf.split().freeze());
-            Ok(self.finished && self.prev_buf.is_empty())
+            return Ok(self.finished && self.prev_buf.is_empty());
         }
 
         // Only write if the buffer contains data and the current process is not finished
@@ -84,19 +87,22 @@ impl Transformer for ZstdEnc {
             };
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
             self.finished = true;
-            if let Some(n) = self.notifier {
-                let target_id = n.get_next_id_of_type();
+            if let Some(n) = &self.notifier {
+                let target_id = n
+                    .get_next_id_of_type(crate::transformer::Category::Footer)
+                    .await
+                    .unwrap_or_default();
                 n.notify(
                     target_id,
                     Message {
                         recipient: target_id,
-                        info: Some(self.chunks),
+                        info: Some(self.chunks.clone()),
                         message_type: MessageType::Message,
                     },
-                )
+                );
             };
             buf.put(self.prev_buf.split().freeze());
-            Ok(self.finished && self.prev_buf.is_empty())
+            return Ok(self.finished && self.prev_buf.is_empty());
         }
         buf.put(self.prev_buf.split().freeze());
         Ok(self.finished && self.prev_buf.is_empty())
@@ -112,10 +118,6 @@ impl Transformer for ZstdEnc {
 
     fn get_id(&self) -> u64 {
         self.id
-    }
-
-    fn add_root<T: Notifier>(&mut self, notifier: dyn Notifier) {
-        self.notifier = Some(Box::new(notifier))
     }
 }
 

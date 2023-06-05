@@ -39,7 +39,7 @@ impl Transformer for ZstdDec {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         // Only write if the buffer contains data and the current process is not finished
         if !buf.is_empty() && !self.finished {
-            self.internal_buf.write_buf(buf.split()).await?;
+            self.internal_buf.write_buf(buf).await?;
             while !buf.is_empty() {
                 self.internal_buf.shutdown().await?;
                 self.prev_buf.put(self.internal_buf.get_ref().as_slice());

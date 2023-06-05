@@ -33,5 +33,4 @@ pub trait Transformer {
     }
     fn set_id(&mut self, id: u64);
     fn get_id(&self) -> u64;
-    fn add_root(&mut self, notifier: Box<dyn Notifier>) {}
 }

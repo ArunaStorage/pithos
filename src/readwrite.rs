@@ -34,12 +34,11 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ArunaReadWriter<'a, R> {
         }
     }
 
-    pub fn add_transformer<T: Transformer + Send + Sync + 'a>(
+    pub fn add_transformer<T: Transformer + Send + Sync + 'static>(
         mut self,
         mut transformer: T,
     ) -> Self {
         transformer.set_id(self.transformers.len() as u64);
-        transformer.add_root(Box::new(self));
         self.transformers.push(Box::new(transformer));
         self
     }

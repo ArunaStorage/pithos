@@ -21,7 +21,7 @@ impl AsyncSenderSink {
 impl Transformer for AsyncSenderSink {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         if !self.sender.is_closed() {
-            self.sender.send(Ok(buf.to_owned())).await?;
+            self.sender.send(Ok(buf.split().freeze())).await?;
         } else if !buf.is_empty() {
             log::debug!(
                 "[AF_ASYNCSINK] Output closed but still {:?} bytes in buffer",

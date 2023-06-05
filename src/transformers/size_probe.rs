@@ -26,7 +26,7 @@ impl Transformer for SizeProbe {
     async fn notify(&mut self, message: Message) -> Result<Message> {
         Ok(Message {
             recipient: 0,
-            info: Some(self.size_counter.into()),
+            info: Some(self.size_counter.to_le_bytes().into()),
             message_type: crate::notifications::MessageType::Response,
         })
     }
