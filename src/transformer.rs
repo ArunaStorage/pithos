@@ -30,8 +30,10 @@ pub trait ReadWriter {
 #[async_trait::async_trait]
 pub trait Transformer {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool>;
-    async fn notify(&mut self, message: Message) -> Result<Message>;
+    async fn notify(&mut self, message: Message) -> Result<Message> {
+        Ok(Message::default())
+    }
     fn set_id(&mut self, id: u64);
     fn get_id(&self) -> u64;
-    fn add_root<T: Notifier>(&mut self, notifier: dyn Notifier);
+    fn add_root<T: Notifier>(&mut self, notifier: dyn Notifier) {}
 }

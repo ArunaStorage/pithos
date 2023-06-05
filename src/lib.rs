@@ -293,9 +293,9 @@ mod tests {
         let file = File::open("test.txt").await.unwrap();
         let file2 = io::sink();
         let mut arw = ArunaReadWriter::new_with_writer(file, file2)
-            .add_transformer(SizeProbe::new(2))
+            .add_transformer(SizeProbe::new())
             .add_transformer(ZstdEnc::new(0, false))
-            .add_transformer(SizeProbe::new(1));
+            .add_transformer(SizeProbe::new());
 
         arw.process().await.unwrap();
 

@@ -1,6 +1,4 @@
-use crate::notifications::Data;
-use crate::notifications::Notifications;
-use crate::transformer::AddTransformer;
+use crate::notifications::Message;
 use crate::transformer::Transformer;
 use anyhow::anyhow;
 use anyhow::Result;
@@ -8,23 +6,15 @@ use anyhow::Result;
 pub struct SizeProbe<'a> {
     size_counter: u64,
     id: usize,
-    next: Option<Box<dyn Transformer + Send + 'a>>,
 }
 
 impl<'a> SizeProbe<'a> {
     #[allow(dead_code)]
-    pub fn new(id: usize) -> SizeProbe<'a> {
+    pub fn new() -> SizeProbe<'a> {
         SizeProbe {
             size_counter: 0,
-            id,
-            next: None,
+            id: 0,
         }
-    }
-}
-
-impl<'a> AddTransformer<'a> for SizeProbe<'a> {
-    fn add_transformer(&mut self, t: Box<dyn Transformer + Send + 'a>) {
-        self.next = Some(t)
     }
 }
 
@@ -42,14 +32,17 @@ impl Transformer for SizeProbe<'_> {
             ))
         }
     }
-    async fn notify(&mut self, notes: &mut Vec<Notifications>) -> Result<()> {
-        notes.push(Notifications::Response(Data {
-            recipient: format!("SIZE_TAG_{}", self.id),
-            info: Some(self.size_counter.to_le_bytes().to_vec()),
-        }));
-        if let Some(next) = &mut self.next {
-            next.notify(notes).await?
-        }
-        Ok(())
+    async fn notify(&mut self, message: Message) -> Result<Message> {
+        Ok(Message {
+            recipient: 0,
+            info: Some(self.size_counter),
+            message_type: crate::notifications::MessageType::Response,
+        })
+    }
+    fn set_id(&mut self, id: u64) {
+        self.id = id
+    }
+    fn get_id(&self) -> u64 {
+        self.id
     }
 }
