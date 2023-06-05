@@ -1,11 +1,11 @@
+use crate::notifications::Notifications;
+use crate::transformer::AddTransformer;
+use crate::transformer::Transformer;
 use anyhow::anyhow;
 use anyhow::Result;
 use serde::Deserialize;
 use serde::Serialize;
 use tar::Header;
-use crate::notifications::Notifications;
-use crate::transformer::AddTransformer;
-use crate::transformer::Transformer;
 
 pub struct TarEnc<'a> {
     current_header: Option<Header>,
@@ -15,8 +15,6 @@ pub struct TarEnc<'a> {
     finished: bool,
     next: Option<Box<dyn Transformer + Send + 'a>>,
 }
-
-
 
 #[derive(Serialize, Deserialize)]
 pub struct TarFileInfo {
@@ -69,11 +67,8 @@ impl Transformer for TarEnc<'_> {
         // Try to write the buf to the "next" in the chain, even if the buf is empty
         if let Some(next) = &mut self.next {
             // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
-            next.process_bytes(
-                buf,
-                self.finished && buf.is_empty() && finished,
-            )
-            .await
+            next.process_bytes(buf, self.finished && buf.is_empty() && finished)
+                .await
         } else {
             Err(anyhow!(
                 "This tar transformer is designed to always contain a 'next'"
@@ -82,8 +77,9 @@ impl Transformer for TarEnc<'_> {
     }
     async fn notify(&mut self, notes: &mut Vec<Notifications>) -> Result<()> {
         if let Some(next) = &mut self.next {
-
-            let index = notes.iter().position(|x| x.get_recipient() == "TAR_ENC_FILEINFO");
+            let index = notes
+                .iter()
+                .position(|x| x.get_recipient() == "TAR_ENC_FILEINFO");
             match index {
                 Some(i) => {
                     let note = notes.remove(i);
@@ -94,12 +90,11 @@ impl Transformer for TarEnc<'_> {
                             self.file_size = finfo.size;
                             self.current_header = Some(finfo.try_into()?);
                             self.next_header = None;
-                        }else{
+                        } else {
                             self.next_header = Some(finfo.try_into()?);
                         }
                     }
-
-                },
+                }
                 None => {}
             }
             next.notify(notes).await?

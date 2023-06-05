@@ -1,13 +1,11 @@
-use crate::notifications::Notifications;
-use crate::transformer::AddTransformer;
-use crate::transformer::Sink;
-use crate::transformer::Transformer;
+use crate::transformer::{Sink, Transformer};
 use anyhow::Result;
 use hyper::body::Sender;
 use hyper::Body;
 
 pub struct HyperSink {
     sender: Sender,
+    id: usize,
 }
 
 impl Sink for HyperSink {}
@@ -15,13 +13,10 @@ impl Sink for HyperSink {}
 impl HyperSink {
     pub fn new() -> (Self, Body) {
         let (sender, body) = hyper::Body::channel();
-        (Self { sender }, body)
+        (Self { sender, id: 0 }, body)
     }
 }
-
-impl AddTransformer<'_> for HyperSink {
-    fn add_transformer<'a>(self: &mut HyperSink, _t: Box<dyn Transformer + Send + 'a>) {}
-}
+impl<HyperSink: Transformer + Sink + Send> Sink for HyperSink {}
 
 #[async_trait::async_trait]
 impl Transformer for HyperSink {
@@ -34,7 +29,11 @@ impl Transformer for HyperSink {
         }
         Ok(false)
     }
-    async fn notify(&mut self, _notes: &mut Vec<Notifications>) -> Result<()> {
-        Ok(())
+
+    fn set_id(&mut self, id: u64) {
+        self.id = id
+    }
+    fn get_id(&self) -> u64 {
+        self.id
     }
 }

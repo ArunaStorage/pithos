@@ -39,10 +39,4 @@ impl Transformer for SizeProbe<'_> {
             message_type: crate::notifications::MessageType::Response,
         })
     }
-    fn set_id(&mut self, id: u64) {
-        self.id = id
-    }
-    fn get_id(&self) -> u64 {
-        self.id
-    }
 }
