@@ -10,6 +10,7 @@ mod tests {
     use crate::helpers::footer_parser::{FooterParser, Range};
     use crate::readwrite::ArunaReadWriter;
     use crate::streamreadwrite::ArunaStreamReadWriter;
+    use crate::transformer::ReadWriter;
     use crate::transformers::compressor::ZstdEnc;
     use crate::transformers::decompressor::ZstdDec;
     use crate::transformers::decrypt::ChaCha20Dec;

@@ -11,7 +11,7 @@ use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Nonce;
 
 const ENCRYPTION_BLOCK_SIZE: usize = 65_536;
 
-pub struct ChaCha20Enc<'a> {
+pub struct ChaCha20Enc {
     input_buf: BytesMut,
     output_buf: BytesMut,
     add_padding: bool,
@@ -20,9 +20,9 @@ pub struct ChaCha20Enc<'a> {
     id: u64,
 }
 
-impl<'a> ChaCha20Enc<'a> {
+impl ChaCha20Enc {
     #[allow(dead_code)]
-    pub fn new(add_padding: bool, enc_key: Vec<u8>) -> Result<ChaCha20Enc<'a>> {
+    pub fn new(add_padding: bool, enc_key: Vec<u8>) -> Result<Self> {
         sodiumoxide::init().map_err(|_| anyhow!("sodiuminit failed"))?;
         Ok(ChaCha20Enc {
             input_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
@@ -37,7 +37,7 @@ impl<'a> ChaCha20Enc<'a> {
 }
 
 #[async_trait::async_trait]
-impl Transformer for ChaCha20Enc<'_> {
+impl Transformer for ChaCha20Enc {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         // Only write if the buffer contains data and the current process is not finished
 

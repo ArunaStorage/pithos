@@ -2,9 +2,7 @@ use crate::notifications::Message;
 use anyhow::Result;
 
 // Marker trait to signal that this Transformer can be a "final" destination for data
-pub trait IsSink {}
-
-pub trait Sink: Transformer + IsSink + Send {}
+pub trait Sink {}
 
 pub enum Category {
     ZstdComp,
@@ -35,5 +33,5 @@ pub trait Transformer {
     }
     fn set_id(&mut self, id: u64);
     fn get_id(&self) -> u64;
-    fn add_root<T: Notifier>(&mut self, notifier: dyn Notifier) {}
+    fn add_root(&mut self, notifier: Box<dyn Notifier>) {}
 }

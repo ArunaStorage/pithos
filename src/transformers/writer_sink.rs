@@ -1,5 +1,4 @@
 use crate::notifications::Message;
-use crate::transformer::Notifier;
 use crate::transformer::Sink;
 use crate::transformer::Transformer;
 use anyhow::Result;
@@ -43,5 +42,4 @@ impl<W: AsyncWrite + Unpin + Send> Transformer for WriterSink<W> {
     fn get_id(&self) -> u64 {
         self.id
     }
-    fn add_root<T: Notifier>(&mut self, notifier: dyn Notifier) {}
 }

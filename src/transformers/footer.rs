@@ -8,16 +8,16 @@ use byteorder::WriteBytesExt;
 use bytes::BufMut;
 use bytes::{Bytes, BytesMut};
 
-pub struct FooterGenerator<'a> {
+pub struct FooterGenerator {
     finished: bool,
     external_info: BytesMut,
     notifications: Option<bool>,
     id: u64,
 }
 
-impl<'a> FooterGenerator<'a> {
+impl<'a> FooterGenerator {
     #[allow(dead_code)]
-    pub fn new(external_info: Option<Vec<u8>>, should_be_notified: bool) -> FooterGenerator<'a> {
+    pub fn new(external_info: Option<Vec<u8>>, should_be_notified: bool) -> Self {
         FooterGenerator {
             finished: false,
             external_info: match external_info {
@@ -34,7 +34,7 @@ impl<'a> FooterGenerator<'a> {
 }
 
 #[async_trait::async_trait]
-impl Transformer for FooterGenerator<'_> {
+impl Transformer for FooterGenerator {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         if buf.is_empty() && !self.finished && finished {
             if let Some(a) = self.notifications {

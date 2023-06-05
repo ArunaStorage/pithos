@@ -5,7 +5,9 @@ pub struct Message {
     pub message_type: MessageType,
 }
 
+#[derive(Clone, Default)]
 pub enum MessageType {
+    #[default]
     Message,
     Response,
 }

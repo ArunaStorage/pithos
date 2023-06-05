@@ -13,7 +13,7 @@ use tokio::io::AsyncWriteExt;
 const RAW_FRAME_SIZE: usize = 5_242_880;
 const CHUNK: usize = 65_536;
 
-pub struct ZstdEnc<'a> {
+pub struct ZstdEnc {
     internal_buf: ZstdEncoder<Vec<u8>>,
     prev_buf: BytesMut,
     size_counter: usize,
@@ -22,12 +22,12 @@ pub struct ZstdEnc<'a> {
     is_last: bool,
     finished: bool,
     id: u64,
-    notifier: Option<Box<dyn Notifier>>,
+    notifier: Option<Box<dyn Notifier + Send + Sync>>,
 }
 
-impl<'a> ZstdEnc<'a> {
+impl ZstdEnc {
     #[allow(dead_code)]
-    pub fn new(comp_num: usize, last: bool) -> ZstdEnc<'a> {
+    pub fn new(comp_num: usize, last: bool) -> Self {
         ZstdEnc {
             internal_buf: ZstdEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK)),
             prev_buf: BytesMut::with_capacity(RAW_FRAME_SIZE + CHUNK),
@@ -43,7 +43,7 @@ impl<'a> ZstdEnc<'a> {
 }
 
 #[async_trait::async_trait]
-impl Transformer for ZstdEnc<'_> {
+impl Transformer for ZstdEnc {
     async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
         // Create a new frame if buf would increase size_counter to more than RAW_FRAME_SIZE
         while self.size_counter + buf.len() > RAW_FRAME_SIZE {
@@ -119,7 +119,7 @@ impl Transformer for ZstdEnc<'_> {
     }
 }
 
-impl ZstdEnc<'_> {
+impl ZstdEnc {
     async fn add_skippable(&mut self) {
         if CHUNK - (self.prev_buf.len() % CHUNK) > 8 {
             self.prev_buf.extend(create_skippable_padding_frame(

@@ -13,7 +13,7 @@ const ENCRYPTION_BLOCK_SIZE: usize = 65_536;
 const CIPHER_DIFF: usize = 28;
 const CIPHER_SEGMENT_SIZE: usize = ENCRYPTION_BLOCK_SIZE + CIPHER_DIFF;
 
-pub struct ChaCha20Dec<'a> {
+pub struct ChaCha20Dec {
     input_buffer: BytesMut,
     output_buffer: BytesMut,
     encryption_key: Key,
@@ -22,9 +22,9 @@ pub struct ChaCha20Dec<'a> {
     id: u64,
 }
 
-impl<'a> ChaCha20Dec<'a> {
+impl ChaCha20Dec {
     #[allow(dead_code)]
-    pub fn new(dec_key: Vec<u8>) -> Result<ChaCha20Dec<'a>> {
+    pub fn new(dec_key: Vec<u8>) -> Result<Self> {
         sodiumoxide::init().map_err(|_| anyhow!("[AF_DECRYPT] sodiuminit failed"))?;
         Ok(ChaCha20Dec {
             input_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
@@ -39,7 +39,7 @@ impl<'a> ChaCha20Dec<'a> {
 }
 
 #[async_trait::async_trait]
-impl Transformer for ChaCha20Dec<'_> {
+impl Transformer for ChaCha20Dec {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         // Only write if the buffer contains data and the current process is not finished
 

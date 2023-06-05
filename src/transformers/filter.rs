@@ -4,7 +4,7 @@ use crate::transformer::Transformer;
 use anyhow::Result;
 use bytes::Buf;
 
-pub struct Filter<'a> {
+pub struct Filter {
     counter: usize,
     filter: Range,
     captured_buf_len: usize,
@@ -12,9 +12,9 @@ pub struct Filter<'a> {
     id: u64,
 }
 
-impl<'a> Filter<'a> {
+impl Filter {
     #[allow(dead_code)]
-    pub fn new(filter: Range) -> Filter<'a> {
+    pub fn new(filter: Range) -> Self {
         Filter {
             counter: 0,
             filter,
@@ -26,7 +26,7 @@ impl<'a> Filter<'a> {
 }
 
 #[async_trait::async_trait]
-impl Transformer for Filter<'_> {
+impl Transformer for Filter {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         self.captured_buf_len = buf.len();
         self.advanced_by = 0;

@@ -9,16 +9,16 @@ use tokio::io::AsyncWriteExt;
 const RAW_FRAME_SIZE: usize = 5_242_880;
 const CHUNK: usize = 65_536;
 
-pub struct ZstdDec<'a> {
+pub struct ZstdDec {
     internal_buf: ZstdDecoder<Vec<u8>>,
     prev_buf: BytesMut,
     finished: bool,
     id: u64,
 }
 
-impl<'a> ZstdDec<'a> {
+impl ZstdDec {
     #[allow(dead_code)]
-    pub fn new() -> ZstdDec<'a> {
+    pub fn new() -> ZstdDec {
         ZstdDec {
             internal_buf: ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK)),
             prev_buf: BytesMut::with_capacity(RAW_FRAME_SIZE + CHUNK),
@@ -28,14 +28,14 @@ impl<'a> ZstdDec<'a> {
     }
 }
 
-impl<'a> Default for ZstdDec<'a> {
+impl Default for ZstdDec {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[async_trait::async_trait]
-impl Transformer for ZstdDec<'_> {
+impl Transformer for ZstdDec {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         // Only write if the buffer contains data and the current process is not finished
         if !buf.is_empty() && !self.finished {
