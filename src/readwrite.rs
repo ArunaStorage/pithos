@@ -1,17 +1,18 @@
+use crate::notifications::Message;
 use crate::transformer::{ReadWriter, Sink, Transformer};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::Result;
 use bytes::BytesMut;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, BufWriter};
 
-pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin + Send + Sync> {
+pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin> {
     reader: BufReader<R>,
-    transformers: Vec<Box<dyn Transformer + Send + Sync>>,
-    sink: Box<dyn Transformer + 'a + Send + Sync>,
+    transformers: Vec<Box<dyn Transformer>>,
+    sink: Box<dyn Transformer + 'a>,
 }
 
-impl<'a, R: AsyncRead + Unpin + Send + Sync> ArunaReadWriter<'a, R> {
-    pub fn new_with_writer<W: AsyncWrite + Unpin + Send + Sync + 'a>(
+impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
+    pub fn new_with_writer<W: AsyncWrite + Unpin + 'a>(
         reader: R,
         writer: W,
     ) -> ArunaReadWriter<'a, R> {
@@ -22,7 +23,7 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ArunaReadWriter<'a, R> {
         }
     }
 
-    pub fn new_with_sink<T: Transformer + Sink + Send + Sync + 'a>(
+    pub fn new_with_sink<T: Transformer + Sink + 'a>(
         reader: R,
         transformer: T,
     ) -> ArunaReadWriter<'a, R> {
@@ -33,7 +34,7 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ArunaReadWriter<'a, R> {
         }
     }
 
-    pub fn add_transformer<T: Transformer + Send + Sync + 'static>(
+    pub fn add_transformer<T: Transformer + 'a>(
         mut self,
         mut transformer: T,
     ) -> Self {
@@ -44,7 +45,7 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ArunaReadWriter<'a, R> {
 }
 
 #[async_trait::async_trait]
-impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, R> {
+impl<'a, R: AsyncRead + Unpin> ReadWriter for ArunaReadWriter<'a, R> {
     async fn process(&mut self) -> Result<()> {
         // The buffer that accumulates the "actual" data
         let mut bytes_read;
@@ -57,6 +58,13 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
             } else if self.sink.process_bytes(&mut read_buf, true).await? {
                 break;
             }
+        }
+        Ok(())
+    }
+
+    async fn announce_all(&self, message: Message) -> Result<()>{
+        for trans in self.transformers{
+            trans.notify(message).await?
         }
         Ok(())
     }

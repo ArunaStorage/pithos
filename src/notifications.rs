@@ -10,11 +10,11 @@ pub struct ProbeBroadcast {}
 pub enum Message {
     NextFile(Filemessage),
     Footer(FooterData),
+    ProbeBroadcast(ProbeBroadcast),
 }
 
 #[derive(Clone, Default)]
 pub enum Response {
     #[default]
-    Ok,
-    ProbeBroadcast(ProbeBroadcast),
+    Ok
 }

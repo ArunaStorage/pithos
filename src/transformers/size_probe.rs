@@ -1,9 +1,12 @@
 use crate::notifications::Message;
 use crate::transformer::Transformer;
 use anyhow::Result;
+use async_channel::Sender;
+
 
 pub struct SizeProbe {
     size_counter: u64,
+    sender: Option<Sender<Message>>,
 }
 
 impl SizeProbe {
@@ -11,6 +14,7 @@ impl SizeProbe {
     pub fn new() -> SizeProbe {
         SizeProbe {
             size_counter: 0,
+            sender: None
         }
     }
 }
@@ -21,11 +25,8 @@ impl Transformer for SizeProbe {
         self.size_counter += buf.len() as u64;
         Ok(true)
     }
-    async fn send_message(&mut self, message: Message) -> Result<Message> {
-        Ok(Message {
-            recipient: 0,
-            info: Some(self.size_counter.to_le_bytes().into()),
-            message_type: crate::notifications::MessageType::Response,
-        })
+    async fn add_sender(&mut self, s: Sender<Message>) -> Result<()>{
+        self.sender = Some(s);
+        Ok(())
     }
 }

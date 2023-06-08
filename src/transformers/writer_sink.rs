@@ -19,7 +19,7 @@ impl<W: AsyncWrite + Unpin> WriterSink<W> {
 }
 
 #[async_trait::async_trait]
-impl<W: AsyncWrite + Unpin + Send> Transformer for WriterSink<W> {
+impl<W: AsyncWrite + Unpin> Transformer for WriterSink<W> {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         if !buf.is_empty() {
             while !buf.is_empty() {

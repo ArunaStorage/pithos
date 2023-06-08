@@ -1,5 +1,6 @@
 use crate::transformer::{ReadWriter, Sink, Transformer};
 use crate::transformers::writer_sink::WriterSink;
+use crate::notifications::Message;
 use anyhow::Result;
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{Stream, StreamExt};
@@ -7,19 +8,19 @@ use tokio::io::{AsyncWrite, BufWriter};
 
 pub struct ArunaStreamReadWriter<
     'a,
-    R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static>>> + Unpin + Send + Sync,
+    R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static>>> + Unpin,
 > {
     input_stream: R,
-    transformers: Vec<Box<dyn Transformer + Send + Sync>>,
-    sink: Box<dyn Sink + 'a + Send + Sync>,
+    transformers: Vec<Box<dyn Transformer>>,
+    sink: Box<dyn Sink + 'a>,
 }
 
 impl<
         'a,
-        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static>>> + Unpin + Send + Sync,
+        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static>>> + Unpin,
     > ArunaStreamReadWriter<'a, R>
 {
-    pub fn new_with_sink<T: Transformer + Sink + Send + Sync + 'a>(
+    pub fn new_with_sink<T: Transformer + Sink + 'a>(
         input_stream: R,
         transformer: T,
     ) -> Self {
@@ -30,7 +31,7 @@ impl<
         }
     }
 
-    pub fn new_with_writer<W: AsyncWrite + Unpin + 'a + Send + Sync>(
+    pub fn new_with_writer<W: AsyncWrite + Unpin + 'a>(
         input_stream: R,
         writer: W,
     ) -> Self {
@@ -41,7 +42,7 @@ impl<
         }
     }
 
-    pub fn add_transformer<T: Transformer + 'a + Send + Sync + 'static>(
+    pub fn add_transformer<T: Transformer + 'a>(
         mut self,
         mut transformer: T,
     ) -> Self {
@@ -54,7 +55,7 @@ impl<
 #[async_trait::async_trait]
 impl<
         'a,
-        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static>>> + Unpin + Send + Sync,
+        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static>>> + Unpin,
     > ReadWriter for ArunaStreamReadWriter<'a, R>
 {
     async fn process(&mut self) -> Result<()> {
@@ -68,6 +69,12 @@ impl<
             } else if self.sink.process_bytes(&mut read_buf, true).await? {
                 break;
             }
+        }
+        Ok(())
+    }
+    async fn announce_all(&self, message: Message) -> Result<()>{
+        for trans in self.transformers{
+            trans.notify(message).await?
         }
         Ok(())
     }

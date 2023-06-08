@@ -8,16 +8,16 @@ pub trait Sink: Transformer {}
 #[async_trait::async_trait]
 pub trait ReadWriter {
     async fn process(&mut self) -> Result<()>;
-    async fn broadcast(&self, message: Message);
+    async fn announce_all(&self, message: Message) -> Result<()>;
 }
 
 #[async_trait::async_trait]
 pub trait Transformer {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool>;
-    async fn put_message(&mut self, message: Message) -> Result<Response> {
+    async fn notify(&mut self, message: Message) -> Result<Response> {
         Ok(Response::Ok)
     }
-    async fn set_sender(&mut self, s: Sender<Message>) -> Result<()>{
+    async fn add_sender(&mut self, s: Sender<Message>) -> Result<()>{
         Ok(())
     }
 }
