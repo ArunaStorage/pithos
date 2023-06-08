@@ -1,19 +1,20 @@
 #[derive(Clone, Default)]
-pub struct Message {
-    pub recipient: u64,
-    pub info: Option<Vec<u8>>,
-    pub message_type: MessageType,
+pub struct Filemessage {}
+#[derive(Clone, Default)]
+pub struct FooterData {}
+#[derive(Clone, Default)]
+pub struct ProbeBroadcast {}
+
+
+#[derive(Clone)]
+pub enum Message {
+    NextFile(Filemessage),
+    Footer(FooterData),
 }
 
-#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub enum MessageType {
+#[derive(Clone, Default)]
+pub enum Response {
     #[default]
-    Message,
-    Response,
-}
-
-impl Message {
-    pub fn get_data(self) -> Option<Vec<u8>> {
-        self.info
-    }
+    Ok,
+    ProbeBroadcast(ProbeBroadcast),
 }

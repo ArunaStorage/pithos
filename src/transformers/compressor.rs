@@ -1,8 +1,5 @@
 use std::sync::Arc;
-
 use crate::notifications::Message;
-use crate::notifications::MessageType;
-use crate::transformer::Notifier;
 use crate::transformer::Transformer;
 use anyhow::anyhow;
 use anyhow::Result;
@@ -108,17 +105,6 @@ impl Transformer for ZstdEnc {
         Ok(self.finished && self.prev_buf.is_empty())
     }
 
-    async fn notify(&mut self, message: Message) -> Result<Message> {
-        Ok(Message::default())
-    }
-
-    fn set_id(&mut self, id: u64) {
-        self.id = id
-    }
-
-    fn get_id(&self) -> u64 {
-        self.id
-    }
 }
 
 impl ZstdEnc {

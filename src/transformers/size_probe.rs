@@ -4,7 +4,6 @@ use anyhow::Result;
 
 pub struct SizeProbe {
     size_counter: u64,
-    id: u64,
 }
 
 impl SizeProbe {
@@ -12,7 +11,6 @@ impl SizeProbe {
     pub fn new() -> SizeProbe {
         SizeProbe {
             size_counter: 0,
-            id: 0,
         }
     }
 }
@@ -23,17 +21,11 @@ impl Transformer for SizeProbe {
         self.size_counter += buf.len() as u64;
         Ok(true)
     }
-    async fn notify(&mut self, message: Message) -> Result<Message> {
+    async fn send_message(&mut self, message: Message) -> Result<Message> {
         Ok(Message {
             recipient: 0,
             info: Some(self.size_counter.to_le_bytes().into()),
             message_type: crate::notifications::MessageType::Response,
         })
-    }
-    fn set_id(&mut self, id: u64) {
-        self.id = id
-    }
-    fn get_id(&self) -> u64 {
-        self.id
     }
 }

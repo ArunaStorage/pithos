@@ -1,8 +1,6 @@
-use crate::notifications::Message;
-use crate::transformer::{Category, Notifier, ReadWriter, Sink, Transformer};
+use crate::transformer::{ReadWriter, Sink, Transformer};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::Result;
-use anyhow::{anyhow, bail};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{Stream, StreamExt};
 use tokio::io::{AsyncWrite, BufWriter};
@@ -13,7 +11,7 @@ pub struct ArunaStreamReadWriter<
 > {
     input_stream: R,
     transformers: Vec<Box<dyn Transformer + Send + Sync>>,
-    sink: Box<dyn Transformer + 'a + Send + Sync>,
+    sink: Box<dyn Sink + 'a + Send + Sync>,
 }
 
 impl<

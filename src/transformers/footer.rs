@@ -1,5 +1,4 @@
 use crate::notifications::Message;
-use crate::notifications::MessageType;
 use crate::transformer::Transformer;
 use anyhow::anyhow;
 use anyhow::Result;
@@ -8,16 +7,15 @@ use byteorder::WriteBytesExt;
 use bytes::BufMut;
 use bytes::{Bytes, BytesMut};
 
-pub struct FooterGenerator {
+pub struct FooterGenerator<'a> {
     finished: bool,
     external_info: BytesMut,
     notifications: Option<bool>,
-    id: u64,
 }
 
-impl<'a> FooterGenerator {
+impl<'a> FooterGenerator<'a> {
     #[allow(dead_code)]
-    pub fn new(external_info: Option<Vec<u8>>, should_be_notified: bool) -> Self {
+    pub fn new(external_info: Option<Vec<u8>>, should_be_notified: bool) -> FooterGenerator<'a> {
         FooterGenerator {
             finished: false,
             external_info: match external_info {
@@ -28,41 +26,49 @@ impl<'a> FooterGenerator {
                 true => Some(false),
                 _ => None,
             },
-            id: 0,
         }
     }
 }
 
 #[async_trait::async_trait]
-impl Transformer for FooterGenerator {
-    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
+impl Transformer for FooterGenerator<'_> {
+    async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
         if buf.is_empty() && !self.finished && finished {
             if let Some(a) = self.notifications {
                 if !a {
                     return Err(anyhow!("Missing notifications"));
                 }
             }
-            buf.put(self.external_info.clone());
+
+            if let Some(next) = &mut self.next {
+                next.process_bytes(
+                    &mut create_skippable_footer_frame(self.external_info.to_vec())?,
+                    self.finished && buf.is_empty() && finished,
+                )
+                .await?;
+            }
             self.finished = true;
         }
 
-        Ok(self.finished && buf.len() == 0)
     }
-    async fn notify(&mut self, message: Message) -> Result<Message> {
-        if message.recipient == self.id && message.message_type == MessageType::Message {
-            if let Some(data) = message.info {
-                self.external_info.put(data.as_ref())
-            } else {
-                return Err(anyhow!("No data provided"));
+    async fn notify(&mut self, message: Message) -> Result<()> {
+        if let Some(next) = &mut self.next {
+            for note in notes.iter_mut() {
+                if let Notifications::Message(mes) = note {
+                    if mes.recipient == "FOOTER" {
+                        self.notifications = Some(true);
+                        self.external_info.put(
+                            mes.info
+                                .clone()
+                                .ok_or_else(|| anyhow!("Expected info"))?
+                                .as_slice(),
+                        );
+                    };
+                };
             }
+            next.notify(notes).await?
         }
-        Ok(Message::default())
-    }
-    fn set_id(&mut self, id: u64) {
-        self.id = id
-    }
-    fn get_id(&self) -> u64 {
-        self.id
+        Ok(())
     }
 }
 

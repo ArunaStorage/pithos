@@ -28,11 +28,4 @@ impl Transformer for HyperSink {
         }
         Ok(false)
     }
-
-    fn set_id(&mut self, id: u64) {
-        self.id = id
-    }
-    fn get_id(&self) -> u64 {
-        self.id
-    }
 }

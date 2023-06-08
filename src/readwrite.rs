@@ -1,5 +1,4 @@
-use crate::notifications::Message;
-use crate::transformer::{Category, Notifier, ReadWriter, Sink, Transformer};
+use crate::transformer::{ReadWriter, Sink, Transformer};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::Result;
 use bytes::BytesMut;
@@ -60,15 +59,5 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
             }
         }
         Ok(())
-    }
-}
-
-#[async_trait::async_trait]
-impl<'a, R: AsyncRead + Unpin + Send + Sync> Notifier for ArunaReadWriter<'a, R> {
-    async fn notify(&self, target: u64, message: Message) -> Result<Message> {
-        todo!();
-    }
-    async fn get_next_id_of_type(&self, target: Category) -> Option<u64> {
-        todo!();
     }
 }
