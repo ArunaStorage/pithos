@@ -1,4 +1,3 @@
-use crate::notifications::Message;
 use crate::transformer::Transformer;
 use anyhow::anyhow;
 use anyhow::Result;
@@ -88,18 +87,6 @@ impl Transformer for ChaCha20Dec {
         };
         buf.put(self.output_buffer.split().freeze());
         Ok(self.finished && self.input_buffer.is_empty())
-    }
-
-    async fn notify(&mut self, message: Message) -> Result<Message> {
-        Ok(Message::default())
-    }
-
-    fn set_id(&mut self, id: u64) {
-        self.id = id
-    }
-
-    fn get_id(&self) -> u64 {
-        self.id
     }
 }
 

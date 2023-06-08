@@ -11,8 +11,8 @@ pub struct ArunaStreamReadWriter<
     R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static>>> + Unpin,
 > {
     input_stream: R,
-    transformers: Vec<Box<dyn Transformer>>,
-    sink: Box<dyn Sink + 'a>,
+    transformers: Vec<Box<dyn Transformer + Send + Sync + 'a>>,
+    sink: Box<dyn Sink + Send + Sync + 'a>,
 }
 
 impl<
@@ -20,7 +20,7 @@ impl<
         R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static>>> + Unpin,
     > ArunaStreamReadWriter<'a, R>
 {
-    pub fn new_with_sink<T: Transformer + Sink + 'a>(
+    pub fn new_with_sink<T: Transformer + Sink + Send + Sync + 'a>(
         input_stream: R,
         transformer: T,
     ) -> Self {
@@ -31,7 +31,7 @@ impl<
         }
     }
 
-    pub fn new_with_writer<W: AsyncWrite + Unpin + 'a>(
+    pub fn new_with_writer<W: AsyncWrite + Unpin + Send + Sync + 'a>(
         input_stream: R,
         writer: W,
     ) -> Self {
@@ -42,11 +42,10 @@ impl<
         }
     }
 
-    pub fn add_transformer<T: Transformer + 'a>(
+    pub fn add_transformer<T: Transformer + Send + Sync + 'a>(
         mut self,
         mut transformer: T,
     ) -> Self {
-        transformer.set_id(self.transformers.len() as u64);
         self.transformers.push(Box::new(transformer));
         self
     }
@@ -55,7 +54,7 @@ impl<
 #[async_trait::async_trait]
 impl<
         'a,
-        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static>>> + Unpin,
+        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static>>> + Unpin + Send + Sync,
     > ReadWriter for ArunaStreamReadWriter<'a, R>
 {
     async fn process(&mut self) -> Result<()> {
@@ -74,7 +73,7 @@ impl<
     }
     async fn announce_all(&self, message: Message) -> Result<()>{
         for trans in self.transformers{
-            trans.notify(message).await?
+            trans.notify(message).await?;
         }
         Ok(())
     }

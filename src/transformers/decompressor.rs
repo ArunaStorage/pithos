@@ -1,4 +1,3 @@
-use crate::notifications::Message;
 use crate::transformer::Transformer;
 use anyhow::Result;
 use async_compression::tokio::write::ZstdDecoder;
@@ -56,17 +55,5 @@ impl Transformer for ZstdDec {
 
         buf.put(self.prev_buf.split().freeze());
         Ok(self.finished && self.prev_buf.is_empty())
-    }
-
-    async fn notify(&mut self, message: Message) -> Result<Message> {
-        Ok(Message::default())
-    }
-
-    fn set_id(&mut self, id: u64) {
-        self.id = id
-    }
-
-    fn get_id(&self) -> u64 {
-        self.id
     }
 }

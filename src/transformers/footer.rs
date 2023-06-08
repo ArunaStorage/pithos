@@ -1,5 +1,6 @@
 use crate::notifications;
 use crate::notifications::Message;
+use crate::notifications::Response;
 use crate::transformer::Transformer;
 use anyhow::anyhow;
 use anyhow::Result;
@@ -8,15 +9,15 @@ use byteorder::WriteBytesExt;
 use bytes::BufMut;
 use bytes::{Bytes, BytesMut};
 
-pub struct FooterGenerator<'a> {
+pub struct FooterGenerator {
     finished: bool,
     external_info: BytesMut,
     notifications: Option<bool>,
 }
 
-impl<'a> FooterGenerator<'a> {
+impl FooterGenerator {
     #[allow(dead_code)]
-    pub fn new(external_info: Option<Vec<u8>>, should_be_notified: bool) -> FooterGenerator<'a> {
+    pub fn new(external_info: Option<Vec<u8>>, should_be_notified: bool) -> FooterGenerator {
         FooterGenerator {
             finished: false,
             external_info: match external_info {
@@ -32,7 +33,7 @@ impl<'a> FooterGenerator<'a> {
 }
 
 #[async_trait::async_trait]
-impl Transformer for FooterGenerator<'_> {
+impl Transformer for FooterGenerator {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         if buf.is_empty() && !self.finished && finished {
             if let Some(a) = self.notifications {
@@ -45,13 +46,13 @@ impl Transformer for FooterGenerator<'_> {
         }
         Ok(self.finished)
     }
-    async fn notify(&mut self, message: Message) -> Result<()> {
+    async fn notify(&mut self, message: Message) -> Result<Response> {
         match message {
             notifications::Message::Footer(d) => {},
             notifications::Message::NextFile(_) => {self.finished = false}
-            _ => return Err(()),
+            _ => return Err(anyhow!("Received invalid message")),
         }
-        Ok(())
+        Ok(Response::Ok)
     }
 }
 

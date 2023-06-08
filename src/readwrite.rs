@@ -7,12 +7,12 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, BufWriter};
 
 pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin> {
     reader: BufReader<R>,
-    transformers: Vec<Box<dyn Transformer>>,
-    sink: Box<dyn Transformer + 'a>,
+    transformers: Vec<Box<dyn Transformer + Send + Sync + 'a>>,
+    sink: Box<dyn Transformer + Send + Sync + 'a>,
 }
 
 impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
-    pub fn new_with_writer<W: AsyncWrite + Unpin + 'a>(
+    pub fn new_with_writer<W: AsyncWrite + Unpin + Send + Sync + 'a>(
         reader: R,
         writer: W,
     ) -> ArunaReadWriter<'a, R> {
@@ -23,7 +23,7 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
         }
     }
 
-    pub fn new_with_sink<T: Transformer + Sink + 'a>(
+    pub fn new_with_sink<T: Transformer + Sink + Send + Sync + 'a>(
         reader: R,
         transformer: T,
     ) -> ArunaReadWriter<'a, R> {
@@ -34,18 +34,17 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
         }
     }
 
-    pub fn add_transformer<T: Transformer + 'a>(
+    pub fn add_transformer<T: Transformer + Send + Sync + 'a>(
         mut self,
         mut transformer: T,
     ) -> Self {
-        transformer.set_id(self.transformers.len() as u64);
         self.transformers.push(Box::new(transformer));
         self
     }
 }
 
 #[async_trait::async_trait]
-impl<'a, R: AsyncRead + Unpin> ReadWriter for ArunaReadWriter<'a, R> {
+impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, R> {
     async fn process(&mut self) -> Result<()> {
         // The buffer that accumulates the "actual" data
         let mut bytes_read;
@@ -64,7 +63,7 @@ impl<'a, R: AsyncRead + Unpin> ReadWriter for ArunaReadWriter<'a, R> {
 
     async fn announce_all(&self, message: Message) -> Result<()>{
         for trans in self.transformers{
-            trans.notify(message).await?
+            trans.notify(message).await?;
         }
         Ok(())
     }

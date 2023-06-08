@@ -9,6 +9,7 @@ use byteorder::WriteBytesExt;
 use bytes::BufMut;
 use bytes::{Bytes, BytesMut};
 use tokio::io::AsyncWriteExt;
+use async_channel::Sender;
 
 const RAW_FRAME_SIZE: usize = 5_242_880;
 const CHUNK: usize = 65_536;
@@ -22,7 +23,7 @@ pub struct ZstdEnc {
     is_last: bool,
     finished: bool,
     id: u64,
-    notifier: Option<Arc<dyn Notifier + Send + Sync>>,
+    sender: Option<Sender<Message>>,
 }
 
 impl ZstdEnc {
@@ -37,7 +38,7 @@ impl ZstdEnc {
             is_last: last,
             finished: false,
             id: 0,
-            notifier: None,
+            sender: None,
         }
     }
 }
@@ -84,13 +85,8 @@ impl Transformer for ZstdEnc {
             };
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
             self.finished = true;
-            if let Some(n) = &self.notifier {
-                let target_id = n
-                    .get_next_id_of_type(crate::transformer::Category::Footer)
-                    .await
-                    .unwrap_or_default();
-                n.notify(
-                    target_id,
+            if let Some(s) = &self.sender {
+                s.send(
                     Message {
                         recipient: target_id,
                         info: Some(self.chunks.clone()),
