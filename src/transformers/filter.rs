@@ -1,5 +1,4 @@
 use crate::helpers::footer_parser::Range;
-use crate::notifications::Message;
 use crate::transformer::Transformer;
 use anyhow::Result;
 use bytes::Buf;
@@ -47,14 +46,5 @@ impl Transformer for Filter {
 
         self.counter += self.captured_buf_len;
         Ok(true)
-    }
-    async fn notify(&mut self, message: Message) -> Result<Message> {
-        Ok(Message::default())
-    }
-    fn set_id(&mut self, id: u64) {
-        self.id = id
-    }
-    fn get_id(&self) -> u64 {
-        self.id
     }
 }
