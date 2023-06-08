@@ -1,3 +1,4 @@
+use crate::notifications;
 use crate::notifications::Message;
 use crate::transformer::Transformer;
 use anyhow::anyhow;
@@ -32,41 +33,23 @@ impl<'a> FooterGenerator<'a> {
 
 #[async_trait::async_trait]
 impl Transformer for FooterGenerator<'_> {
-    async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
+    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         if buf.is_empty() && !self.finished && finished {
             if let Some(a) = self.notifications {
                 if !a {
                     return Err(anyhow!("Missing notifications"));
                 }
             }
-
-            if let Some(next) = &mut self.next {
-                next.process_bytes(
-                    &mut create_skippable_footer_frame(self.external_info.to_vec())?,
-                    self.finished && buf.is_empty() && finished,
-                )
-                .await?;
-            }
+            buf.put(create_skippable_footer_frame(self.external_info.to_vec())?);
             self.finished = true;
         }
-
+        Ok(self.finished)
     }
     async fn notify(&mut self, message: Message) -> Result<()> {
-        if let Some(next) = &mut self.next {
-            for note in notes.iter_mut() {
-                if let Notifications::Message(mes) = note {
-                    if mes.recipient == "FOOTER" {
-                        self.notifications = Some(true);
-                        self.external_info.put(
-                            mes.info
-                                .clone()
-                                .ok_or_else(|| anyhow!("Expected info"))?
-                                .as_slice(),
-                        );
-                    };
-                };
-            }
-            next.notify(notes).await?
+        match message {
+            notifications::Message::Footer(d) => {},
+            notifications::Message::NextFile(_) => {self.finished = false}
+            _ => return Err(()),
         }
         Ok(())
     }

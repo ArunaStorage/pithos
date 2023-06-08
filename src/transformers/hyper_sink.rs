@@ -5,7 +5,6 @@ use hyper::Body;
 
 pub struct HyperSink {
     sender: Sender,
-    id: u64,
 }
 
 impl Sink for HyperSink {}
@@ -13,7 +12,7 @@ impl Sink for HyperSink {}
 impl HyperSink {
     pub fn new() -> (Self, Body) {
         let (sender, body) = hyper::Body::channel();
-        (Self { sender, id: 0 }, body)
+        (Self { sender }, body)
     }
 }
 

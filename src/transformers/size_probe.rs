@@ -23,6 +23,13 @@ impl SizeProbe {
 impl Transformer for SizeProbe {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         self.size_counter += buf.len() as u64;
+
+        if finished {
+            if let Some(s) = self.sender {
+                s.send(Message::ProbeBroadcast(format!("Processed size of: {}", self.size_counter)))
+            }
+        }
+
         Ok(true)
     }
     async fn add_sender(&mut self, s: Sender<Message>) -> Result<()>{

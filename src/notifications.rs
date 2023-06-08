@@ -3,7 +3,9 @@ pub struct Filemessage {}
 #[derive(Clone, Default)]
 pub struct FooterData {}
 #[derive(Clone, Default)]
-pub struct ProbeBroadcast {}
+pub struct ProbeBroadcast {
+    message: String,
+}
 
 
 #[derive(Clone)]
