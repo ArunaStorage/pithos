@@ -58,14 +58,19 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
 impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, R> {
     async fn process(&mut self) -> Result<()> {
         // The buffer that accumulates the "actual" data
-        let mut bytes_read;
-        let mut read_buf = BytesMut::with_capacity(65_536);
-
+        let mut read_buf = BytesMut::with_capacity(65_536 * 2);
+        let mut should_continue = false;
         loop {
-            bytes_read = self.reader.read_buf(&mut read_buf).await?;
-            if bytes_read != 0 {
-                self.sink.process_bytes(&mut read_buf, false).await?;
-            } else if self.sink.process_bytes(&mut read_buf, true).await? {
+            if read_buf.is_empty() {
+                self.reader.read_buf(&mut read_buf).await?;
+            }
+            for t in self.transformers.iter_mut() {
+                match t.process_bytes(&mut read_buf, should_continue).await? {
+                    true => {}
+                    false => should_continue = true,
+                };
+            }
+            if read_buf.is_empty() & !should_continue {
                 break;
             }
         }

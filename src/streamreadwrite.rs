@@ -1,7 +1,7 @@
 use crate::notifications::Message;
 use crate::transformer::{ReadWriter, Sink, Transformer};
 use crate::transformers::writer_sink::WriterSink;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_channel::{Receiver, Sender};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{Stream, StreamExt};
@@ -80,13 +80,25 @@ impl<
 {
     async fn process(&mut self) -> Result<()> {
         // The buffer that accumulates the "actual" data
-        let mut read_buf = BytesMut::with_capacity(65_536);
-
+        let mut read_buf = BytesMut::with_capacity(65_536 * 2);
+        let mut should_continue = false;
         loop {
-            read_buf.put(self.input_stream.next().await.unwrap().unwrap());
-            if read_buf.len() != 0 {
-                self.sink.process_bytes(&mut read_buf, false).await?;
-            } else if self.sink.process_bytes(&mut read_buf, true).await? {
+            if read_buf.is_empty() {
+                read_buf.put(
+                    self.input_stream
+                        .next()
+                        .await
+                        .ok_or_else(|| anyhow!("Returned None"))?
+                        .map_err(|_| anyhow!("Returned None"))?,
+                );
+            }
+            for t in self.transformers.iter_mut() {
+                match t.process_bytes(&mut read_buf, should_continue).await? {
+                    true => {}
+                    false => should_continue = true,
+                };
+            }
+            if read_buf.is_empty() & !should_continue {
                 break;
             }
         }
