@@ -81,7 +81,8 @@ impl Transformer for ZstdEnc {
             if !self.is_last {
                 self.add_skippable().await;
             };
-            self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
+            self.chunks
+                .push(u8::try_from(self.prev_buf.len() / CHUNK)? + 1);
             buf.put(self.prev_buf.split().freeze());
             if let Some(s) = &self.sender {
                 s.send(Message::Footer(FooterData {
@@ -94,6 +95,10 @@ impl Transformer for ZstdEnc {
         }
         buf.put(self.prev_buf.split().freeze());
         Ok(self.finished && self.prev_buf.is_empty())
+    }
+
+    fn add_sender(&mut self, s: Sender<Message>) {
+        self.sender = Some(s);
     }
 }
 
@@ -123,6 +128,65 @@ fn create_skippable_padding_frame(size: usize) -> Result<Bytes> {
     Ok(Bytes::from(frame))
 }
 
-fn _build_footer_frames(_frames: Vec<(usize, Vec<u8>)>) -> Result<Vec<Bytes>> {
-    Ok(Vec::new())
+#[cfg(test)]
+mod tests {
+
+    use async_channel::{Receiver, Sender};
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_zstd_encoder_with_skip() {
+        let mut encoder = ZstdEnc::new(0, false);
+        let mut buf = BytesMut::new();
+        buf.put(b"12345".as_slice());
+        encoder.process_bytes(&mut buf, true).await.unwrap();
+        // Starts with magic zstd header (little-endian)
+        assert!(buf.starts_with(&hex::decode("28B52FFD").unwrap()));
+        // Expect 65kb size
+        assert_eq!(buf.len(), 65536);
+        let expected = hex::decode(format!(
+            "28b52ffd00582900003132333435502a4d18eaff{}",
+            "00".repeat(65516)
+        ))
+        .unwrap();
+        assert_eq!(buf.as_ref(), &expected)
+    }
+
+    #[tokio::test]
+    async fn test_zstd_encoder_without_skip() {
+        let mut encoder = ZstdEnc::new(0, true);
+        let mut buf = BytesMut::new();
+        buf.put(b"12345".as_slice());
+        encoder.process_bytes(&mut buf, true).await.unwrap();
+        // Starts with magic zstd header (little-endian)
+        assert!(buf.starts_with(&hex::decode("28B52FFD").unwrap()));
+        // Expect 14b size
+        assert_eq!(buf.len(), 14);
+        let expected = hex::decode(format!("28b52ffd00582900003132333435",)).unwrap();
+        assert_eq!(buf.as_ref(), &expected)
+    }
+
+    #[tokio::test]
+    async fn test_zstd_encoder_with_notify() {
+        let mut encoder = ZstdEnc::new(0, true);
+        let mut buf = BytesMut::new();
+
+        let (sx, rx) = async_channel::unbounded::<Message>();
+
+        encoder.add_sender(sx);
+
+        buf.put(b"12345".as_slice());
+        assert_eq!(true, encoder.process_bytes(&mut buf, true).await.unwrap());
+
+        let taken = buf.split();
+        // Starts with magic zstd header (little-endian)
+        assert!(taken.starts_with(&hex::decode("28B52FFD").unwrap()));
+        // Expect 14b size
+        assert_eq!(taken.len(), 14);
+        let expected = hex::decode(format!("28b52ffd00582900003132333435",)).unwrap();
+        assert_eq!(taken.as_ref(), &expected);
+        let received = rx.recv().await.unwrap();
+        assert_eq!(received, Message::Footer(FooterData { chunks: vec![1u8] }))
+    }
 }
