@@ -14,8 +14,10 @@ pub trait ReadWriter {
 #[async_trait::async_trait]
 pub trait Transformer {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool>;
+    #[allow(unused_variables)]
     async fn notify(&mut self, message: Message) -> Result<Response> {
         Ok(Response::Ok)
     }
+    #[allow(unused_variables)]
     fn add_sender(&mut self, s: Sender<Message>) {}
 }

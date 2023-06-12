@@ -12,7 +12,6 @@ pub struct ZstdDec {
     internal_buf: ZstdDecoder<Vec<u8>>,
     prev_buf: BytesMut,
     finished: bool,
-    id: u64,
 }
 
 impl ZstdDec {
@@ -22,7 +21,6 @@ impl ZstdDec {
             internal_buf: ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK)),
             prev_buf: BytesMut::with_capacity(RAW_FRAME_SIZE + CHUNK),
             finished: false,
-            id: 0,
         }
     }
 }

@@ -7,14 +7,13 @@ use tokio::io::{AsyncWrite, BufWriter};
 
 pub struct WriterSink<W: AsyncWrite + Unpin> {
     writer: BufWriter<W>,
-    id: u64,
 }
 
 impl<W: AsyncWrite + Unpin + Send> Sink for WriterSink<W> {}
 
 impl<W: AsyncWrite + Unpin> WriterSink<W> {
     pub fn new(writer: BufWriter<W>) -> Self {
-        Self { writer, id: 0 }
+        Self { writer }
     }
 }
 

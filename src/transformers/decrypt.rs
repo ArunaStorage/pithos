@@ -18,7 +18,6 @@ pub struct ChaCha20Dec {
     encryption_key: Key,
     finished: bool,
     backoff_counter: usize,
-    id: u64,
 }
 
 impl ChaCha20Dec {
@@ -32,7 +31,6 @@ impl ChaCha20Dec {
             backoff_counter: 0,
             encryption_key: Key::from_slice(&dec_key)
                 .ok_or_else(|| anyhow!("[AF_DECRYPT] Unable to parse Key"))?,
-            id: 0,
         })
     }
 }

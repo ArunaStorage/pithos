@@ -5,14 +5,13 @@ use async_channel::Sender;
 
 pub struct AsyncSenderSink {
     sender: Sender<Result<bytes::Bytes>>,
-    id: u64,
 }
 
 impl Sink for AsyncSenderSink {}
 
 impl AsyncSenderSink {
     pub fn new(sender: Sender<Result<bytes::Bytes>>) -> Self {
-        Self { sender, id: 0 }
+        Self { sender }
     }
 }
 

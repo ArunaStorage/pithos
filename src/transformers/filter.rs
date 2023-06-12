@@ -8,7 +8,6 @@ pub struct Filter {
     filter: Range,
     captured_buf_len: usize,
     advanced_by: usize,
-    id: u64,
 }
 
 impl Filter {
@@ -19,7 +18,6 @@ impl Filter {
             filter,
             captured_buf_len: 0,
             advanced_by: 0,
-            id: 0,
         }
     }
 }

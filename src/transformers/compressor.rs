@@ -22,7 +22,6 @@ pub struct ZstdEnc {
     chunks: Vec<u8>,
     is_last: bool,
     finished: bool,
-    id: u64,
     sender: Option<Sender<Message>>,
 }
 
@@ -37,7 +36,6 @@ impl ZstdEnc {
             chunks: Vec::new(),
             is_last: last,
             finished: false,
-            id: 0,
             sender: None,
         }
     }
@@ -88,7 +86,8 @@ impl Transformer for ZstdEnc {
             if let Some(s) = &self.sender {
                 s.send(Message::Footer(FooterData {
                     chunks: self.chunks.clone(),
-                }));
+                }))
+                .await?;
             };
             self.finished = true;
             return Ok(self.finished && self.prev_buf.is_empty());

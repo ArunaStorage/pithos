@@ -16,7 +16,6 @@ pub struct ChaCha20Enc {
     add_padding: bool,
     encryption_key: Key,
     finished: bool,
-    id: u64,
 }
 
 impl ChaCha20Enc {
@@ -30,7 +29,6 @@ impl ChaCha20Enc {
             finished: false,
             encryption_key: Key::from_slice(&enc_key)
                 .ok_or_else(|| anyhow!("Unable to parse Key"))?,
-            id: 0,
         })
     }
 }

@@ -2,6 +2,7 @@ use crate::notifications::Message;
 use crate::transformer::{ReadWriter, Sink, Transformer};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::Result;
+use async_channel::{Receiver, Sender};
 use bytes::BytesMut;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, BufWriter};
 
@@ -9,6 +10,8 @@ pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin> {
     reader: BufReader<R>,
     transformers: Vec<Box<dyn Transformer + Send + Sync + 'a>>,
     sink: Box<dyn Transformer + Send + Sync + 'a>,
+    receiver: Receiver<Message>,
+    sender: Sender<Message>,
 }
 
 impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
@@ -16,10 +19,13 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
         reader: R,
         writer: W,
     ) -> ArunaReadWriter<'a, R> {
+        let (sx, rx) = async_channel::unbounded();
         ArunaReadWriter {
             reader: BufReader::new(reader),
             sink: Box::new(WriterSink::new(BufWriter::new(writer))),
             transformers: Vec::new(),
+            sender: sx,
+            receiver: rx,
         }
     }
 
@@ -27,10 +33,14 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
         reader: R,
         transformer: T,
     ) -> ArunaReadWriter<'a, R> {
+        let (sx, rx) = async_channel::unbounded();
+
         ArunaReadWriter {
             reader: BufReader::new(reader),
             sink: Box::new(transformer),
             transformers: Vec::new(),
+            sender: sx,
+            receiver: rx,
         }
     }
 
@@ -38,6 +48,7 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
         mut self,
         mut transformer: T,
     ) -> Self {
+        transformer.add_sender(self.sender.clone());
         self.transformers.push(Box::new(transformer));
         self
     }
