@@ -1,33 +1,46 @@
+use crate::notifications::Message;
 use crate::transformer::{ReadWriter, Sink, Transformer};
 use crate::transformers::writer_sink::WriterSink;
-use crate::notifications::Message;
 use anyhow::Result;
+use async_channel::{Receiver, Sender};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{Stream, StreamExt};
 use tokio::io::{AsyncWrite, BufWriter};
 
 pub struct ArunaStreamReadWriter<
     'a,
-    R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static>>> + Unpin,
+    R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
+        + Unpin
+        + Send
+        + Sync,
 > {
     input_stream: R,
     transformers: Vec<Box<dyn Transformer + Send + Sync + 'a>>,
     sink: Box<dyn Sink + Send + Sync + 'a>,
+    receiver: Receiver<Message>,
+    sender: Sender<Message>,
 }
 
 impl<
         'a,
-        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static>>> + Unpin,
+        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
+            + Unpin
+            + Send
+            + Sync,
     > ArunaStreamReadWriter<'a, R>
 {
     pub fn new_with_sink<T: Transformer + Sink + Send + Sync + 'a>(
         input_stream: R,
         transformer: T,
     ) -> Self {
+        let (sx, rx) = async_channel::unbounded();
+
         ArunaStreamReadWriter {
             input_stream,
             sink: Box::new(transformer),
             transformers: Vec::new(),
+            sender: sx,
+            receiver: rx,
         }
     }
 
@@ -35,17 +48,22 @@ impl<
         input_stream: R,
         writer: W,
     ) -> Self {
+        let (sx, rx) = async_channel::unbounded();
+
         ArunaStreamReadWriter {
             input_stream,
             sink: Box::new(WriterSink::new(BufWriter::new(writer))),
             transformers: Vec::new(),
+            sender: sx,
+            receiver: rx,
         }
     }
 
     pub fn add_transformer<T: Transformer + Send + Sync + 'a>(
         mut self,
         mut transformer: T,
-    ) -> Self {
+    ) -> ArunaStreamReadWriter<'a, R> {
+        transformer.add_sender(self.sender.clone());
         self.transformers.push(Box::new(transformer));
         self
     }
@@ -54,7 +72,10 @@ impl<
 #[async_trait::async_trait]
 impl<
         'a,
-        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + 'static>>> + Unpin + Send + Sync,
+        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
+            + Unpin
+            + Send
+            + Sync,
     > ReadWriter for ArunaStreamReadWriter<'a, R>
 {
     async fn process(&mut self) -> Result<()> {
@@ -71,9 +92,9 @@ impl<
         }
         Ok(())
     }
-    async fn announce_all(&self, message: Message) -> Result<()>{
-        for trans in self.transformers{
-            trans.notify(message).await?;
+    async fn announce_all(&mut self, message: Message) -> Result<()> {
+        for trans in self.transformers.iter_mut() {
+            trans.notify(message.clone()).await?;
         }
         Ok(())
     }

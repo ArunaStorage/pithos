@@ -26,7 +26,7 @@ impl Filter {
 
 #[async_trait::async_trait]
 impl Transformer for Filter {
-    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
+    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, _finished: bool) -> Result<bool> {
         self.captured_buf_len = buf.len();
         self.advanced_by = 0;
         if !buf.is_empty() {

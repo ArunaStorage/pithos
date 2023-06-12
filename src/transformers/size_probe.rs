@@ -3,7 +3,6 @@ use crate::transformer::Transformer;
 use anyhow::Result;
 use async_channel::Sender;
 
-
 pub struct SizeProbe {
     size_counter: u64,
     sender: Option<Sender<Message>>,
@@ -14,7 +13,7 @@ impl SizeProbe {
     pub fn new() -> SizeProbe {
         SizeProbe {
             size_counter: 0,
-            sender: None
+            sender: None,
         }
     }
 }
@@ -25,15 +24,17 @@ impl Transformer for SizeProbe {
         self.size_counter += buf.len() as u64;
 
         if finished {
-            if let Some(s) = self.sender {
-                s.send(Message::ProbeBroadcast(ProbeBroadcast{message: format!("Processed size of: {}", self.size_counter)}));
+            if let Some(s) = &self.sender {
+                s.send(Message::ProbeBroadcast(ProbeBroadcast {
+                    message: format!("Processed size of: {}", self.size_counter),
+                }))
+                .await?;
             }
         }
 
         Ok(true)
     }
-    async fn add_sender(&mut self, s: Sender<Message>) -> Result<()>{
+    fn add_sender(&mut self, s: Sender<Message>) {
         self.sender = Some(s);
-        Ok(())
     }
 }

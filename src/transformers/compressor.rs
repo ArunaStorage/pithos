@@ -1,15 +1,15 @@
-use std::sync::Arc;
+use crate::notifications::FooterData;
 use crate::notifications::Message;
 use crate::transformer::Transformer;
 use anyhow::anyhow;
 use anyhow::Result;
+use async_channel::Sender;
 use async_compression::tokio::write::ZstdEncoder;
 use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
 use bytes::BufMut;
 use bytes::{Bytes, BytesMut};
 use tokio::io::AsyncWriteExt;
-use async_channel::Sender;
 
 const RAW_FRAME_SIZE: usize = 5_242_880;
 const CHUNK: usize = 65_536;
@@ -84,23 +84,18 @@ impl Transformer for ZstdEnc {
                 self.add_skippable().await;
             };
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
-            self.finished = true;
-            if let Some(s) = &self.sender {
-                s.send(
-                    Message {
-                        recipient: target_id,
-                        info: Some(self.chunks.clone()),
-                        message_type: MessageType::Message,
-                    },
-                );
-            };
             buf.put(self.prev_buf.split().freeze());
+            if let Some(s) = &self.sender {
+                s.send(Message::Footer(FooterData {
+                    chunks: self.chunks.clone(),
+                }));
+            };
+            self.finished = true;
             return Ok(self.finished && self.prev_buf.is_empty());
         }
         buf.put(self.prev_buf.split().freeze());
         Ok(self.finished && self.prev_buf.is_empty())
     }
-
 }
 
 impl ZstdEnc {

@@ -48,8 +48,8 @@ impl Transformer for FooterGenerator {
     }
     async fn notify(&mut self, message: Message) -> Result<Response> {
         match message {
-            notifications::Message::Footer(d) => {},
-            notifications::Message::NextFile(_) => {self.finished = false}
+            notifications::Message::Footer(_d) => {}
+            notifications::Message::NextFile(_) => self.finished = false,
             _ => return Err(anyhow!("Received invalid message")),
         }
         Ok(Response::Ok)

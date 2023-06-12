@@ -1,12 +1,13 @@
 #[derive(Clone, Default)]
 pub struct Filemessage {}
 #[derive(Clone, Default)]
-pub struct FooterData {}
+pub struct FooterData {
+    pub chunks: Vec<u8>,
+}
 #[derive(Clone, Default)]
 pub struct ProbeBroadcast {
-    message: String,
+    pub message: String,
 }
-
 
 #[derive(Clone)]
 pub enum Message {
@@ -18,5 +19,5 @@ pub enum Message {
 #[derive(Clone, Default)]
 pub enum Response {
     #[default]
-    Ok
+    Ok,
 }

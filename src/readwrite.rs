@@ -61,9 +61,9 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
         Ok(())
     }
 
-    async fn announce_all(&self, message: Message) -> Result<()>{
-        for trans in self.transformers{
-            trans.notify(message).await?;
+    async fn announce_all(&mut self, message: Message) -> Result<()> {
+        for trans in self.transformers.iter_mut() {
+            trans.notify(message.clone()).await?;
         }
         Ok(())
     }
