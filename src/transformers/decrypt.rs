@@ -1,12 +1,12 @@
 use crate::transformer::Transformer;
 use anyhow::anyhow;
+use anyhow::bail;
 use anyhow::Result;
+use bytes::Buf;
 use bytes::BufMut;
 use bytes::Bytes;
 use bytes::BytesMut;
-use sodiumoxide::crypto::aead::chacha20poly1305_ietf;
-use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Key;
-use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Nonce;
+use chacha20poly1305::Nonce;
 
 const ENCRYPTION_BLOCK_SIZE: usize = 65_536;
 const CIPHER_DIFF: usize = 28;
@@ -15,7 +15,7 @@ const CIPHER_SEGMENT_SIZE: usize = ENCRYPTION_BLOCK_SIZE + CIPHER_DIFF;
 pub struct ChaCha20Dec {
     input_buffer: BytesMut,
     output_buffer: BytesMut,
-    encryption_key: Key,
+    decryption_key: Vec<u8>,
     finished: bool,
     backoff_counter: usize,
 }
@@ -23,14 +23,12 @@ pub struct ChaCha20Dec {
 impl ChaCha20Dec {
     #[allow(dead_code)]
     pub fn new(dec_key: Vec<u8>) -> Result<Self> {
-        sodiumoxide::init().map_err(|_| anyhow!("[AF_DECRYPT] sodiuminit failed"))?;
         Ok(ChaCha20Dec {
             input_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
             output_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
             finished: false,
             backoff_counter: 0,
-            encryption_key: Key::from_slice(&dec_key)
-                .ok_or_else(|| anyhow!("[AF_DECRYPT] Unable to parse Key"))?,
+            decryption_key: dec_key,
         })
     }
 }
@@ -48,7 +46,7 @@ impl Transformer for ChaCha20Dec {
             while self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
                 self.output_buffer.put(decrypt_chunk(
                     &self.input_buffer.split_to(CIPHER_SEGMENT_SIZE),
-                    &self.encryption_key,
+                    &self.decryption_key,
                 )?)
             }
         } else if finished && !self.finished {
@@ -58,7 +56,7 @@ impl Transformer for ChaCha20Dec {
                     if !self.input_buffer.is_empty() {
                         self.output_buffer.put(decrypt_chunk(
                             &self.input_buffer.split(),
-                            &self.encryption_key,
+                            &self.decryption_key,
                         )?);
                     }
                 } else {
@@ -88,28 +86,37 @@ impl Transformer for ChaCha20Dec {
     }
 }
 
-pub fn decrypt_chunk(chunk: &[u8], decryption_key: &Key) -> Result<Bytes> {
+pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
+    // TODO: Split off MAC !
     let (nonce_slice, data) = chunk.split_at(12);
-    let nonce = Nonce::from_slice(nonce_slice)
-        .ok_or_else(|| anyhow!("[AF_DECRYPT] unable to read nonce"))?;
 
     let (data, padding) = if chunk.ends_with(&[0u8]) {
-        let padding = chunk
-            .iter()
-            .rev()
-            .fold((BytesMut::new(), false), |mut acc, elem| {
-                if *elem == 0u8 && !acc.1 {
-                    acc.0.put_u8(*elem);
-                    (acc.0, false)
+        let mut padding = BytesMut::with_capacity(65_536);
+        let mut padsize = 0u64;
+        let mut expected_end = BytesMut::with_capacity(12);
+
+        for c in chunk.iter().rev() {
+            if *c == 0u8 {
+                padding.put_u8(0u8);
+                padsize += 1;
+            } else {
+                if expected_end.is_empty() {
+                    break;
                 } else {
-                    (acc.0, true)
+                    expected_end.put(padsize.to_le_bytes().as_ref());
+                    expected_end.reverse();
+                    if expected_end.get_u8() == *c {
+                        padsize += 1;
+                        padding.put_u8(*c);
+                    } else {
+                        bail!("[CHACHA_DECRYPT] Error unexpected padding")
+                    }
                 }
-            })
-            .0
-            .freeze();
+            }
+        }
 
         (
-            data.split_at(CIPHER_SEGMENT_SIZE - padding.len() - 12).0,
+            data.split_at(CIPHER_SEGMENT_SIZE - padsize as usize - 12).0,
             Some(padding),
         )
     } else {
