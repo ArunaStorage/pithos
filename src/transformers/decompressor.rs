@@ -55,3 +55,37 @@ impl Transformer for ZstdDec {
         Ok(self.finished && self.prev_buf.is_empty())
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_zstd_decoder_with_skip() {
+        let mut decoder = ZstdDec::new();
+        let mut buf = BytesMut::new();
+        let expected = hex::decode(format!(
+            "28b52ffd00582900003132333435502a4d18eaff{}",
+            "00".repeat(65516)
+        ))
+        .unwrap();
+        buf.put(expected.as_slice());
+        decoder.process_bytes(&mut buf, true).await.unwrap();
+        // Expect 65kb size
+        assert_eq!(buf.len(), 5);
+        assert_eq!(buf, b"12345".as_slice());
+    }
+
+    #[tokio::test]
+    async fn test_zstd_encoder_without_skip() {
+        let mut decoder = ZstdDec::new();
+        let mut buf = BytesMut::new();
+        let expected = hex::decode(format!("28b52ffd00582900003132333435",)).unwrap();
+        buf.put(expected.as_slice());
+        decoder.process_bytes(&mut buf, true).await.unwrap();
+        // Expect 65kb size
+        assert_eq!(buf.len(), 5);
+        assert_eq!(buf, b"12345".as_slice());
+    }
+}

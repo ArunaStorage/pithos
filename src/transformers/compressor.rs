@@ -131,8 +131,6 @@ fn create_skippable_padding_frame(size: usize) -> Result<Bytes> {
 #[cfg(test)]
 mod tests {
 
-    use async_channel::{Receiver, Sender};
-
     use super::*;
 
     #[tokio::test]
