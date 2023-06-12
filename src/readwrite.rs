@@ -70,6 +70,9 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
                     false => should_continue = true,
                 };
             }
+            self.sink
+                .process_bytes(&mut read_buf, should_continue)
+                .await?;
             if read_buf.is_empty() & !should_continue {
                 break;
             }
