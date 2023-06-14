@@ -1,5 +1,7 @@
 #[derive(Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Filemessage {}
+pub struct Filemessage {
+    
+}
 #[derive(Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FooterData {
     pub chunks: Vec<u8>,

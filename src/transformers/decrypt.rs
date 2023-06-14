@@ -1,12 +1,14 @@
 use crate::transformer::Transformer;
-use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Result;
 use bytes::Buf;
 use bytes::BufMut;
 use bytes::Bytes;
 use bytes::BytesMut;
-use chacha20poly1305::Nonce;
+use chacha20poly1305::{
+    aead::{Aead, KeyInit, Payload},
+    ChaCha20Poly1305,
+};
 
 const ENCRYPTION_BLOCK_SIZE: usize = 65_536;
 const CIPHER_DIFF: usize = 28;
@@ -87,15 +89,19 @@ impl Transformer for ChaCha20Dec {
 }
 
 pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
-    // TODO: Split off MAC !
-    let (nonce_slice, data) = chunk.split_at(12);
+    let (nonce_slice, full_data) = chunk.split_at(12);
+    let (data_without_mac, mac) = full_data.split_at(full_data.len() - 16);
 
-    let (data, padding) = if chunk.ends_with(&[0u8]) {
+    if mac.len() != 16 {
+        bail!("[CHACHA_DECRYPT] Unable to detect MAC")
+    }
+
+    let payload = if data_without_mac.ends_with(&[0u8]) {
         let mut padding = BytesMut::with_capacity(65_536);
         let mut padsize = 0u64;
         let mut expected_end = BytesMut::with_capacity(12);
 
-        for c in chunk.iter().rev() {
+        for c in data_without_mac.iter().rev() {
             if *c == 0u8 {
                 padding.put_u8(0u8);
                 padsize += 1;
@@ -114,21 +120,20 @@ pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
                 }
             }
         }
-
-        (
-            data.split_at(CIPHER_SEGMENT_SIZE - padsize as usize - 12).0,
-            Some(padding),
-        )
+        Payload {
+            msg: full_data,
+            aad: &padding,
+        }
     } else {
-        (data, None)
+        Payload {
+            msg: full_data,
+            aad: b"",
+        }
     };
 
-    Ok(chacha20poly1305_ietf::open(
-        data,
-        padding.as_ref().map(|e| e.as_ref()),
-        &nonce,
-        decryption_key,
-    )
-    .map_err(|_| anyhow!("[AF_DECRYPT] unable to decrypt part"))?
-    .into())
+    return Ok(ChaCha20Poly1305::new_from_slice(decryption_key)
+        .map_err(|_| anyhow::anyhow!("[CHACHA_DECRYPT] Unable to initialize decryptor"))?
+        .decrypt(nonce_slice.into(), payload)
+        .map_err(|_| anyhow::anyhow!("[CHACHA_DECRYPT] Unable to decrypt chunk"))?
+        .into());
 }
