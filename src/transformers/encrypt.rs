@@ -4,9 +4,12 @@ use anyhow::Result;
 use bytes::BufMut;
 use bytes::Bytes;
 use bytes::BytesMut;
-use sodiumoxide::crypto::aead::chacha20poly1305_ietf;
-use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Key;
-use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Nonce;
+use chacha20poly1305::aead::OsRng;
+use chacha20poly1305::AeadCore;
+use chacha20poly1305::{
+    aead::{Aead, KeyInit, Payload},
+    ChaCha20Poly1305,
+};
 
 const ENCRYPTION_BLOCK_SIZE: usize = 65_536;
 
@@ -14,21 +17,19 @@ pub struct ChaCha20Enc {
     input_buf: BytesMut,
     output_buf: BytesMut,
     add_padding: bool,
-    encryption_key: Key,
+    encryption_key: Vec<u8>,
     finished: bool,
 }
 
 impl ChaCha20Enc {
     #[allow(dead_code)]
     pub fn new(add_padding: bool, enc_key: Vec<u8>) -> Result<Self> {
-        sodiumoxide::init().map_err(|_| anyhow!("sodiuminit failed"))?;
         Ok(ChaCha20Enc {
             input_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
             output_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
             add_padding,
             finished: false,
-            encryption_key: Key::from_slice(&enc_key)
-                .ok_or_else(|| anyhow!("Unable to parse Key"))?,
+            encryption_key: enc_key,
         })
     }
 }
@@ -44,8 +45,10 @@ impl Transformer for ChaCha20Enc {
         if self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
             while self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
                 self.output_buf.put(encrypt_chunk(
-                    &self.input_buf.split_to(ENCRYPTION_BLOCK_SIZE),
-                    None,
+                    Payload {
+                        msg: &self.input_buf.split(),
+                        aad: b"",
+                    },
                     &self.encryption_key,
                 )?)
             }
@@ -54,23 +57,22 @@ impl Transformer for ChaCha20Enc {
                 self.finished = true;
             } else if self.add_padding {
                 self.finished = true;
-                let padding = vec![
-                    0u8;
-                    ENCRYPTION_BLOCK_SIZE
-                        - (self.input_buf.len() % ENCRYPTION_BLOCK_SIZE)
-                ];
-
-                self.output_buf.put(encrypt_chunk(
-                    &self.input_buf.split(),
-                    Some(&padding),
-                    &self.encryption_key,
-                )?);
-                self.output_buf.put(padding.as_ref());
+                let data = self.input_buf.split();
+                let pload = generate_padded_payload(
+                    ENCRYPTION_BLOCK_SIZE - (self.input_buf.len() % ENCRYPTION_BLOCK_SIZE),
+                    &data,
+                )?;
+                let aad = pload.aad.clone();
+                self.output_buf
+                    .put(encrypt_chunk(pload, &self.encryption_key)?);
+                self.output_buf.put(aad);
             } else {
                 self.finished = true;
                 self.output_buf.put(encrypt_chunk(
-                    &self.input_buf.split(),
-                    None,
+                    Payload {
+                        msg: &self.input_buf.split(),
+                        aad: b"",
+                    },
                     &self.encryption_key,
                 )?)
             }
@@ -80,23 +82,54 @@ impl Transformer for ChaCha20Enc {
     }
 }
 
-pub fn encrypt_chunk(chunk: &[u8], padding: Option<&[u8]>, enc: &Key) -> Result<Bytes> {
-    let nonce = Nonce::from_slice(&sodiumoxide::randombytes::randombytes(12))
-        .ok_or_else(|| anyhow!("Unable to create nonce"))?;
+pub fn encrypt_chunk(payload: Payload, enc: &[u8]) -> Result<Bytes> {
+    let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
     let mut bytes = BytesMut::new();
-    bytes.put(nonce.0.as_ref());
+    bytes.put(nonce.as_ref());
+    let cipher = ChaCha20Poly1305::new_from_slice(enc)
+        .map_err(|_| anyhow!("[AF_ENCRYPT] Unable to initialize cipher from key"))?;
+    let mut result = cipher
+        .encrypt(&nonce, payload)
+        .map_err(|_| anyhow!("[AF_ENCRYPT] Unable to encrypt chunk"))?;
 
-    let mut sealed_result = chacha20poly1305_ietf::seal(chunk, padding, &nonce, enc);
-
-    bytes.put(sealed_result.as_ref());
-
-    while sealed_result.last().ok_or_else(|| anyhow!("Wrong data"))? == &0u8 {
-        bytes.clear();
-        let nonce = Nonce::from_slice(&sodiumoxide::randombytes::randombytes(12))
-            .ok_or_else(|| anyhow!("Unable to create nonce"))?;
-        bytes.put(nonce.0.as_ref());
-        sealed_result = chacha20poly1305_ietf::seal(chunk, padding, &nonce, enc);
-        bytes.put(sealed_result.as_ref());
+    while result.ends_with(&[0u8]) {
+        let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
+        result = cipher
+            .encrypt(&nonce, payload)
+            .map_err(|_| anyhow!("[AF_ENCRYPT] Unable to encrypt chunk"))?;
     }
+
+    bytes.put(result.as_ref());
     Ok(bytes.freeze())
+}
+
+pub fn generate_padded_payload<'a>(size: usize, data: &'a [u8]) -> Result<Payload<'a, 'a>> {
+    match size {
+        0 => Ok(Payload {
+            msg: data,
+            aad: b"",
+        }),
+        1 => Ok(Payload {
+            msg: data,
+            aad: &[0u8],
+        }),
+        2 => Ok(Payload {
+            msg: data,
+            aad: &[0u8, 0u8],
+        }),
+        3 => Ok(Payload {
+            msg: data,
+            aad: &[0u8, 0u8, 0u8],
+        }),
+        size => {
+            let mut padding = vec![0u8; size - 4];
+            let as_u16 = u16::try_from(size)?;
+            padding.extend(as_u16.to_be_bytes());
+            padding.push(0u8);
+            Ok(Payload {
+                msg: data,
+                aad: &padding,
+            })
+        }
+    }
 }

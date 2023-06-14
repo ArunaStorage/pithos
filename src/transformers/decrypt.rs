@@ -1,7 +1,8 @@
 use crate::transformer::Transformer;
 use anyhow::bail;
 use anyhow::Result;
-use bytes::Buf;
+use byteorder::ByteOrder;
+use byteorder::LittleEndian;
 use bytes::BufMut;
 use bytes::Bytes;
 use bytes::BytesMut;
@@ -89,46 +90,54 @@ impl Transformer for ChaCha20Dec {
 }
 
 pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
-    let (nonce_slice, full_data) = chunk.split_at(12);
-    let (data_without_mac, mac) = full_data.split_at(full_data.len() - 16);
-
-    if mac.len() != 16 {
-        bail!("[CHACHA_DECRYPT] Unable to detect MAC")
+    if chunk.len() < 15 {
+        bail!("[CHACHA_DECRYPT] Unexpected chunk size < 15")
     }
 
-    let payload = if data_without_mac.ends_with(&[0u8]) {
-        let mut padding = BytesMut::with_capacity(65_536);
-        let mut padsize = 0u64;
-        let mut expected_end = BytesMut::with_capacity(12);
+    let (nonce_slice, data) = chunk.split_at(12);
 
-        for c in data_without_mac.iter().rev() {
-            if *c == 0u8 {
-                padding.put_u8(0u8);
-                padsize += 1;
-            } else {
-                if expected_end.is_empty() {
-                    break;
-                } else {
-                    expected_end.put(padsize.to_le_bytes().as_ref());
-                    expected_end.reverse();
-                    if expected_end.get_u8() == *c {
-                        padsize += 1;
-                        padding.put_u8(*c);
-                    } else {
-                        bail!("[CHACHA_DECRYPT] Error unexpected padding")
-                    }
-                }
+    let last_4 = {
+        let (l1, rem) = data.split_last().unwrap_or_else(|| (&0u8, &[0u8]));
+        let (l2, rem) = rem.split_last().unwrap_or_else(|| (&0u8, &[0u8]));
+        let (l3, rem) = rem.split_last().unwrap_or_else(|| (&0u8, &[0u8]));
+        let (l4, _) = rem.split_last().unwrap_or_else(|| (&0u8, &[0u8]));
+        (l4, l3, l2, l1)
+    };
+
+    // Padding definition
+    // Encryption with padding must ensure that MAC does not end with 0x00
+    // Padding is signaled by a 0x00 byte in the end, followed by the number of padding 0x00 bytes
+    // <data_ends_with_MAC: ...0abc01230a><padding: 0x0000000000000><padsize (u16): 0x0000><sentinel: 0x00>
+    // Special cases: 1, 2, 3 0x00
+    let mut padding;
+
+    let payload = match last_4 {
+        (0u8, size1, size2, 0u8) => {
+            let expected = [size1.clone(), size2.clone()];
+            let v = LittleEndian::read_u16(&expected);
+            padding = vec![0u8; v as usize - 4];
+            padding.extend_from_slice(&[0u8, *size1, *size2, 0u8]);
+            Payload {
+                msg: &data[..data.len() - v as usize],
+                aad: &padding,
             }
         }
-        Payload {
-            msg: full_data,
-            aad: &padding,
-        }
-    } else {
-        Payload {
-            msg: full_data,
+        (_, 0u8, 0u8, 0u8) => Payload {
+            msg: &data[..data.len() - 3],
+            aad: &[0u8, 0u8, 0u8],
+        },
+        (_, _, 0u8, 0u8) => Payload {
+            msg: &data[..data.len() - 2],
+            aad: &[0u8, 0u8],
+        },
+        (_, _, _, 0u8) => Payload {
+            msg: &data[..data.len() - 1],
+            aad: &[0u8],
+        },
+        _ => Payload {
+            msg: &data,
             aad: b"",
-        }
+        },
     };
 
     return Ok(ChaCha20Poly1305::new_from_slice(decryption_key)
