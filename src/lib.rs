@@ -27,12 +27,9 @@ mod tests {
         let file2 = File::create("test.txt.out.1").await.unwrap();
 
         // Create a new ArunaReadWriter
-        // Add transformer in reverse order -> from "last" to first
-        // input -> 1 -> 2 -> 3 -> output
-        // .add(3).add(2).add(1)println!("{}", self.internal_buf.len());
         ArunaReadWriter::new_with_writer(file, file2)
             .add_transformer(ZstdEnc::new(1, false))
-            .add_transformer(ZstdDec::new()) // Double compression because we can
+            .add_transformer(ZstdDec::new())
             .process()
             .await
             .unwrap();
@@ -44,6 +41,46 @@ mod tests {
         file.read_to_string(&mut buf1).await.unwrap();
         file2.read_to_string(&mut buf2).await.unwrap();
         assert!(buf1 == buf2)
+    }
+
+    #[tokio::test]
+    async fn e2e_encrypt_test_with_vec_no_pad() {
+        let file = b"This is a very very important test".to_vec();
+        let mut file2 = Vec::new();
+
+        // Create a new ArunaReadWriter
+        ArunaReadWriter::new_with_writer(file.as_ref(), &mut file2)
+            .add_transformer(
+                ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Dec::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .process()
+            .await
+            .unwrap();
+
+        assert_eq!(file, file2);
+    }
+
+    #[tokio::test]
+    async fn e2e_encrypt_test_with_vec_with_pad() {
+        let file = b"This is a very very important test".to_vec();
+        let mut file2 = Vec::new();
+
+        // Create a new ArunaReadWriter
+        ArunaReadWriter::new_with_writer(file.as_ref(), &mut file2)
+            .add_transformer(
+                ChaCha20Enc::new(true, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Dec::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .process()
+            .await
+            .unwrap();
+
+        assert_eq!(file, file2);
     }
 
     #[tokio::test]

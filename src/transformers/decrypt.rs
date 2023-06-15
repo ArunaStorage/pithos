@@ -85,7 +85,7 @@ impl Transformer for ChaCha20Dec {
             }
         };
         buf.put(self.output_buffer.split().freeze());
-        Ok(self.finished && self.input_buffer.is_empty())
+        Ok(self.finished && self.input_buffer.is_empty() && self.output_buffer.is_empty())
     }
 }
 
@@ -96,6 +96,10 @@ pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
 
     let (nonce_slice, data) = chunk.split_at(12);
 
+    if nonce_slice.len() != 12 {
+        bail!("[CHACHA_DECRYPT] Invalid nonce")
+    }
+
     let last_4 = {
         let (l1, rem) = data.split_last().unwrap_or_else(|| (&0u8, &[0u8]));
         let (l2, rem) = rem.split_last().unwrap_or_else(|| (&0u8, &[0u8]));
@@ -103,6 +107,8 @@ pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
         let (l4, _) = rem.split_last().unwrap_or_else(|| (&0u8, &[0u8]));
         (l4, l3, l2, l1)
     };
+
+    dbg!(last_4);
 
     // Padding definition
     // Encryption with padding must ensure that MAC does not end with 0x00

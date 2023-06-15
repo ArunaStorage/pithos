@@ -72,7 +72,10 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
                     false => finished = false,
                 };
             }
-            self.sink.process_bytes(&mut read_buf, finished).await?;
+            match self.sink.process_bytes(&mut read_buf, finished).await? {
+                true => {}
+                false => finished = false,
+            };
             if read_buf.is_empty() & finished {
                 break;
             }
