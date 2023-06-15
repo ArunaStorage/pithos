@@ -81,9 +81,10 @@ impl<
     async fn process(&mut self) -> Result<()> {
         // The buffer that accumulates the "actual" data
         let mut read_buf = BytesMut::with_capacity(65_536 * 2);
-        let mut should_continue = false;
+        let mut finished = false;
         loop {
             if read_buf.is_empty() {
+                // TODO: UPDATE finished
                 read_buf.put(
                     self.input_stream
                         .next()
@@ -93,15 +94,13 @@ impl<
                 );
             }
             for t in self.transformers.iter_mut() {
-                match t.process_bytes(&mut read_buf, should_continue).await? {
+                match t.process_bytes(&mut read_buf, finished).await? {
                     true => {}
-                    false => should_continue = true,
+                    false => finished = false,
                 };
             }
-            self.sink
-                .process_bytes(&mut read_buf, should_continue)
-                .await?;
-            if read_buf.is_empty() & !should_continue {
+            self.sink.process_bytes(&mut read_buf, finished).await?;
+            if read_buf.is_empty() & finished {
                 break;
             }
         }
