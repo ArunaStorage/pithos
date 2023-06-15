@@ -45,10 +45,8 @@ impl Transformer for ChaCha20Enc {
         if self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
             while self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
                 self.output_buf.put(encrypt_chunk(
-                    Payload {
-                        msg: &self.input_buf.split(),
-                        aad: b"",
-                    },
+                    &self.input_buf.split(),
+                    b"",
                     &self.encryption_key,
                 )?)
             }
@@ -58,21 +56,17 @@ impl Transformer for ChaCha20Enc {
             } else if self.add_padding {
                 self.finished = true;
                 let data = self.input_buf.split();
-                let pload = generate_padded_payload(
+                let padding = generate_padding(
                     ENCRYPTION_BLOCK_SIZE - (self.input_buf.len() % ENCRYPTION_BLOCK_SIZE),
-                    &data,
                 )?;
-                let aad = pload.aad.clone();
                 self.output_buf
-                    .put(encrypt_chunk(pload, &self.encryption_key)?);
-                self.output_buf.put(aad);
+                    .put(encrypt_chunk(&data, &padding, &self.encryption_key)?);
+                self.output_buf.put(padding.as_ref());
             } else {
                 self.finished = true;
                 self.output_buf.put(encrypt_chunk(
-                    Payload {
-                        msg: &self.input_buf.split(),
-                        aad: b"",
-                    },
+                    &self.input_buf.split(),
+                    b"",
                     &self.encryption_key,
                 )?)
             }
@@ -82,20 +76,22 @@ impl Transformer for ChaCha20Enc {
     }
 }
 
-pub fn encrypt_chunk(payload: Payload, enc: &[u8]) -> Result<Bytes> {
+pub fn encrypt_chunk(msg: &[u8], aad: &[u8], enc: &[u8]) -> Result<Bytes> {
     let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
     let mut bytes = BytesMut::new();
+    let pload = Payload { msg, aad };
     bytes.put(nonce.as_ref());
     let cipher = ChaCha20Poly1305::new_from_slice(enc)
         .map_err(|_| anyhow!("[AF_ENCRYPT] Unable to initialize cipher from key"))?;
     let mut result = cipher
-        .encrypt(&nonce, payload)
+        .encrypt(&nonce, pload)
         .map_err(|_| anyhow!("[AF_ENCRYPT] Unable to encrypt chunk"))?;
 
     while result.ends_with(&[0u8]) {
+        let pload = Payload { msg, aad };
         let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
         result = cipher
-            .encrypt(&nonce, payload)
+            .encrypt(&nonce, pload)
             .map_err(|_| anyhow!("[AF_ENCRYPT] Unable to encrypt chunk"))?;
     }
 
@@ -103,33 +99,18 @@ pub fn encrypt_chunk(payload: Payload, enc: &[u8]) -> Result<Bytes> {
     Ok(bytes.freeze())
 }
 
-pub fn generate_padded_payload<'a>(size: usize, data: &'a [u8]) -> Result<Payload<'a, 'a>> {
+pub fn generate_padding(size: usize) -> Result<Vec<u8>> {
     match size {
-        0 => Ok(Payload {
-            msg: data,
-            aad: b"",
-        }),
-        1 => Ok(Payload {
-            msg: data,
-            aad: &[0u8],
-        }),
-        2 => Ok(Payload {
-            msg: data,
-            aad: &[0u8, 0u8],
-        }),
-        3 => Ok(Payload {
-            msg: data,
-            aad: &[0u8, 0u8, 0u8],
-        }),
+        0 => Ok(Vec::new()),
+        1 => Ok(vec![0u8]),
+        2 => Ok(vec![0u8, 0u8]),
+        3 => Ok(vec![0u8, 0u8, 0u8]),
         size => {
             let mut padding = vec![0u8; size - 4];
             let as_u16 = u16::try_from(size)?;
             padding.extend(as_u16.to_be_bytes());
             padding.push(0u8);
-            Ok(Payload {
-                msg: data,
-                aad: &padding,
-            })
+            Ok(padding)
         }
     }
 }
