@@ -47,7 +47,7 @@ impl ZstdEnc {
 impl Transformer for ZstdEnc {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         // Create a new frame if buf would increase size_counter to more than RAW_FRAME_SIZE
-        while self.size_counter + buf.len() > RAW_FRAME_SIZE {
+        if self.size_counter + buf.len() > RAW_FRAME_SIZE {
             // Check how much bytes are missing
             let dif = RAW_FRAME_SIZE - self.size_counter;
             // Make sure that dif is <= RAW_FRAME_SIZE
