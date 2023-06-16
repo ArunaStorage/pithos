@@ -94,6 +94,7 @@ impl Transformer for ChaCha20Dec {
     }
 }
 
+#[inline]
 pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
     if chunk.len() < 15 {
         bail!("[CHACHA_DECRYPT] Unexpected chunk size < 15")

@@ -46,6 +46,7 @@ impl Transformer for Filter {
         Ok(true)
     }
 
+    #[inline]
     fn get_type(&self) -> TransformerType {
         TransformerType::Filter
     }

@@ -60,11 +60,13 @@ impl Transformer for FooterGenerator {
         Ok(Response::Ok)
     }
 
+    #[inline]
     fn get_type(&self) -> TransformerType {
         TransformerType::FooterGenerator
     }
 }
 
+#[inline]
 fn create_skippable_footer_frame(mut footer_list: Vec<u8>) -> Result<Bytes> {
     // 65_536 framesize minus 12 bytes for header
     // 1. Magic bytes (4)

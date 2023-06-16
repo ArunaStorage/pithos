@@ -55,6 +55,7 @@ impl Transformer for ZstdDec {
         buf.put(self.prev_buf.split().freeze());
         Ok(self.finished && self.prev_buf.is_empty())
     }
+    #[inline]
     fn get_type(&self) -> TransformerType {
         TransformerType::ZstdDecompressor
     }

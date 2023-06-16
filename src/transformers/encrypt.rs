@@ -80,6 +80,7 @@ impl Transformer for ChaCha20Enc {
     }
 }
 
+#[inline]
 pub fn encrypt_chunk(msg: &[u8], aad: &[u8], enc: &[u8]) -> Result<Bytes> {
     if msg.len() > ENCRYPTION_BLOCK_SIZE {
         bail!("[CHACHA_ENCRYPT] Invalid encryption block size")
@@ -109,6 +110,7 @@ pub fn encrypt_chunk(msg: &[u8], aad: &[u8], enc: &[u8]) -> Result<Bytes> {
     Ok(bytes.freeze())
 }
 
+#[inline]
 pub fn generate_padding(size: usize) -> Result<Vec<u8>> {
     match size {
         0 => Ok(Vec::new()),

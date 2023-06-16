@@ -27,7 +27,7 @@ impl Transformer for HyperSink {
         }
         Ok(false)
     }
-
+    #[inline]
     fn get_type(&self) -> TransformerType {
         TransformerType::HyperSink
     }

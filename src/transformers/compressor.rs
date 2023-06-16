@@ -125,6 +125,7 @@ impl ZstdEnc {
     }
 }
 
+#[inline]
 fn create_skippable_padding_frame(size: usize) -> Result<Bytes> {
     if size < 8 {
         return Err(anyhow!("{size} is too small, minimum is 8 bytes"));

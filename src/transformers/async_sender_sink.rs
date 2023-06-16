@@ -33,6 +33,7 @@ impl Transformer for AsyncSenderSink {
         Ok(false)
     }
 
+    #[inline]
     fn get_type(&self) -> TransformerType {
         TransformerType::AsyncSenderSink
     }
