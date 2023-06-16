@@ -67,13 +67,15 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
                 finished = true
             }
 
-            let maybe_message = self.receiver.try_recv().ok();
+            let mut maybe_msg: Option<Message> = None;
 
             for (ttype, trans) in self.transformers.iter_mut() {
-                if let Some(m) = &maybe_message {
+                if let Some(m) = &maybe_msg {
                     if m.target == *ttype {
                         trans.notify(m).await?;
                     }
+                } else {
+                    maybe_msg = self.receiver.try_recv().ok();
                 }
 
                 match trans.process_bytes(&mut read_buf, finished).await? {
