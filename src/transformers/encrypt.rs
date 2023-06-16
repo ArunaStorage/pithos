@@ -1,5 +1,6 @@
 use crate::transformer::Transformer;
 use anyhow::anyhow;
+use anyhow::bail;
 use anyhow::Result;
 use bytes::BufMut;
 use bytes::Bytes;
@@ -45,7 +46,7 @@ impl Transformer for ChaCha20Enc {
         if self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
             while self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
                 self.output_buf.put(encrypt_chunk(
-                    &self.input_buf.split(),
+                    &self.input_buf.split_to(ENCRYPTION_BLOCK_SIZE),
                     b"",
                     &self.encryption_key,
                 )?)
@@ -60,7 +61,6 @@ impl Transformer for ChaCha20Enc {
                     generate_padding(ENCRYPTION_BLOCK_SIZE - (data.len() % ENCRYPTION_BLOCK_SIZE))?;
                 self.output_buf
                     .put(encrypt_chunk(&data, &padding, &self.encryption_key)?);
-                self.output_buf.put(padding.as_ref());
             } else {
                 self.finished = true;
                 self.output_buf.put(encrypt_chunk(
@@ -76,6 +76,10 @@ impl Transformer for ChaCha20Enc {
 }
 
 pub fn encrypt_chunk(msg: &[u8], aad: &[u8], enc: &[u8]) -> Result<Bytes> {
+    if msg.len() > ENCRYPTION_BLOCK_SIZE {
+        bail!("[CHACHA_ENCRYPT] Invalid encryption block size")
+    }
+
     let mut nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
     let mut bytes = BytesMut::new();
     let pload = Payload { msg, aad };

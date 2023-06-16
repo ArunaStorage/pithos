@@ -1,8 +1,8 @@
 use crate::transformer::Transformer;
 use anyhow::bail;
 use anyhow::Result;
+use byteorder::BigEndian;
 use byteorder::ByteOrder;
-use byteorder::LittleEndian;
 use bytes::BufMut;
 use bytes::Bytes;
 use bytes::BytesMut;
@@ -108,8 +108,6 @@ pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
         (l4, l3, l2, l1)
     };
 
-    dbg!(last_4);
-
     // Padding definition
     // Encryption with padding must ensure that MAC does not end with 0x00
     // Padding is signaled by a 0x00 byte in the end, followed by the number of padding 0x00 bytes
@@ -120,7 +118,7 @@ pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
     let payload = match last_4 {
         (0u8, size1, size2, 0u8) => {
             let expected = [size1.clone(), size2.clone()];
-            let v = LittleEndian::read_u16(&expected);
+            let v = BigEndian::read_u16(&expected);
             padding = vec![0u8; v as usize - 4];
             padding.extend_from_slice(&[0u8, *size1, *size2, 0u8]);
             Payload {
