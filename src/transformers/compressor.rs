@@ -83,8 +83,7 @@ impl Transformer for ZstdEnc {
             if !self.is_last {
                 self.add_skippable().await;
             };
-            self.chunks
-                .push(u8::try_from(self.prev_buf.len() / CHUNK)? + 1);
+            self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
             buf.put(self.prev_buf.split().freeze());
             if let Some(s) = &self.sender {
                 s.send(Message {
@@ -198,8 +197,8 @@ mod tests {
         assert_eq!(
             received,
             Message {
-                target: TransformerType::ReadWriter,
-                data: MessageData::Footer(FooterData { chunks: vec![1u8] })
+                target: TransformerType::FooterGenerator,
+                data: MessageData::Footer(FooterData { chunks: vec![0u8] })
             }
         )
     }

@@ -61,13 +61,10 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
     async fn process(&mut self) -> Result<()> {
         // The buffer that accumulates the "actual" data
         let mut read_buf = BytesMut::with_capacity(65_536 * 2);
-        let mut finished = false;
+        let mut finished;
+        let mut maybe_msg: Option<Message> = None;
         loop {
-            if read_buf.is_empty() && self.reader.read_buf(&mut read_buf).await? == 0 {
-                finished = true
-            }
-
-            let mut maybe_msg: Option<Message> = None;
+            finished = read_buf.is_empty() && self.reader.read_buf(&mut read_buf).await? == 0;
 
             for (ttype, trans) in self.transformers.iter_mut() {
                 if let Some(m) = &maybe_msg {
@@ -87,7 +84,7 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
                 true => {}
                 false => finished = false,
             };
-            if read_buf.is_empty() & finished {
+            if read_buf.is_empty() && finished {
                 break;
             }
         }
