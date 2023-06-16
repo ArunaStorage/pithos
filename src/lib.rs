@@ -86,7 +86,7 @@ mod tests {
     #[tokio::test]
     async fn e2e_encrypt_test_with_file_no_pad() {
         let file = File::open("test.txt").await.unwrap();
-        let file2 = File::create("test.txt.out.1").await.unwrap();
+        let file2 = File::create("test.txt.out.2").await.unwrap();
 
         // Create a new ArunaReadWriter
         ArunaReadWriter::new_with_writer(file, file2)
@@ -101,7 +101,7 @@ mod tests {
             .unwrap();
 
         let mut file = File::open("test.txt").await.unwrap();
-        let mut file2 = File::open("test.txt.out.1").await.unwrap();
+        let mut file2 = File::open("test.txt.out.2").await.unwrap();
         let mut buf1 = String::new();
         let mut buf2 = String::new();
         file.read_to_string(&mut buf1).await.unwrap();
@@ -112,7 +112,7 @@ mod tests {
     #[tokio::test]
     async fn e2e_encrypt_test_with_file_with_pad() {
         let file = File::open("test.txt").await.unwrap();
-        let file2 = File::create("test.txt.out.1").await.unwrap();
+        let file2 = File::create("test.txt.out.3").await.unwrap();
 
         // Create a new ArunaReadWriter
         ArunaReadWriter::new_with_writer(file, file2)
@@ -127,7 +127,7 @@ mod tests {
             .unwrap();
 
         let mut file = File::open("test.txt").await.unwrap();
-        let mut file2 = File::open("test.txt.out.1").await.unwrap();
+        let mut file2 = File::open("test.txt.out.3").await.unwrap();
         let mut buf1 = String::new();
         let mut buf2 = String::new();
         file.read_to_string(&mut buf1).await.unwrap();
@@ -138,7 +138,7 @@ mod tests {
     #[tokio::test]
     async fn e2e_test_roundtrip_with_file() {
         let file = File::open("test.txt").await.unwrap();
-        let file2 = File::create("test.txt.out.1").await.unwrap();
+        let file2 = File::create("test.txt.out.4").await.unwrap();
 
         // Create a new ArunaReadWriter
         ArunaReadWriter::new_with_writer(file, file2)
@@ -163,7 +163,7 @@ mod tests {
             .unwrap();
 
         let mut file = File::open("test.txt").await.unwrap();
-        let mut file2 = File::open("test.txt.out.1").await.unwrap();
+        let mut file2 = File::open("test.txt.out.4").await.unwrap();
         let mut buf1 = String::new();
         let mut buf2 = String::new();
         file.read_to_string(&mut buf1).await.unwrap();
@@ -203,7 +203,7 @@ mod tests {
     #[tokio::test]
     async fn test_with_file_footer() {
         let file = File::open("test.txt").await.unwrap();
-        let file2 = File::create("test.txt.out.2").await.unwrap();
+        let file2 = File::create("test.txt.out.5").await.unwrap();
         ArunaReadWriter::new_with_writer(file, file2)
             .add_transformer(ZstdEnc::new(1, false))
             .add_transformer(
@@ -219,7 +219,7 @@ mod tests {
             .unwrap();
 
         let mut file = File::open("test.txt").await.unwrap();
-        let mut file2 = File::open("test.txt.out.2").await.unwrap();
+        let mut file2 = File::open("test.txt.out.5").await.unwrap();
         let mut buf1 = String::new();
         let mut buf2 = String::new();
         file.read_to_string(&mut buf1).await.unwrap();
@@ -230,7 +230,7 @@ mod tests {
     #[tokio::test]
     async fn test_footer_parsing() {
         let file = File::open("test.txt").await.unwrap();
-        let file2 = File::create("test.txt.out.3").await.unwrap();
+        let file2 = File::create("test.txt.out.6").await.unwrap();
         ArunaReadWriter::new_with_writer(file, file2)
             .add_transformer(ZstdEnc::new(1, false))
             .add_transformer(FooterGenerator::new(None))
@@ -244,7 +244,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut file2 = File::open("test.txt.out.3").await.unwrap();
+        let mut file2 = File::open("test.txt.out.6").await.unwrap();
 
         file2
             .seek(std::io::SeekFrom::End(-65536 * 2))
@@ -277,7 +277,7 @@ mod tests {
     #[tokio::test]
     async fn test_footer_parsing_encrypted() {
         let file = File::open("test.txt").await.unwrap();
-        let file2 = File::create("test.txt.out.4").await.unwrap();
+        let file2 = File::create("test.txt.out.7").await.unwrap();
         ArunaReadWriter::new_with_writer(file, file2)
             .add_transformer(ZstdEnc::new(1, false))
             .add_transformer(FooterGenerator::new(None))
@@ -288,7 +288,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut file2 = File::open("test.txt.out.4").await.unwrap();
+        let mut file2 = File::open("test.txt.out.7").await.unwrap();
         file2
             .seek(std::io::SeekFrom::End((-65536 - 28) * 2))
             .await
