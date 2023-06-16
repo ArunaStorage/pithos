@@ -3,6 +3,7 @@ use crate::transformer::{Transformer, TransformerType};
 use anyhow::Result;
 use async_channel::Sender;
 
+#[derive(Default)]
 pub struct SizeProbe {
     size_counter: u64,
     sender: Option<Sender<Message>>,

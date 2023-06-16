@@ -106,10 +106,10 @@ pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
     }
 
     let last_4 = {
-        let (l1, rem) = data.split_last().unwrap_or_else(|| (&0u8, &[0u8]));
-        let (l2, rem) = rem.split_last().unwrap_or_else(|| (&0u8, &[0u8]));
-        let (l3, rem) = rem.split_last().unwrap_or_else(|| (&0u8, &[0u8]));
-        let (l4, _) = rem.split_last().unwrap_or_else(|| (&0u8, &[0u8]));
+        let (l1, rem) = data.split_last().unwrap_or((&0u8, &[0u8]));
+        let (l2, rem) = rem.split_last().unwrap_or((&0u8, &[0u8]));
+        let (l3, rem) = rem.split_last().unwrap_or((&0u8, &[0u8]));
+        let (l4, _) = rem.split_last().unwrap_or((&0u8, &[0u8]));
         (l4, l3, l2, l1)
     };
 
@@ -122,7 +122,7 @@ pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
 
     let payload = match last_4 {
         (0u8, size1, size2, 0u8) => {
-            let expected = [size1.clone(), size2.clone()];
+            let expected = [*size1, *size2];
             let v = BigEndian::read_u16(&expected);
             padding = vec![0u8; v as usize - 4];
             padding.extend_from_slice(&[0u8, *size1, *size2, 0u8]);
@@ -144,14 +144,14 @@ pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
             aad: &[0u8],
         },
         _ => Payload {
-            msg: &data,
+            msg: data,
             aad: b"",
         },
     };
 
-    return Ok(ChaCha20Poly1305::new_from_slice(decryption_key)
+    Ok(ChaCha20Poly1305::new_from_slice(decryption_key)
         .map_err(|_| anyhow::anyhow!("[CHACHA_DECRYPT] Unable to initialize decryptor"))?
         .decrypt(nonce_slice.into(), payload)
         .map_err(|_| anyhow::anyhow!("[CHACHA_DECRYPT] Unable to decrypt chunk"))?
-        .into());
+        .into())
 }

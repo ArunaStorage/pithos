@@ -49,12 +49,11 @@ impl Transformer for FooterGenerator {
     }
     async fn notify(&mut self, message: &Message) -> Result<Response> {
         match message.target {
-            TransformerType::FooterGenerator => match &message.data {
-                notifications::MessageData::Footer(data) => {
+            TransformerType::FooterGenerator => {
+                if let notifications::MessageData::Footer(data) = &message.data {
                     self.external_info.put(data.chunks.as_ref())
                 }
-                _ => {}
-            },
+            }
             TransformerType::All => {}
             _ => return Err(anyhow!("Received invalid message")),
         }

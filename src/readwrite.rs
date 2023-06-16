@@ -63,10 +63,8 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
         let mut read_buf = BytesMut::with_capacity(65_536 * 2);
         let mut finished = false;
         loop {
-            if read_buf.is_empty() {
-                if self.reader.read_buf(&mut read_buf).await? == 0 {
-                    finished = true
-                }
+            if read_buf.is_empty() && self.reader.read_buf(&mut read_buf).await? == 0 {
+                finished = true
             }
 
             let maybe_message = self.receiver.try_recv().ok();

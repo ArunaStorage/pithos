@@ -38,7 +38,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
     let runtime = tokio::runtime::Runtime::new().unwrap();
     group.bench_function(BenchmarkId::new("read_writer_with_file", "10s"), |b| {
-        b.to_async(&runtime).iter(|| read_writer_with_file());
+        b.to_async(&runtime).iter(read_writer_with_file);
     });
 }
 

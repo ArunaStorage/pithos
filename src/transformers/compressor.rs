@@ -184,7 +184,7 @@ mod tests {
         encoder.add_sender(sx);
 
         buf.put(b"12345".as_slice());
-        assert_eq!(true, encoder.process_bytes(&mut buf, true).await.unwrap());
+        assert!(encoder.process_bytes(&mut buf, true).await.unwrap());
 
         let taken = buf.split();
         // Starts with magic zstd header (little-endian)
