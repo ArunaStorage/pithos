@@ -34,20 +34,12 @@ async fn read_writer_with_file() {
 }
 
 fn criterion_benchmark(c: &mut Criterion) {
-    let size: usize = 125;
-
     let mut group = c.benchmark_group("file_benches");
     group.measurement_time(Duration::from_secs(10));
     let runtime = tokio::runtime::Runtime::new().unwrap();
-    group.bench_with_input(
-        BenchmarkId::new("read_writer_with_file", size),
-        &size,
-        |b, _| {
-            // Insert a call to `to_async` to convert the bencher to async mode.
-            // The timing loops are the same as with the normal bencher.
-            b.to_async(&runtime).iter(|| read_writer_with_file());
-        },
-    );
+    group.bench_function(BenchmarkId::new("read_writer_with_file", "10s"), |b| {
+        b.to_async(&runtime).iter(|| read_writer_with_file());
+    });
 }
 
 criterion_group!(benches, criterion_benchmark);
