@@ -101,4 +101,8 @@ impl Transformer for TarEnc<'_> {
         }
         Ok(())
     }
+
+    fn get_type(&self) -> TransformerType {
+        TransformerType::TarEncoder
+    }
 }

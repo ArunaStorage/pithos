@@ -1,5 +1,5 @@
 use crate::helpers::footer_parser::Range;
-use crate::transformer::Transformer;
+use crate::transformer::{Transformer, TransformerType};
 use anyhow::Result;
 use bytes::Buf;
 
@@ -44,5 +44,9 @@ impl Transformer for Filter {
 
         self.counter += self.captured_buf_len;
         Ok(true)
+    }
+
+    fn get_type(&self) -> TransformerType {
+        TransformerType::Filter
     }
 }

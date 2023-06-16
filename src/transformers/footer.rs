@@ -2,6 +2,7 @@ use crate::notifications;
 use crate::notifications::Message;
 use crate::notifications::Response;
 use crate::transformer::Transformer;
+use crate::transformer::TransformerType;
 use anyhow::anyhow;
 use anyhow::Result;
 use byteorder::LittleEndian;
@@ -47,12 +48,21 @@ impl Transformer for FooterGenerator {
         Ok(self.finished)
     }
     async fn notify(&mut self, message: Message) -> Result<Response> {
-        match message {
-            notifications::Message::Footer(_d) => {}
-            notifications::Message::NextFile(_) => self.finished = false,
+        match message.target {
+            TransformerType::FooterGenerator => match message.data {
+                notifications::MessageData::Footer(data) => {
+                    self.external_info.put(data.chunks.as_ref())
+                }
+                _ => {}
+            },
+            TransformerType::All => {}
             _ => return Err(anyhow!("Received invalid message")),
         }
         Ok(Response::Ok)
+    }
+
+    fn get_type(&self) -> TransformerType {
+        TransformerType::FooterGenerator
     }
 }
 

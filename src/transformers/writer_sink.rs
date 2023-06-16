@@ -1,5 +1,6 @@
 use crate::transformer::Sink;
 use crate::transformer::Transformer;
+use crate::transformer::TransformerType;
 use anyhow::Result;
 
 use tokio::io::AsyncWriteExt;
@@ -30,5 +31,9 @@ impl<W: AsyncWrite + Unpin + Send> Transformer for WriterSink<W> {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    fn get_type(&self) -> TransformerType {
+        TransformerType::WriterSink
     }
 }

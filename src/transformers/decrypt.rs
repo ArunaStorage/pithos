@@ -1,4 +1,5 @@
 use crate::transformer::Transformer;
+use crate::transformer::TransformerType;
 use anyhow::bail;
 use anyhow::Result;
 use byteorder::BigEndian;
@@ -86,6 +87,10 @@ impl Transformer for ChaCha20Dec {
         };
         buf.put(self.output_buffer.split().freeze());
         Ok(self.finished && self.input_buffer.is_empty() && self.output_buffer.is_empty())
+    }
+
+    fn get_type(&self) -> TransformerType {
+        TransformerType::ChaCha20Decrypt
     }
 }
 

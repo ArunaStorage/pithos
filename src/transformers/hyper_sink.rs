@@ -1,4 +1,4 @@
-use crate::transformer::{Sink, Transformer};
+use crate::transformer::{Sink, Transformer, TransformerType};
 use anyhow::Result;
 use hyper::body::Sender;
 use hyper::Body;
@@ -26,5 +26,9 @@ impl Transformer for HyperSink {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    fn get_type(&self) -> TransformerType {
+        TransformerType::HyperSink
     }
 }

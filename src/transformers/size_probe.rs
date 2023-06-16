@@ -1,5 +1,5 @@
 use crate::notifications::{Message, ProbeBroadcast};
-use crate::transformer::Transformer;
+use crate::transformer::{Transformer, TransformerType};
 use anyhow::Result;
 use async_channel::Sender;
 
@@ -25,9 +25,12 @@ impl Transformer for SizeProbe {
 
         if finished {
             if let Some(s) = &self.sender {
-                s.send(Message::ProbeBroadcast(ProbeBroadcast {
-                    message: format!("Processed size of: {}", self.size_counter),
-                }))
+                s.send(Message {
+                    target: TransformerType::ReadWriter,
+                    data: crate::notifications::MessageData::ProbeBroadcast(ProbeBroadcast {
+                        message: format!("Processed size of: {}", self.size_counter),
+                    }),
+                })
                 .await?;
             }
         }
@@ -36,5 +39,9 @@ impl Transformer for SizeProbe {
     }
     fn add_sender(&mut self, s: Sender<Message>) {
         self.sender = Some(s);
+    }
+
+    fn get_type(&self) -> TransformerType {
+        TransformerType::SizeProbe
     }
 }

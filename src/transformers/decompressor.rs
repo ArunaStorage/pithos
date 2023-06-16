@@ -1,4 +1,5 @@
 use crate::transformer::Transformer;
+use crate::transformer::TransformerType;
 use anyhow::Result;
 use async_compression::tokio::write::ZstdDecoder;
 use bytes::BufMut;
@@ -53,6 +54,9 @@ impl Transformer for ZstdDec {
 
         buf.put(self.prev_buf.split().freeze());
         Ok(self.finished && self.prev_buf.is_empty())
+    }
+    fn get_type(&self) -> TransformerType {
+        TransformerType::ZstdDecompressor
     }
 }
 

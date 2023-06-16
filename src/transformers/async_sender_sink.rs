@@ -1,5 +1,6 @@
 use crate::transformer::Sink;
 use crate::transformer::Transformer;
+use crate::transformer::TransformerType;
 use anyhow::Result;
 use async_channel::Sender;
 
@@ -30,5 +31,9 @@ impl Transformer for AsyncSenderSink {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    fn get_type(&self) -> TransformerType {
+        TransformerType::AsyncSenderSink
     }
 }

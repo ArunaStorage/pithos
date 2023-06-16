@@ -1,4 +1,5 @@
 use crate::transformer::Transformer;
+use crate::transformer::TransformerType;
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Result;
@@ -72,6 +73,10 @@ impl Transformer for ChaCha20Enc {
         };
         buf.put(self.output_buf.split());
         Ok(self.finished && self.input_buf.is_empty() && self.output_buf.is_empty())
+    }
+
+    fn get_type(&self) -> TransformerType {
+        TransformerType::ChaCha20Decrypt
     }
 }
 

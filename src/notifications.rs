@@ -1,7 +1,7 @@
+use crate::transformer::TransformerType;
+
 #[derive(Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Filemessage {
-    
-}
+pub struct Filemessage {}
 #[derive(Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FooterData {
     pub chunks: Vec<u8>,
@@ -12,7 +12,13 @@ pub struct ProbeBroadcast {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Message {
+pub struct Message {
+    pub target: TransformerType,
+    pub data: MessageData,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MessageData {
     NextFile(Filemessage),
     Footer(FooterData),
     ProbeBroadcast(ProbeBroadcast),

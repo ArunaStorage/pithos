@@ -1,6 +1,8 @@
 use crate::notifications::FooterData;
 use crate::notifications::Message;
+use crate::notifications::MessageData;
 use crate::transformer::Transformer;
+use crate::transformer::TransformerType;
 use anyhow::anyhow;
 use anyhow::Result;
 use async_channel::Sender;
@@ -85,9 +87,12 @@ impl Transformer for ZstdEnc {
                 .push(u8::try_from(self.prev_buf.len() / CHUNK)? + 1);
             buf.put(self.prev_buf.split().freeze());
             if let Some(s) = &self.sender {
-                s.send(Message::Footer(FooterData {
-                    chunks: self.chunks.clone(),
-                }))
+                s.send(Message {
+                    target: TransformerType::FooterGenerator,
+                    data: MessageData::Footer(FooterData {
+                        chunks: self.chunks.clone(),
+                    }),
+                })
                 .await?;
             };
             self.finished = true;
@@ -99,6 +104,10 @@ impl Transformer for ZstdEnc {
 
     fn add_sender(&mut self, s: Sender<Message>) {
         self.sender = Some(s);
+    }
+
+    fn get_type(&self) -> TransformerType {
+        TransformerType::ZstdCompressor
     }
 }
 
@@ -185,6 +194,12 @@ mod tests {
         let expected = hex::decode(format!("28b52ffd00582900003132333435",)).unwrap();
         assert_eq!(taken.as_ref(), &expected);
         let received = rx.recv().await.unwrap();
-        assert_eq!(received, Message::Footer(FooterData { chunks: vec![1u8] }))
+        assert_eq!(
+            received,
+            Message {
+                target: TransformerType::ReadWriter,
+                data: MessageData::Footer(FooterData { chunks: vec![1u8] })
+            }
+        )
     }
 }
