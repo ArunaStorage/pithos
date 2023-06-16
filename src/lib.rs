@@ -110,6 +110,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn e2e_encrypt_test_with_file_with_pad() {
+        let file = File::open("test.txt").await.unwrap();
+        let file2 = File::create("test.txt.out.1").await.unwrap();
+
+        // Create a new ArunaReadWriter
+        ArunaReadWriter::new_with_writer(file, file2)
+            .add_transformer(
+                ChaCha20Enc::new(true, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .process()
+            .await
+            .unwrap();
+
+        let mut file = File::open("test.txt").await.unwrap();
+        let mut file2 = File::open("test.txt.out.1").await.unwrap();
+        let mut buf1 = String::new();
+        let mut buf2 = String::new();
+        file.read_to_string(&mut buf1).await.unwrap();
+        file2.read_to_string(&mut buf2).await.unwrap();
+        assert!(buf1 == buf2)
+    }
+
+    #[tokio::test]
+    async fn e2e_test_roundtrip_with_file() {
+        let file = File::open("test.txt").await.unwrap();
+        let file2 = File::create("test.txt.out.1").await.unwrap();
+
+        // Create a new ArunaReadWriter
+        ArunaReadWriter::new_with_writer(file, file2)
+            .add_transformer(ZstdEnc::new(1, false))
+            .add_transformer(ZstdEnc::new(2, false))
+            .add_transformer(
+                ChaCha20Enc::new(true, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Dec::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(ZstdDec::new())
+            .add_transformer(ZstdDec::new())
+            .process()
+            .await
+            .unwrap();
+
+        let mut file = File::open("test.txt").await.unwrap();
+        let mut file2 = File::open("test.txt.out.1").await.unwrap();
+        let mut buf1 = String::new();
+        let mut buf2 = String::new();
+        file.read_to_string(&mut buf1).await.unwrap();
+        file2.read_to_string(&mut buf2).await.unwrap();
+        assert!(buf1 == buf2)
+    }
+
+    #[tokio::test]
     async fn test_with_vec() {
         let file = b"This is a very very important test".to_vec();
         let mut file2 = Vec::new();
