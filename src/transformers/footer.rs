@@ -47,9 +47,9 @@ impl Transformer for FooterGenerator {
         }
         Ok(self.finished)
     }
-    async fn notify(&mut self, message: Message) -> Result<Response> {
+    async fn notify(&mut self, message: &Message) -> Result<Response> {
         match message.target {
-            TransformerType::FooterGenerator => match message.data {
+            TransformerType::FooterGenerator => match &message.data {
                 notifications::MessageData::Footer(data) => {
                     self.external_info.put(data.chunks.as_ref())
                 }

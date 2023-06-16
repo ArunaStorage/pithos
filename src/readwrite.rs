@@ -1,5 +1,5 @@
 use crate::notifications::Message;
-use crate::transformer::{ReadWriter, Sink, Transformer};
+use crate::transformer::{ReadWriter, Sink, Transformer, TransformerType};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::Result;
 use async_channel::{Receiver, Sender};
@@ -8,7 +8,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, BufWriter};
 
 pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin> {
     reader: BufReader<R>,
-    transformers: Vec<Box<dyn Transformer + Send + Sync + 'a>>,
+    transformers: Vec<(TransformerType, Box<dyn Transformer + Send + Sync + 'a>)>,
     sink: Box<dyn Transformer + Send + Sync + 'a>,
     receiver: Receiver<Message>,
     sender: Sender<Message>,
@@ -49,7 +49,9 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
         mut transformer: T,
     ) -> Self {
         transformer.add_sender(self.sender.clone());
-        self.transformers.push(Box::new(transformer));
+
+        self.transformers
+            .push((transformer.get_type(), Box::new(transformer)));
         self
     }
 }
@@ -66,8 +68,17 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
                     finished = true
                 }
             }
-            for t in self.transformers.iter_mut() {
-                match t.process_bytes(&mut read_buf, finished).await? {
+
+            let maybe_message = self.receiver.try_recv().ok();
+
+            for (ttype, trans) in self.transformers.iter_mut() {
+                if let Some(m) = &maybe_message {
+                    if m.target == *ttype {
+                        trans.notify(m).await?;
+                    }
+                }
+
+                match trans.process_bytes(&mut read_buf, finished).await? {
                     true => {}
                     false => finished = false,
                 };
@@ -83,9 +94,10 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
         Ok(())
     }
 
-    async fn announce_all(&mut self, message: Message) -> Result<()> {
-        for trans in self.transformers.iter_mut() {
-            trans.notify(message.clone()).await?;
+    async fn announce_all(&mut self, mut message: Message) -> Result<()> {
+        message.target = TransformerType::All;
+        for (_, trans) in self.transformers.iter_mut() {
+            trans.notify(&message).await?;
         }
         Ok(())
     }

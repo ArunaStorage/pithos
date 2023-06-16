@@ -108,7 +108,7 @@ impl<
     }
     async fn announce_all(&mut self, message: Message) -> Result<()> {
         for trans in self.transformers.iter_mut() {
-            trans.notify(message.clone()).await?;
+            trans.notify(&message).await?;
         }
         Ok(())
     }

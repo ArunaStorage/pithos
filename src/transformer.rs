@@ -34,7 +34,7 @@ pub trait ReadWriter {
 pub trait Transformer {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool>;
     #[allow(unused_variables)]
-    async fn notify(&mut self, message: Message) -> Result<Response> {
+    async fn notify(&mut self, message: &Message) -> Result<Response> {
         Ok(Response::Ok)
     }
     #[allow(unused_variables)]
