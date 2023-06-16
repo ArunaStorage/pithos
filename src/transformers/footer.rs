@@ -13,21 +13,16 @@ use bytes::{Bytes, BytesMut};
 pub struct FooterGenerator {
     finished: bool,
     external_info: BytesMut,
-    notifications: Option<bool>,
 }
 
 impl FooterGenerator {
     #[allow(dead_code)]
-    pub fn new(external_info: Option<Vec<u8>>, should_be_notified: bool) -> FooterGenerator {
+    pub fn new(external_info: Option<Vec<u8>>) -> FooterGenerator {
         FooterGenerator {
             finished: false,
             external_info: match external_info {
                 Some(i) => i.as_slice().into(),
                 _ => BytesMut::new(),
-            },
-            notifications: match should_be_notified {
-                true => Some(false),
-                _ => None,
             },
         }
     }
@@ -37,10 +32,8 @@ impl FooterGenerator {
 impl Transformer for FooterGenerator {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         if buf.is_empty() && !self.finished && finished {
-            if let Some(a) = self.notifications {
-                if !a {
-                    return Err(anyhow!("Missing notifications"));
-                }
+            if self.external_info.is_empty() {
+                return Err(anyhow!("Missing notifications"));
             }
             buf.put(create_skippable_footer_frame(self.external_info.to_vec())?);
             self.finished = true;

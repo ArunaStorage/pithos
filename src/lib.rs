@@ -212,7 +212,7 @@ mod tests {
             .add_transformer(
                 ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
-            .add_transformer(FooterGenerator::new(None, true))
+            .add_transformer(FooterGenerator::new(None))
             .add_transformer(ZstdDec::new())
             .process()
             .await
@@ -239,7 +239,7 @@ mod tests {
             .add_transformer(
                 ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
-            .add_transformer(FooterGenerator::new(None, true))
+            .add_transformer(FooterGenerator::new(None))
             .add_transformer(ZstdEnc::new(1, false))
             .process()
             .await
@@ -282,7 +282,7 @@ mod tests {
             .add_transformer(
                 ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
-            .add_transformer(FooterGenerator::new(None, true))
+            .add_transformer(FooterGenerator::new(None))
             .add_transformer(ZstdEnc::new(1, false))
             .process()
             .await
