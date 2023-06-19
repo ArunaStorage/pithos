@@ -1,4 +1,4 @@
-use crate::notifications::Message;
+use crate::notifications::{FileMessage, Message};
 use crate::transformer::{FileContext, ReadWriter, Sink, Transformer, TransformerType};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::Result;
@@ -139,7 +139,12 @@ impl<
 
     async fn next_context(&mut self, context: FileContext, is_last: bool) -> Result<()> {
         if self.current_file_context.is_none() {
-            self.current_file_context = Some((context, is_last))
+            self.current_file_context = Some((context.clone(), is_last));
+            self.announce_all(Message {
+                target: TransformerType::All,
+                data: crate::notifications::MessageData::NextFile(FileMessage { context }),
+            })
+            .await?;
         } else {
             self.next_file_context = Some((context, is_last))
         }

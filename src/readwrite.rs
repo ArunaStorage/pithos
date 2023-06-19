@@ -1,4 +1,4 @@
-use crate::notifications::Message;
+use crate::notifications::{FileMessage, Message};
 use crate::transformer::{FileContext, ReadWriter, Sink, Transformer, TransformerType};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::Result;
@@ -12,6 +12,7 @@ pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin> {
     sink: Box<dyn Transformer + Send + Sync + 'a>,
     receiver: Receiver<Message>,
     sender: Sender<Message>,
+    size_counter: usize,
     current_file_context: Option<(FileContext, bool)>,
     next_file_context: Option<(FileContext, bool)>,
 }
@@ -28,6 +29,7 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
             transformers: Vec::new(),
             sender: sx,
             receiver: rx,
+            size_counter: 0,
             current_file_context: None,
             next_file_context: None,
         }
@@ -45,6 +47,7 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
             transformers: Vec::new(),
             sender: sx,
             receiver: rx,
+            size_counter: 0,
             current_file_context: None,
             next_file_context: None,
         }
@@ -69,8 +72,17 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
         let mut read_buf = BytesMut::with_capacity(65_536 * 2);
         let mut finished;
         let mut maybe_msg: Option<Message> = None;
+        let mut read_bytes: usize;
         loop {
-            finished = read_buf.is_empty() && self.reader.read_buf(&mut read_buf).await? == 0;
+            read_bytes = self.reader.read_buf(&mut read_buf).await?;
+
+            if let Some((context, is_last)) = &self.current_file_context {
+                self.size_counter += read_bytes;
+
+                if self.size_counter > context.file_size as usize {}
+            }
+
+            finished = read_buf.is_empty() && read_bytes == 0;
 
             for (ttype, trans) in self.transformers.iter_mut() {
                 if let Some(m) = &maybe_msg {
@@ -111,7 +123,12 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
 
     async fn next_context(&mut self, context: FileContext, is_last: bool) -> Result<()> {
         if self.current_file_context.is_none() {
-            self.current_file_context = Some((context, is_last))
+            self.current_file_context = Some((context.clone(), is_last));
+            self.announce_all(Message {
+                target: TransformerType::All,
+                data: crate::notifications::MessageData::NextFile(FileMessage { context }),
+            })
+            .await?;
         } else {
             self.next_file_context = Some((context, is_last))
         }

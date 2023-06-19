@@ -1,8 +1,8 @@
 use crate::transformer::{FileContext, TransformerType};
 
 #[derive(Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Filemessage {
-    context: FileContext,
+pub struct FileMessage {
+    pub context: FileContext,
 }
 #[derive(Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FooterData {
@@ -21,7 +21,7 @@ pub struct Message {
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MessageData {
-    NextFile(Filemessage),
+    NextFile(FileMessage),
     Footer(FooterData),
     ProbeBroadcast(ProbeBroadcast),
 }
