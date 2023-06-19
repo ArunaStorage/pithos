@@ -21,6 +21,22 @@ pub enum TransformerType {
     WriterSink,
 }
 
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub struct FileContext {
+    // FileName
+    pub file_name: String,
+    // Filesize
+    pub file_size: u64,
+    // FileSubpath without filename
+    pub file_path: Option<String>,
+    // UserId
+    pub uid: Option<u64>,
+    // GroupId
+    pub gid: Option<u64>,
+    // Octal like mode
+    pub mode: Option<u32>,
+}
+
 // Marker trait to signal that this Transformer can be a "final" destination for data
 pub trait Sink: Transformer {}
 
@@ -28,6 +44,7 @@ pub trait Sink: Transformer {}
 pub trait ReadWriter {
     async fn process(&mut self) -> Result<()>;
     async fn announce_all(&mut self, message: Message) -> Result<()>;
+    async fn next_context(&mut self, context: FileContext, is_last: bool) -> Result<()>;
 }
 
 #[async_trait::async_trait]

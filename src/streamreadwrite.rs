@@ -1,5 +1,5 @@
 use crate::notifications::Message;
-use crate::transformer::{ReadWriter, Sink, Transformer, TransformerType};
+use crate::transformer::{FileContext, ReadWriter, Sink, Transformer, TransformerType};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::Result;
 use async_channel::{Receiver, Sender};
@@ -19,6 +19,8 @@ pub struct ArunaStreamReadWriter<
     sink: Box<dyn Sink + Send + Sync + 'a>,
     receiver: Receiver<Message>,
     sender: Sender<Message>,
+    current_file_context: Option<(FileContext, bool)>,
+    next_file_context: Option<(FileContext, bool)>,
 }
 
 impl<
@@ -41,6 +43,8 @@ impl<
             transformers: Vec::new(),
             sender: sx,
             receiver: rx,
+            current_file_context: None,
+            next_file_context: None,
         }
     }
 
@@ -56,6 +60,8 @@ impl<
             transformers: Vec::new(),
             sender: sx,
             receiver: rx,
+            current_file_context: None,
+            next_file_context: None,
         }
     }
 
@@ -110,7 +116,14 @@ impl<
                     false => finished = false,
                 };
             }
-            self.sink.process_bytes(&mut read_buf, finished).await?;
+            match self
+                .sink
+                .process_bytes(&mut read_buf, finished && self.next_file_context.is_none())
+                .await?
+            {
+                true => {}
+                false => finished = false,
+            };
             if read_buf.is_empty() & finished {
                 break;
             }
@@ -120,6 +133,15 @@ impl<
     async fn announce_all(&mut self, message: Message) -> Result<()> {
         for (_, trans) in self.transformers.iter_mut() {
             trans.notify(&message).await?;
+        }
+        Ok(())
+    }
+
+    async fn next_context(&mut self, context: FileContext, is_last: bool) -> Result<()> {
+        if self.current_file_context.is_none() {
+            self.current_file_context = Some((context, is_last))
+        } else {
+            self.next_file_context = Some((context, is_last))
         }
         Ok(())
     }

@@ -1,5 +1,5 @@
 use crate::notifications::Message;
-use crate::transformer::{ReadWriter, Sink, Transformer, TransformerType};
+use crate::transformer::{FileContext, ReadWriter, Sink, Transformer, TransformerType};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::Result;
 use async_channel::{Receiver, Sender};
@@ -12,6 +12,8 @@ pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin> {
     sink: Box<dyn Transformer + Send + Sync + 'a>,
     receiver: Receiver<Message>,
     sender: Sender<Message>,
+    current_file_context: Option<(FileContext, bool)>,
+    next_file_context: Option<(FileContext, bool)>,
 }
 
 impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
@@ -26,6 +28,8 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
             transformers: Vec::new(),
             sender: sx,
             receiver: rx,
+            current_file_context: None,
+            next_file_context: None,
         }
     }
 
@@ -41,6 +45,8 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
             transformers: Vec::new(),
             sender: sx,
             receiver: rx,
+            current_file_context: None,
+            next_file_context: None,
         }
     }
 
@@ -80,7 +86,11 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
                     false => finished = false,
                 };
             }
-            match self.sink.process_bytes(&mut read_buf, finished).await? {
+            match self
+                .sink
+                .process_bytes(&mut read_buf, finished && self.next_file_context.is_none())
+                .await?
+            {
                 true => {}
                 false => finished = false,
             };
@@ -95,6 +105,15 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
         message.target = TransformerType::All;
         for (_, trans) in self.transformers.iter_mut() {
             trans.notify(&message).await?;
+        }
+        Ok(())
+    }
+
+    async fn next_context(&mut self, context: FileContext, is_last: bool) -> Result<()> {
+        if self.current_file_context.is_none() {
+            self.current_file_context = Some((context, is_last))
+        } else {
+            self.next_file_context = Some((context, is_last))
         }
         Ok(())
     }

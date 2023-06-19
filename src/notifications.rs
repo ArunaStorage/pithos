@@ -1,7 +1,9 @@
-use crate::transformer::TransformerType;
+use crate::transformer::{FileContext, TransformerType};
 
 #[derive(Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Filemessage {}
+pub struct Filemessage {
+    context: FileContext,
+}
 #[derive(Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FooterData {
     pub chunks: Vec<u8>,
