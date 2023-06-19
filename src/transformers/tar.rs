@@ -1,108 +1,113 @@
-use crate::notifications::Notifications;
-use crate::transformer::AddTransformer;
+use crate::notifications::Message;
+use crate::notifications::Response;
+use crate::transformer::FileContext;
 use crate::transformer::Transformer;
+use crate::transformer::TransformerType;
 use anyhow::anyhow;
+use anyhow::bail;
 use anyhow::Result;
-use serde::Deserialize;
-use serde::Serialize;
+use bytes::BufMut;
 use tar::Header;
 
-pub struct TarEnc<'a> {
-    current_header: Option<Header>,
+pub struct TarEnc {
+    header: Option<Header>,
     next_header: Option<Header>,
-    file_size: u64,
-    size_counter: u64,
+    first: bool,
     finished: bool,
-    next: Option<Box<dyn Transformer + Send + 'a>>,
 }
 
-#[derive(Serialize, Deserialize)]
-pub struct TarFileInfo {
-    path: String,
-    size: u64,
-}
-
-impl TryFrom<TarFileInfo> for Header {
+impl TryFrom<FileContext> for Header {
     type Error = anyhow::Error;
 
-    fn try_from(value: TarFileInfo) -> Result<Self> {
+    fn try_from(value: FileContext) -> Result<Self> {
         let mut header = Header::new_ustar();
-        header.set_path(value.path)?;
-        header.set_size(value.size);
+
+        let path = match value.file_path {
+            Some(p) => p + &value.file_name,
+            None => value.file_name,
+        };
+        header.set_path(path)?;
+        header.set_size(value.file_size);
         header.set_cksum();
         Ok(header)
     }
 }
 
-impl<'a> TarEnc<'a> {
-    pub fn new() -> Result<TarEnc<'a>> {
-        Ok(TarEnc {
-            current_header: None,
+impl TarEnc {
+    pub fn new() -> TarEnc {
+        TarEnc {
+            header: None,
             next_header: None,
-            file_size: 0,
-            size_counter: 0,
+            first: true,
             finished: false,
-            next: None,
-        })
-    }
-}
-
-impl<'a> AddTransformer<'a> for TarEnc<'a> {
-    fn add_transformer(&mut self, t: Box<dyn Transformer + Send + 'a>) {
-        self.next = Some(t)
+        }
     }
 }
 
 #[async_trait::async_trait]
-impl Transformer for TarEnc<'_> {
-    async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
+impl Transformer for TarEnc {
+    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         // This is forbidden! A tar transformer needs all information to build a header before data is received.
-        if buf.len() != 0 && self.current_header.is_none() {
+        if buf.len() != 0 && self.header.is_none() {
             return Err(anyhow!(
-                "A tar transformer needs all information to build an header before data is received."
+                "[TAR] A tar transformer needs at least one header before data is received."
             ));
+        } else if buf.len() != 0 && self.first {
+            if let Some(header) = &self.header {
+                let temp = buf.split();
+                buf.put(header.as_bytes().as_slice());
+                buf.put(temp);
+                if self.next_header.is_some() {
+                    self.header = self.next_header.clone();
+                    self.next_header = None;
+                } else {
+                    self.header = None;
+                }
+                self.first = false;
+                return Ok(true);
+            }
         }
 
-        self.size_counter += buf.len() as u64;
-        // Try to write the buf to the "next" in the chain, even if the buf is empty
-        if let Some(next) = &mut self.next {
-            // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
-            next.process_bytes(buf, self.finished && buf.is_empty() && finished)
-                .await
-        } else {
-            Err(anyhow!(
-                "This tar transformer is designed to always contain a 'next'"
-            ))
-        }
-    }
-    async fn notify(&mut self, notes: &mut Vec<Notifications>) -> Result<()> {
-        if let Some(next) = &mut self.next {
-            let index = notes
-                .iter()
-                .position(|x| x.get_recipient() == "TAR_ENC_FILEINFO");
-            match index {
-                Some(i) => {
-                    let note = notes.remove(i);
-                    let data = note.get_data();
-                    if let Some(info) = data.info {
-                        let finfo: TarFileInfo = serde_json::from_slice(&info)?;
-                        if self.current_header.is_none() {
-                            self.file_size = finfo.size;
-                            self.current_header = Some(finfo.try_into()?);
-                            self.next_header = None;
-                        } else {
-                            self.next_header = Some(finfo.try_into()?);
-                        }
-                    }
+        if finished {
+            if let Some(head) = &self.header {
+                let temp = buf.split();
+                buf.put(head.as_bytes().as_slice());
+                buf.put(temp);
+                if self.next_header.is_some() {
+                    self.header = self.next_header.clone();
+                    self.next_header = None;
+                } else {
+                    self.header = None;
                 }
-                None => {}
+            } else {
+                self.finished = true
             }
-            next.notify(notes).await?
         }
-        Ok(())
+        Ok(self.finished)
     }
 
     fn get_type(&self) -> TransformerType {
         TransformerType::TarEncoder
+    }
+
+    async fn notify(&mut self, message: &Message) -> Result<Response> {
+        if message.target == TransformerType::All {
+            match &message.data {
+                crate::notifications::MessageData::NextFile(nfile) => {
+                    if self.header.is_none() {
+                        self.header = Some(TryInto::<Header>::try_into(nfile.context.clone())?)
+                    } else {
+                        if self.next_header.is_some() {
+                            bail!("[TAR] Current + next header already used")
+                        }
+                        self.next_header = Some(TryInto::<Header>::try_into(nfile.context.clone())?)
+                    }
+                    self.finished = false
+                }
+                _ => (),
+            }
+        }
+
+        Ok(Response::Ok)
     }
 }
