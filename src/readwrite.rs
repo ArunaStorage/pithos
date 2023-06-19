@@ -1,7 +1,9 @@
+use std::mem;
+
 use crate::notifications::{FileMessage, Message};
 use crate::transformer::{FileContext, ReadWriter, Sink, Transformer, TransformerType};
 use crate::transformers::writer_sink::WriterSink;
-use anyhow::Result;
+use anyhow::{bail, Result};
 use async_channel::{Receiver, Sender};
 use bytes::BytesMut;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, BufWriter};
@@ -70,19 +72,45 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
     async fn process(&mut self) -> Result<()> {
         // The buffer that accumulates the "actual" data
         let mut read_buf = BytesMut::with_capacity(65_536 * 2);
+        let mut hold_buffer = BytesMut::with_capacity(65536);
         let mut finished;
         let mut maybe_msg: Option<Message> = None;
-        let mut read_bytes: usize;
+        let mut read_bytes: usize = 0;
         loop {
-            read_bytes = self.reader.read_buf(&mut read_buf).await?;
-
-            if let Some((context, is_last)) = &self.current_file_context {
-                self.size_counter += read_bytes;
-
-                if self.size_counter > context.file_size as usize {}
+            if hold_buffer.is_empty() {
+                read_bytes = self.reader.read_buf(&mut read_buf).await?;
+            } else if read_buf.is_empty() {
+                mem::swap(&mut hold_buffer, &mut read_buf);
             }
 
-            finished = read_buf.is_empty() && read_bytes == 0;
+            if let Some((context, _)) = &self.current_file_context {
+                self.size_counter += read_bytes;
+
+                if self.size_counter > context.file_size as usize {
+                    let diff = self.size_counter - context.file_size as usize;
+                    hold_buffer = read_buf.split_to(diff);
+                    mem::swap(&mut read_buf, &mut hold_buffer);
+                    self.size_counter = diff;
+                    if let Some((nfile, _)) = &self.next_file_context {
+                        self.current_file_context = self.next_file_context.clone();
+                        self.announce_all(Message {
+                            target: TransformerType::All,
+                            data: crate::notifications::MessageData::NextFile(FileMessage {
+                                context: nfile.clone(),
+                            }),
+                        })
+                        .await?;
+                        self.next_file_context = None
+                    } else {
+                        bail!("[READ_WRITER] Got data for unknown file")
+                    }
+                }
+            }
+            if let Some((_, is_last)) = &self.current_file_context {
+                finished = read_buf.is_empty() && read_bytes == 0 && *is_last;
+            } else {
+                finished = read_buf.is_empty() && read_bytes == 0;
+            }
 
             for (ttype, trans) in self.transformers.iter_mut() {
                 if let Some(m) = &maybe_msg {
@@ -109,6 +137,7 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
             if read_buf.is_empty() && finished {
                 break;
             }
+            read_bytes = 0;
         }
         Ok(())
     }

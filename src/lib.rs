@@ -10,7 +10,7 @@ mod tests {
     use crate::helpers::footer_parser::{FooterParser, Range};
     use crate::readwrite::ArunaReadWriter;
     use crate::streamreadwrite::ArunaStreamReadWriter;
-    use crate::transformer::ReadWriter;
+    use crate::transformer::{FileContext, ReadWriter};
     use crate::transformers::compressor::ZstdEnc;
     use crate::transformers::decompressor::ZstdDec;
     use crate::transformers::decrypt::ChaCha20Dec;
@@ -346,6 +346,60 @@ mod tests {
 
         println!("{:?}", file2);
         assert_eq!(file2, b"Thi".to_vec());
+    }
+
+    #[tokio::test]
+    async fn test_read_write_multifile() {
+        let file1 = b"This is a very very important test".to_vec();
+        let file2 = b"This is a very very important test".to_vec();
+        let mut file3: Vec<u8> = Vec::new();
+
+        let combined = Vec::from_iter(file1.clone().into_iter().chain(file2.clone()));
+
+        // Create a new ArunaReadWriter
+        let mut aswr = ArunaReadWriter::new_with_writer(combined.as_ref(), &mut file3)
+            .add_transformer(ZstdEnc::new(1, false))
+            .add_transformer(ZstdEnc::new(2, false)) // Double compression because we can
+            .add_transformer(
+                ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Dec::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(
+                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            )
+            .add_transformer(ZstdDec::new())
+            .add_transformer(ZstdDec::new())
+            .add_transformer(Filter::new(Range { from: 0, to: 3 }));
+        aswr.next_context(
+            FileContext {
+                file_name: "file1.jpg".to_string(),
+                file_size: file1.len() as u64,
+                ..Default::default()
+            },
+            false,
+        )
+        .await
+        .unwrap();
+        aswr.next_context(
+            FileContext {
+                file_name: "file2.jpg".to_string(),
+                file_size: file2.len() as u64,
+                ..Default::default()
+            },
+            true,
+        )
+        .await
+        .unwrap();
+        aswr.process().await.unwrap();
+        drop(aswr);
+
+        println!("{:?}", file3);
+        assert_eq!(file3, b"Thi".to_vec());
     }
 
     #[tokio::test]
