@@ -86,13 +86,16 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
             if let Some((context, _)) = &self.current_file_context {
                 self.size_counter += read_bytes;
                 if self.size_counter > context.file_size as usize {
-                    let mut diff = self.size_counter - context.file_size as usize;
+                    dbg!("Was here!");
+                    dbg!(self.size_counter, context.file_size);
+                    let mut diff = read_bytes - (self.size_counter - context.file_size as usize);
+                    dbg!(diff);
                     if diff >= context.file_size as usize {
                         diff = context.file_size as usize
                     }
                     hold_buffer = read_buf.split_to(diff);
                     mem::swap(&mut read_buf, &mut hold_buffer);
-                    self.size_counter = diff;
+                    self.size_counter = self.size_counter - context.file_size as usize;
                     if let Some((nfile, _)) = &self.next_file_context {
                         self.current_file_context = self.next_file_context.clone();
                         self.announce_all(Message {
@@ -127,7 +130,6 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
                     false => finished = false,
                 };
             }
-            dbg!(read_buf.len());
             match self
                 .sink
                 .process_bytes(&mut read_buf, finished && self.next_file_context.is_none())
@@ -139,6 +141,7 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
             if read_buf.is_empty() && finished {
                 break;
             }
+            assert!(read_buf.len() == 0);
             read_bytes = 0;
         }
         Ok(())

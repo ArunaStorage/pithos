@@ -82,12 +82,9 @@ impl Transformer for TarEnc {
             }
         }
         if self.current_file == self.head_size {
-            dbg!(buf.len());
             // Add padding
             let pad = vec![0u8; 512 - self.current_file % 512];
-            dbg!(&pad.len());
             buf.put(pad.as_ref());
-            dbg!(buf.len());
             self.header = mem::take(&mut self.next_header);
             if let Some(head) = &self.header {
                 buf.put(head.as_bytes().as_slice());
@@ -100,8 +97,6 @@ impl Transformer for TarEnc {
             buf.put([0u8; 1024].as_slice());
             self.finished = true;
         }
-        dbg!(buf.len());
-
         Ok(self.finished)
     }
 
