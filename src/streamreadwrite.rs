@@ -94,7 +94,7 @@ impl<
         // The buffer that accumulates the "actual" data
         let mut read_buf = BytesMut::with_capacity(65_536 * 2);
         let mut hold_buffer = BytesMut::with_capacity(65536);
-        let mut finished = false;
+        let mut finished;
         let mut maybe_msg: Option<Message> = None;
         let mut data;
         let mut read_bytes: usize = 0;
@@ -110,12 +110,6 @@ impl<
                         .await
                         .unwrap_or_else(|| Ok(Bytes::new()))
                         .unwrap_or_default();
-
-                    if let Some((_, is_last)) = &self.current_file_context {
-                        finished = data.is_empty() && *is_last;
-                    } else {
-                        finished = data.is_empty();
-                    }
                     read_bytes = data.len();
                     read_buf.put(data);
                 }
@@ -125,12 +119,14 @@ impl<
 
             if let Some((context, _)) = &self.current_file_context {
                 self.size_counter += read_bytes;
-
                 if self.size_counter > context.file_size as usize {
-                    let diff = self.size_counter - context.file_size as usize;
+                    let mut diff = read_bytes - (self.size_counter - context.file_size as usize);
+                    if diff >= context.file_size as usize {
+                        diff = context.file_size as usize
+                    }
                     hold_buffer = read_buf.split_to(diff);
                     mem::swap(&mut read_buf, &mut hold_buffer);
-                    self.size_counter = diff;
+                    self.size_counter = self.size_counter - context.file_size as usize;
                     if let Some((nfile, _)) = &self.next_file_context {
                         self.current_file_context = self.next_file_context.clone();
                         self.announce_all(Message {
@@ -145,6 +141,11 @@ impl<
                         bail!("[READ_WRITER] Got data for unknown file")
                     }
                 }
+            }
+            if let Some((_, is_last)) = &self.current_file_context {
+                finished = read_buf.is_empty() && read_bytes == 0 && *is_last;
+            } else {
+                finished = read_buf.is_empty() && read_bytes == 0;
             }
 
             for (ttype, trans) in self.transformers.iter_mut() {
