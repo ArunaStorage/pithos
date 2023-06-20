@@ -17,6 +17,7 @@ mod tests {
     use crate::transformers::encrypt::ChaCha20Enc;
     use crate::transformers::filter::Filter;
     use crate::transformers::footer::FooterGenerator;
+    use crate::transformers::tar::TarEnc;
     use bytes::Bytes;
     use tokio::fs::File;
     use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -440,5 +441,39 @@ mod tests {
 
         println!("{:?}", file2);
         assert_eq!(file2, b"Thi".to_vec());
+    }
+
+    #[tokio::test]
+    async fn e2e_test_read_write_multifile_tar() {
+        let file1 = b"This is a very very important test".to_vec();
+        let file2 = b"Another brilliant This is a very very important test1337".to_vec();
+        let mut file3 = File::create("test.txt.out.8").await.unwrap();
+
+        let combined = Vec::from_iter(file1.clone().into_iter().chain(file2.clone()));
+
+        // Create a new ArunaReadWriter
+        let mut aswr = ArunaReadWriter::new_with_writer(combined.as_ref(), &mut file3)
+            .add_transformer(TarEnc::new());
+        aswr.next_context(
+            FileContext {
+                file_name: "file1.txt".to_string(),
+                file_size: file1.len() as u64,
+                ..Default::default()
+            },
+            false,
+        )
+        .await
+        .unwrap();
+        aswr.next_context(
+            FileContext {
+                file_name: "file2.txt".to_string(),
+                file_size: file2.len() as u64,
+                ..Default::default()
+            },
+            true,
+        )
+        .await
+        .unwrap();
+        aswr.process().await.unwrap();
     }
 }

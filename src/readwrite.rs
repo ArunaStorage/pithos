@@ -85,9 +85,13 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
 
             if let Some((context, _)) = &self.current_file_context {
                 self.size_counter += read_bytes;
+                dbg!(read_bytes);
 
                 if self.size_counter > context.file_size as usize {
-                    let diff = self.size_counter - context.file_size as usize;
+                    let mut diff = self.size_counter - context.file_size as usize;
+                    if diff >= context.file_size as usize {
+                        diff = context.file_size as usize
+                    }
                     hold_buffer = read_buf.split_to(diff);
                     mem::swap(&mut read_buf, &mut hold_buffer);
                     self.size_counter = diff;

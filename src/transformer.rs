@@ -35,6 +35,8 @@ pub struct FileContext {
     pub gid: Option<u64>,
     // Octal like mode
     pub mode: Option<u32>,
+    // Created at
+    pub mtime: Option<u64>,
 }
 
 // Marker trait to signal that this Transformer can be a "final" destination for data

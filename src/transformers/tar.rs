@@ -1,3 +1,6 @@
+use std::time::Duration;
+use std::time::SystemTime;
+
 use crate::notifications::Message;
 use crate::notifications::Response;
 use crate::transformer::FileContext;
@@ -20,13 +23,22 @@ impl TryFrom<FileContext> for Header {
     type Error = anyhow::Error;
 
     fn try_from(value: FileContext) -> Result<Self> {
-        let mut header = Header::new_ustar();
+        let mut header = Header::new_gnu();
 
         let path = match value.file_path {
             Some(p) => p + &value.file_name,
             None => value.file_name,
         };
         header.set_path(path)?;
+        header.set_mode(value.mode.unwrap_or_else(|| 0o644));
+        header.set_mtime(value.mtime.unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or_else(|_| Duration::from_secs(0))
+                .as_secs()
+        }));
+        header.set_uid(value.gid.unwrap_or_else(|| 1000));
+        header.set_gid(value.gid.unwrap_or_else(|| 1000));
         header.set_size(value.file_size);
         header.set_cksum();
         Ok(header)
@@ -80,7 +92,10 @@ impl Transformer for TarEnc {
                     self.header = None;
                 }
             } else {
-                self.finished = true
+                if !self.finished {
+                    buf.put([0u8; 1024].as_slice());
+                    self.finished = true
+                }
             }
         }
         Ok(self.finished)
