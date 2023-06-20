@@ -1,3 +1,4 @@
+use std::mem;
 use std::time::Duration;
 use std::time::SystemTime;
 
@@ -17,6 +18,8 @@ pub struct TarEnc {
     next_header: Option<Header>,
     first: bool,
     finished: bool,
+    head_size: usize,
+    current_file: usize,
 }
 
 impl TryFrom<FileContext> for Header {
@@ -52,6 +55,8 @@ impl TarEnc {
             next_header: None,
             first: true,
             finished: false,
+            head_size: 0,
+            current_file: 0,
         }
     }
 }
@@ -64,40 +69,39 @@ impl Transformer for TarEnc {
             return Err(anyhow!(
                 "[TAR] A tar transformer needs at least one header before data is received."
             ));
-        } else if buf.len() != 0 && self.first {
+        }
+        self.current_file += buf.len();
+
+        if self.first {
             if let Some(header) = &self.header {
+                self.head_size = header.size()? as usize;
                 let temp = buf.split();
                 buf.put(header.as_bytes().as_slice());
                 buf.put(temp);
-                if self.next_header.is_some() {
-                    self.header = self.next_header.clone();
-                    self.next_header = None;
-                } else {
-                    self.header = None;
-                }
                 self.first = false;
-                return Ok(true);
             }
+        }
+        if self.current_file == self.head_size {
+            dbg!(buf.len());
+            // Add padding
+            let pad = vec![0u8; 512 - self.current_file % 512];
+            dbg!(&pad.len());
+            buf.put(pad.as_ref());
+            dbg!(buf.len());
+            self.header = mem::take(&mut self.next_header);
+            if let Some(head) = &self.header {
+                buf.put(head.as_bytes().as_slice());
+                self.head_size = head.size()? as usize;
+            }
+            self.current_file = 0;
         }
 
-        if finished {
-            if let Some(head) = &self.header {
-                let temp = buf.split();
-                buf.put(head.as_bytes().as_slice());
-                buf.put(temp);
-                if self.next_header.is_some() {
-                    self.header = self.next_header.clone();
-                    self.next_header = None;
-                } else {
-                    self.header = None;
-                }
-            } else {
-                if !self.finished {
-                    buf.put([0u8; 1024].as_slice());
-                    self.finished = true
-                }
-            }
+        if finished && !self.finished {
+            buf.put([0u8; 1024].as_slice());
+            self.finished = true;
         }
+        dbg!(buf.len());
+
         Ok(self.finished)
     }
 
@@ -117,7 +121,7 @@ impl Transformer for TarEnc {
                         }
                         self.next_header = Some(TryInto::<Header>::try_into(nfile.context.clone())?)
                     }
-                    self.finished = false
+                    self.finished = false;
                 }
                 _ => (),
             }

@@ -444,7 +444,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn e2e_test_read_write_multifile_tar() {
+    async fn e2e_test_read_write_multifile_tar_small() {
         let file1 = b"This is a very very important test".to_vec();
         let file2 = b"Another brilliant This is a very very important test1337".to_vec();
         let mut file3 = File::create("test.txt.out.8").await.unwrap();
@@ -468,6 +468,41 @@ mod tests {
             FileContext {
                 file_name: "file2.txt".to_string(),
                 file_size: file2.len() as u64,
+                ..Default::default()
+            },
+            true,
+        )
+        .await
+        .unwrap();
+        aswr.process().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn e2e_test_read_write_multifile_tar_real() {
+        let mut file1 = File::open("test.txt").await.unwrap();
+        let mut file2 = File::open("test.txt").await.unwrap();
+        let mut file3 = File::create("test.txt.out.9").await.unwrap();
+
+        let mut combined = Vec::new();
+        file1.read_to_end(&mut combined).await.unwrap();
+        file2.read_to_end(&mut combined).await.unwrap();
+        // Create a new ArunaReadWriter
+        let mut aswr = ArunaReadWriter::new_with_writer(combined.as_ref(), &mut file3)
+            .add_transformer(TarEnc::new());
+        aswr.next_context(
+            FileContext {
+                file_name: "file1.fasta".to_string(),
+                file_size: file1.metadata().await.unwrap().len(),
+                ..Default::default()
+            },
+            false,
+        )
+        .await
+        .unwrap();
+        aswr.next_context(
+            FileContext {
+                file_name: "file2.fasta".to_string(),
+                file_size: file2.metadata().await.unwrap().len(),
                 ..Default::default()
             },
             true,

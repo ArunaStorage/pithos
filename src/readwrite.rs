@@ -85,8 +85,6 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
 
             if let Some((context, _)) = &self.current_file_context {
                 self.size_counter += read_bytes;
-                dbg!(read_bytes);
-
                 if self.size_counter > context.file_size as usize {
                     let mut diff = self.size_counter - context.file_size as usize;
                     if diff >= context.file_size as usize {
@@ -115,7 +113,6 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
             } else {
                 finished = read_buf.is_empty() && read_bytes == 0;
             }
-
             for (ttype, trans) in self.transformers.iter_mut() {
                 if let Some(m) = &maybe_msg {
                     if m.target == *ttype {
@@ -130,6 +127,7 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
                     false => finished = false,
                 };
             }
+            dbg!(read_buf.len());
             match self
                 .sink
                 .process_bytes(&mut read_buf, finished && self.next_file_context.is_none())
