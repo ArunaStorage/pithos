@@ -15,6 +15,7 @@ use tar::Header;
 
 pub struct TarEnc {
     header: Option<Header>,
+    header_written: bool,
     next_header: Option<Header>,
     first: bool,
     finished: bool,
@@ -52,6 +53,7 @@ impl TarEnc {
     pub fn new() -> TarEnc {
         TarEnc {
             header: None,
+            header_written: false,
             next_header: None,
             first: true,
             finished: false,
@@ -79,16 +81,25 @@ impl Transformer for TarEnc {
                 buf.put(header.as_bytes().as_slice());
                 buf.put(temp);
                 self.first = false;
+                self.header_written = true;
             }
         }
         if self.current_file == self.head_size {
             // Add padding
-            let pad = vec![0u8; 512 - self.current_file % 512];
-            buf.put(pad.as_ref());
-            self.header = mem::take(&mut self.next_header);
+            dbg!(self.current_file);
+            
+            dbg!(&self.header);
+            if self.header_written {
+                buf.put(vec![0u8; 512 - self.current_file % 512].as_ref());
+                self.header = mem::take(&mut self.next_header);
+                self.header_written = false;
+            }
+            dbg!(&self.header);
             if let Some(head) = &self.header {
+                dbg!(head);
                 buf.put(head.as_bytes().as_slice());
                 self.head_size = head.size()? as usize;
+                self.header_written = true;
             }
             self.current_file = 0;
         }
@@ -109,12 +120,13 @@ impl Transformer for TarEnc {
             match &message.data {
                 crate::notifications::MessageData::NextFile(nfile) => {
                     if self.header.is_none() {
-                        self.header = Some(TryInto::<Header>::try_into(nfile.context.clone())?)
+                        self.header = Some(TryInto::<Header>::try_into(nfile.context.clone())?);
                     } else {
                         if self.next_header.is_some() {
                             bail!("[TAR] Current + next header already used")
                         }
-                        self.next_header = Some(TryInto::<Header>::try_into(nfile.context.clone())?)
+                        self.next_header =
+                            Some(TryInto::<Header>::try_into(nfile.context.clone())?);
                     }
                     self.finished = false;
                 }

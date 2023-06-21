@@ -19,6 +19,7 @@ mod tests {
     use crate::transformers::footer::FooterGenerator;
     use crate::transformers::tar::TarEnc;
     use bytes::Bytes;
+    use futures::{StreamExt, TryStreamExt};
     use tokio::fs::File;
     use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
@@ -357,6 +358,29 @@ mod tests {
 
         let combined = Vec::from_iter(file1.clone().into_iter().chain(file2.clone()));
 
+        let (sx, rx) = async_channel::bounded(10);
+        sx.send((
+            FileContext {
+                file_name: "file1.txt".to_string(),
+                file_size: file1.len() as u64,
+                ..Default::default()
+            },
+            false,
+        ))
+        .await
+        .unwrap();
+
+        sx.send((
+            FileContext {
+                file_name: "file2.txt".to_string(),
+                file_size: file2.len() as u64,
+                ..Default::default()
+            },
+            true,
+        ))
+        .await
+        .unwrap();
+
         // Create a new ArunaReadWriter
         let mut aswr = ArunaReadWriter::new_with_writer(combined.as_ref(), &mut file3)
             .add_transformer(ZstdEnc::new(1, false))
@@ -376,26 +400,7 @@ mod tests {
             .add_transformer(ZstdDec::new())
             .add_transformer(ZstdDec::new())
             .add_transformer(Filter::new(Range { from: 0, to: 3 }));
-        aswr.next_context(
-            FileContext {
-                file_name: "file1.jpg".to_string(),
-                file_size: file1.len() as u64,
-                ..Default::default()
-            },
-            false,
-        )
-        .await
-        .unwrap();
-        aswr.next_context(
-            FileContext {
-                file_name: "file2.jpg".to_string(),
-                file_size: file2.len() as u64,
-                ..Default::default()
-            },
-            true,
-        )
-        .await
-        .unwrap();
+        aswr.add_file_context_receiver(rx).await.unwrap();
         aswr.process().await.unwrap();
         drop(aswr);
 
@@ -451,29 +456,33 @@ mod tests {
 
         let combined = Vec::from_iter(file1.clone().into_iter().chain(file2.clone()));
 
-        // Create a new ArunaReadWriter
-        let mut aswr = ArunaReadWriter::new_with_writer(combined.as_ref(), &mut file3)
-            .add_transformer(TarEnc::new());
-        aswr.next_context(
+        let (sx, rx) = async_channel::bounded(10);
+        sx.send((
             FileContext {
                 file_name: "file1.txt".to_string(),
                 file_size: file1.len() as u64,
                 ..Default::default()
             },
             false,
-        )
+        ))
         .await
         .unwrap();
-        aswr.next_context(
+
+        sx.send((
             FileContext {
                 file_name: "file2.txt".to_string(),
                 file_size: file2.len() as u64,
                 ..Default::default()
             },
             true,
-        )
+        ))
         .await
         .unwrap();
+
+        // Create a new ArunaReadWriter
+        let mut aswr = ArunaReadWriter::new_with_writer(combined.as_ref(), &mut file3)
+            .add_transformer(TarEnc::new());
+        aswr.add_file_context_receiver(rx).await.unwrap();
         aswr.process().await.unwrap();
     }
 
@@ -486,29 +495,81 @@ mod tests {
         let mut combined = Vec::new();
         file1.read_to_end(&mut combined).await.unwrap();
         file2.read_to_end(&mut combined).await.unwrap();
-        // Create a new ArunaReadWriter
-        let mut aswr = ArunaReadWriter::new_with_writer(combined.as_ref(), &mut file3)
-            .add_transformer(TarEnc::new());
-        aswr.next_context(
+
+        let (sx, rx) = async_channel::bounded(10);
+        sx.send((
             FileContext {
-                file_name: "file1.fasta".to_string(),
+                file_name: "file1.txt".to_string(),
                 file_size: file1.metadata().await.unwrap().len(),
                 ..Default::default()
             },
             false,
-        )
+        ))
         .await
         .unwrap();
-        aswr.next_context(
+
+        sx.send((
             FileContext {
-                file_name: "file2.fasta".to_string(),
+                file_name: "file2.txt".to_string(),
                 file_size: file2.metadata().await.unwrap().len(),
                 ..Default::default()
             },
             true,
-        )
+        ))
         .await
         .unwrap();
+
+        // Create a new ArunaReadWriter
+        let mut aswr = ArunaReadWriter::new_with_writer(combined.as_ref(), &mut file3)
+            .add_transformer(TarEnc::new());
+        aswr.add_file_context_receiver(rx).await.unwrap();
+        aswr.process().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn e2e_test_stream_write_multifile_tar_real() {
+        let file1 = File::open("test.txt").await.unwrap();
+        let file2 = File::open("test.txt").await.unwrap();
+
+        let file1_size = file1.metadata().await.unwrap().len();
+        let file2_size = file2.metadata().await.unwrap().len();
+
+        let stream1 = tokio_util::io::ReaderStream::new(file1);
+        let stream2 = tokio_util::io::ReaderStream::new(file2);
+
+        let chained = stream1.chain(stream2);
+        let mapped = chained.map_err(|_| {
+            Box::<(dyn std::error::Error + Send + Sync + 'static)>::from("a_str_error").into()
+        });
+        let mut file3 = File::create("test.txt.out.10").await.unwrap();
+
+        let (sx, rx) = async_channel::bounded(10);
+        sx.send((
+            FileContext {
+                file_name: "file1.txt".to_string(),
+                file_size: file1_size,
+                ..Default::default()
+            },
+            false,
+        ))
+        .await
+        .unwrap();
+
+        sx.send((
+            FileContext {
+                file_name: "file2.txt".to_string(),
+                file_size: file2_size,
+                ..Default::default()
+            },
+            true,
+        ))
+        .await
+        .unwrap();
+
+        // Create a new ArunaReadWriter
+        let mut aswr = ArunaStreamReadWriter::new_with_writer(mapped, &mut file3)
+            .add_transformer(TarEnc::new());
+        aswr.add_file_context_receiver(rx).await.unwrap();
         aswr.process().await.unwrap();
     }
 }

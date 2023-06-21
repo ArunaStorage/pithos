@@ -23,7 +23,7 @@ pub struct ArunaStreamReadWriter<
     sender: Sender<Message>,
     size_counter: usize,
     current_file_context: Option<(FileContext, bool)>,
-    next_file_context: Option<(FileContext, bool)>,
+    file_ctx_rx: Option<Receiver<(FileContext, bool)>>,
 }
 
 impl<
@@ -48,7 +48,7 @@ impl<
             receiver: rx,
             size_counter: 0,
             current_file_context: None,
-            next_file_context: None,
+            file_ctx_rx: None,
         }
     }
 
@@ -66,7 +66,7 @@ impl<
             receiver: rx,
             size_counter: 0,
             current_file_context: None,
-            next_file_context: None,
+            file_ctx_rx: None,
         }
     }
 
@@ -98,6 +98,17 @@ impl<
         let mut maybe_msg: Option<Message> = None;
         let mut data;
         let mut read_bytes: usize = 0;
+        let mut next_file = false;
+
+        if let Some(rx) = &self.file_ctx_rx {
+            let (context, is_last) = rx.try_recv()?;
+            self.current_file_context = Some((context.clone(), is_last));
+            self.announce_all(Message {
+                target: TransformerType::All,
+                data: crate::notifications::MessageData::NextFile(FileMessage { context }),
+            })
+            .await?;
+        }
 
         loop {
             if read_buf.is_empty() {}
@@ -117,7 +128,7 @@ impl<
                 mem::swap(&mut hold_buffer, &mut read_buf);
             }
 
-            if let Some((context, _)) = &self.current_file_context {
+            if let Some((context, is_last)) = &self.current_file_context {
                 self.size_counter += read_bytes;
                 if self.size_counter > context.file_size as usize {
                     let mut diff = read_bytes - (self.size_counter - context.file_size as usize);
@@ -127,22 +138,8 @@ impl<
                     hold_buffer = read_buf.split_to(diff);
                     mem::swap(&mut read_buf, &mut hold_buffer);
                     self.size_counter = self.size_counter - context.file_size as usize;
-                    if let Some((nfile, _)) = &self.next_file_context {
-                        self.current_file_context = self.next_file_context.clone();
-                        self.announce_all(Message {
-                            target: TransformerType::All,
-                            data: crate::notifications::MessageData::NextFile(FileMessage {
-                                context: nfile.clone(),
-                            }),
-                        })
-                        .await?;
-                        self.next_file_context = None
-                    } else {
-                        bail!("[READ_WRITER] Got data for unknown file")
-                    }
+                    next_file = !is_last;
                 }
-            }
-            if let Some((_, is_last)) = &self.current_file_context {
                 finished = read_buf.is_empty() && read_bytes == 0 && *is_last;
             } else {
                 finished = read_buf.is_empty() && read_bytes == 0;
@@ -161,14 +158,25 @@ impl<
                     false => finished = false,
                 };
             }
-            match self
-                .sink
-                .process_bytes(&mut read_buf, finished && self.next_file_context.is_none())
-                .await?
-            {
+            match self.sink.process_bytes(&mut read_buf, finished).await? {
                 true => {}
                 false => finished = false,
             };
+
+            // Anounce next file
+            if next_file {
+                if let Some(rx) = &self.file_ctx_rx {
+                    let (context, is_last) = rx.recv().await?;
+                    self.current_file_context = Some((context.clone(), is_last));
+                    self.announce_all(Message {
+                        target: TransformerType::All,
+                        data: crate::notifications::MessageData::NextFile(FileMessage { context }),
+                    })
+                    .await?;
+                }
+                next_file = false;
+            }
+
             if read_buf.is_empty() & finished {
                 break;
             }
@@ -183,17 +191,26 @@ impl<
         Ok(())
     }
 
-    async fn next_context(&mut self, context: FileContext, is_last: bool) -> Result<()> {
-        if self.current_file_context.is_none() {
-            self.current_file_context = Some((context.clone(), is_last));
-            self.announce_all(Message {
-                target: TransformerType::All,
-                data: crate::notifications::MessageData::NextFile(FileMessage { context }),
-            })
-            .await?;
+    async fn add_file_context_receiver(&mut self, rx: Receiver<(FileContext, bool)>) -> Result<()> {
+        if self.file_ctx_rx.is_none() {
+            self.file_ctx_rx = Some(rx);
+            Ok(())
         } else {
-            self.next_file_context = Some((context, is_last))
+            bail!("[READ_WRITER] Overwriting existing receivers is not allowed!")
         }
-        Ok(())
     }
+
+    // async fn next_context(&mut self, context: FileContext, is_last: bool) -> Result<()> {
+    //     if self.current_file_context.is_none() {
+    //         self.current_file_context = Some((context.clone(), is_last));
+    //         self.announce_all(Message {
+    //             target: TransformerType::All,
+    //             data: crate::notifications::MessageData::NextFile(FileMessage { context }),
+    //         })
+    //         .await?;
+    //     } else {
+    //         self.next_file_context = Some((context, is_last))
+    //     }
+    //     Ok(())
+    // }
 }

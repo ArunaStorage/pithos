@@ -43,6 +43,7 @@ dependencies = [
  "log",
  "tar",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

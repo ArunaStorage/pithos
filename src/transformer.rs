@@ -1,6 +1,6 @@
 use crate::notifications::{Message, Response};
 use anyhow::Result;
-use async_channel::Sender;
+use async_channel::{Receiver, Sender};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum TransformerType {
@@ -46,7 +46,7 @@ pub trait Sink: Transformer {}
 pub trait ReadWriter {
     async fn process(&mut self) -> Result<()>;
     async fn announce_all(&mut self, message: Message) -> Result<()>;
-    async fn next_context(&mut self, context: FileContext, is_last: bool) -> Result<()>;
+    async fn add_file_context_receiver(&mut self, rx: Receiver<(FileContext, bool)>) -> Result<()>;
 }
 
 #[async_trait::async_trait]
