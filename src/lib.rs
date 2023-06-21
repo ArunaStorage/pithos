@@ -57,7 +57,7 @@ mod tests {
                 ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .process()
             .await
@@ -77,7 +77,7 @@ mod tests {
                 ChaCha20Enc::new(true, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .process()
             .await
@@ -97,7 +97,7 @@ mod tests {
                 ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .process()
             .await
@@ -123,7 +123,7 @@ mod tests {
                 ChaCha20Enc::new(true, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .process()
             .await
@@ -154,10 +154,10 @@ mod tests {
                 ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .add_transformer(ZstdDec::new())
             .add_transformer(ZstdDec::new())
@@ -190,10 +190,10 @@ mod tests {
                 ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .add_transformer(ZstdDec::new())
             .add_transformer(ZstdDec::new()) // Double decompression because we can
@@ -213,7 +213,7 @@ mod tests {
                 ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .add_transformer(FooterGenerator::new(None))
             .add_transformer(ZstdDec::new())
@@ -241,7 +241,7 @@ mod tests {
                 ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .process()
             .await
@@ -335,10 +335,10 @@ mod tests {
                 ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .add_transformer(ZstdDec::new())
             .add_transformer(ZstdDec::new())
@@ -393,10 +393,10 @@ mod tests {
                 ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .add_transformer(ZstdDec::new())
             .add_transformer(ZstdDec::new())
@@ -433,10 +433,10 @@ mod tests {
                 ChaCha20Enc::new(true, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .add_transformer(ZstdDec::new())
             .add_transformer(ZstdDec::new())

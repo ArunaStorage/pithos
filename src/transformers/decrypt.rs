@@ -29,13 +29,13 @@ pub struct ChaCha20Dec {
 
 impl ChaCha20Dec {
     #[allow(dead_code)]
-    pub fn new(dec_key: Vec<u8>) -> Result<Self> {
+    pub fn new(dec_key: Option<Vec<u8>>) -> Result<Self> {
         Ok(ChaCha20Dec {
             input_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
             output_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
             finished: false,
             backoff_counter: 0,
-            decryption_key: dec_key,
+            decryption_key: dec_key.unwrap_or_default(),
             skip_me: false,
         })
     }
@@ -103,7 +103,8 @@ impl Transformer for ChaCha20Dec {
     async fn notify(&mut self, message: &Message) -> Result<Response> {
         if message.target == TransformerType::All {
             if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
-                self.skip_me = nfile.context.skip_decryption
+                self.skip_me = nfile.context.skip_decryption;
+                self.decryption_key = nfile.context.encryption_key.clone().unwrap_or_default();
             }
         }
 

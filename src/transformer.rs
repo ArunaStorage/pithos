@@ -42,6 +42,8 @@ pub struct FileContext {
     pub skip_decompression: bool,
     // Should this file be skipped by decryptors
     pub skip_decryption: bool,
+    // Encryption key
+    pub encryption_key: Option<Vec<u8>>,
 }
 
 // Marker trait to signal that this Transformer can be a "final" destination for data
