@@ -540,7 +540,7 @@ mod tests {
 
         let chained = stream1.chain(stream2);
         let mapped = chained.map_err(|_| {
-            Box::<(dyn std::error::Error + Send + Sync + 'static)>::from("a_str_error").into()
+            Box::<(dyn std::error::Error + Send + Sync + 'static)>::from("a_str_error")
         });
         let mut file3 = File::create("test.txt.out.10").await.unwrap();
 
@@ -587,7 +587,7 @@ mod tests {
 
         let chained = stream1.chain(stream2);
         let mapped = chained.map_err(|_| {
-            Box::<(dyn std::error::Error + Send + Sync + 'static)>::from("a_str_error").into()
+            Box::<(dyn std::error::Error + Send + Sync + 'static)>::from("a_str_error")
         });
         let mut file3 = File::create("test.txt.out.11").await.unwrap();
 

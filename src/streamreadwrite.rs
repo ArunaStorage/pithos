@@ -137,7 +137,7 @@ impl<
                     }
                     hold_buffer = read_buf.split_to(diff);
                     mem::swap(&mut read_buf, &mut hold_buffer);
-                    self.size_counter = self.size_counter - context.file_size as usize;
+                    self.size_counter -= context.file_size as usize;
                     next_file = !is_last;
                 }
                 finished = read_buf.is_empty() && read_bytes == 0 && *is_last;

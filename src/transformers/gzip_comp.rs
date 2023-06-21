@@ -22,6 +22,12 @@ impl GzipEnc {
     }
 }
 
+impl Default for GzipEnc {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[async_trait::async_trait]
 impl Transformer for GzipEnc {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {

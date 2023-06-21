@@ -28,15 +28,15 @@ impl TryFrom<FileContext> for Header {
             None => value.file_name,
         };
         header.set_path(path)?;
-        header.set_mode(value.mode.unwrap_or_else(|| 0o644));
+        header.set_mode(value.mode.unwrap_or(0o644));
         header.set_mtime(value.mtime.unwrap_or_else(|| {
             SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .unwrap_or_else(|_| Duration::from_secs(0))
                 .as_secs()
         }));
-        header.set_uid(value.gid.unwrap_or_else(|| 1000));
-        header.set_gid(value.gid.unwrap_or_else(|| 1000));
+        header.set_uid(value.gid.unwrap_or(1000));
+        header.set_gid(value.gid.unwrap_or(1000));
         header.set_size(value.file_size);
         header.set_cksum();
         Ok(header)
@@ -51,6 +51,12 @@ impl TarEnc {
             finished: false,
             init: true,
         }
+    }
+}
+
+impl Default for TarEnc {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -83,17 +89,14 @@ impl Transformer for TarEnc {
 
     async fn notify(&mut self, message: &Message) -> Result<Response> {
         if message.target == TransformerType::All {
-            match &message.data {
-                crate::notifications::MessageData::NextFile(nfile) => {
-                    if self.header.is_none() {
-                        self.padding = 512 - nfile.context.file_size as usize % 512;
-                        self.header = Some(TryInto::<Header>::try_into(nfile.context.clone())?);
-                    } else {
-                        bail!("[TAR] A Header is still present")
-                    }
-                    self.finished = false;
+            if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
+                if self.header.is_none() {
+                    self.padding = 512 - nfile.context.file_size as usize % 512;
+                    self.header = Some(TryInto::<Header>::try_into(nfile.context.clone())?);
+                } else {
+                    bail!("[TAR] A Header is still present")
                 }
-                _ => (),
+                self.finished = false;
             }
         }
 

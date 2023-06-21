@@ -66,7 +66,7 @@ impl Transformer for ZstdEnc {
             // Add the number of chunks to the chunksvec (for indexing)
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
 
-            if buf.len() != 0 {
+            if !buf.is_empty() {
                 self.size_counter = buf.len();
                 self.internal_buf
                     .write_all_buf(&mut buf.split_to(dif))
