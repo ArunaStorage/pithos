@@ -1,7 +1,7 @@
 [package]
 authors = ["Sebastian <sb@pus.de>"]
 name = "aruna-file"
-version = "0.1.14"
+version = "0.2.0-rc.3"
 edition = "2021"
 repository = "https://github.com/ArunaStorage/aruna-file"
 license = "MIT OR Apache-2.0"
@@ -10,17 +10,25 @@ description = "Library and component for encrypting / compressing .aruna files, 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.69"
-async-compression = {version = "0.3.15", features = ["tokio", "zstd"]}
-sodiumoxide = "0.2.7"
-libsodium-sys = "0.2.7"
-hex = "0.4"
+anyhow = "1.0.71"
+async-compression = {version = "0.4.0", features = ["tokio", "zstd", "gzip"]}
+hex = "0.4.3"
+chacha20poly1305 = "0.10.1"
 byteorder = "1.4.3"
 bytes = "1.4.0"
-tokio = {version = "1.25.0", features = ["full"]}
-async-trait = "0.1.66"
-hyper = {version = "0.14.25", features = ["full"]}
-futures = "0.3.27"
+tokio = {version = "1.28.1", features = ["full"]}
+async-trait = "0.1.68"
+hyper = {version = "0.14.26", features = ["full"]}
+futures = "0.3.28"
 async-channel = "1.8.0"
-async-stream = "0.3.4"
-log = "0.4.17"
+async-stream = "0.3.5"
+log = "0.4.19"
+tar = "0.4.38"
+
+[dev-dependencies]
+criterion = { version = "0.4", features = ["html_reports", "async_tokio"] }
+tokio-util = { version = "0.7.8", features = ["io"]}
+
+[[bench]]
+name = "performance"
+harness = false

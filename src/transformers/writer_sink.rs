@@ -1,31 +1,26 @@
-use crate::transformer::AddTransformer;
-use crate::transformer::Notifications;
 use crate::transformer::Sink;
 use crate::transformer::Transformer;
+use crate::transformer::TransformerType;
 use anyhow::Result;
 
 use tokio::io::AsyncWriteExt;
 use tokio::io::{AsyncWrite, BufWriter};
 
-pub struct WriterSink<W: AsyncWrite + Unpin + Send> {
+pub struct WriterSink<W: AsyncWrite + Unpin> {
     writer: BufWriter<W>,
 }
 
 impl<W: AsyncWrite + Unpin + Send> Sink for WriterSink<W> {}
 
-impl<W: AsyncWrite + Unpin + Send> WriterSink<W> {
+impl<W: AsyncWrite + Unpin> WriterSink<W> {
     pub fn new(writer: BufWriter<W>) -> Self {
         Self { writer }
     }
 }
 
-impl<'a, W: AsyncWrite + Unpin + Send> AddTransformer<'a> for WriterSink<W> {
-    fn add_transformer(self: &mut WriterSink<W>, _t: Box<dyn Transformer + Send + 'a>) {}
-}
-
 #[async_trait::async_trait]
 impl<W: AsyncWrite + Unpin + Send> Transformer for WriterSink<W> {
-    async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
+    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         if !buf.is_empty() {
             while !buf.is_empty() {
                 self.writer.write_buf(buf).await?;
@@ -37,7 +32,8 @@ impl<W: AsyncWrite + Unpin + Send> Transformer for WriterSink<W> {
         }
         Ok(false)
     }
-    async fn notify(&mut self, _notes: &mut Vec<Notifications>) -> Result<()> {
-        Ok(())
+
+    fn get_type(&self) -> TransformerType {
+        TransformerType::WriterSink
     }
 }

@@ -1,6 +1,8 @@
-use crate::transformer::AddTransformer;
-use crate::transformer::Notifications;
+use crate::notifications;
+use crate::notifications::Message;
+use crate::notifications::Response;
 use crate::transformer::Transformer;
+use crate::transformer::TransformerType;
 use anyhow::anyhow;
 use anyhow::Result;
 use byteorder::LittleEndian;
@@ -8,87 +10,56 @@ use byteorder::WriteBytesExt;
 use bytes::BufMut;
 use bytes::{Bytes, BytesMut};
 
-pub struct FooterGenerator<'a> {
+pub struct FooterGenerator {
     finished: bool,
     external_info: BytesMut,
-    notifications: Option<bool>,
-    next: Option<Box<dyn Transformer + Send + 'a>>,
 }
 
-impl<'a> FooterGenerator<'a> {
+impl FooterGenerator {
     #[allow(dead_code)]
-    pub fn new(external_info: Option<Vec<u8>>, should_be_notified: bool) -> FooterGenerator<'a> {
+    pub fn new(external_info: Option<Vec<u8>>) -> FooterGenerator {
         FooterGenerator {
             finished: false,
             external_info: match external_info {
                 Some(i) => i.as_slice().into(),
                 _ => BytesMut::new(),
             },
-            notifications: match should_be_notified {
-                true => Some(false),
-                _ => None,
-            },
-            next: None,
         }
-    }
-}
-
-impl<'a> AddTransformer<'a> for FooterGenerator<'a> {
-    fn add_transformer(&mut self, t: Box<dyn Transformer + Send + 'a>) {
-        self.next = Some(t)
     }
 }
 
 #[async_trait::async_trait]
-impl Transformer for FooterGenerator<'_> {
-    async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
+impl Transformer for FooterGenerator {
+    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         if buf.is_empty() && !self.finished && finished {
-            if let Some(a) = self.notifications {
-                if !a {
-                    return Err(anyhow!("Missing notifications"));
-                }
+            if self.external_info.is_empty() {
+                return Err(anyhow!("Missing notifications"));
             }
-
-            if let Some(next) = &mut self.next {
-                next.process_bytes(
-                    &mut create_skippable_footer_frame(self.external_info.to_vec())?,
-                    self.finished && buf.is_empty() && finished,
-                )
-                .await?;
-            }
+            buf.put(create_skippable_footer_frame(self.external_info.to_vec())?);
             self.finished = true;
         }
-
-        if let Some(next) = &mut self.next {
-            next.process_bytes(buf, self.finished && buf.is_empty() && finished)
-                .await
-        } else {
-            Err(anyhow!(
-                "This footer generator is designed to always contain a 'next'"
-            ))
-        }
+        Ok(self.finished)
     }
-    async fn notify(&mut self, notes: &mut Vec<Notifications>) -> Result<()> {
-        if let Some(next) = &mut self.next {
-            for note in notes.iter_mut() {
-                if let Notifications::Message(mes) = note {
-                    if mes.recipient == "FOOTER" {
-                        self.notifications = Some(true);
-                        self.external_info.put(
-                            mes.info
-                                .clone()
-                                .ok_or_else(|| anyhow!("Expected info"))?
-                                .as_slice(),
-                        );
-                    };
-                };
+    async fn notify(&mut self, message: &Message) -> Result<Response> {
+        match message.target {
+            TransformerType::FooterGenerator => {
+                if let notifications::MessageData::Footer(data) = &message.data {
+                    self.external_info.put(data.chunks.as_ref())
+                }
             }
-            next.notify(notes).await?
+            TransformerType::All => {}
+            _ => return Err(anyhow!("Received invalid message")),
         }
-        Ok(())
+        Ok(Response::Ok)
+    }
+
+    #[inline]
+    fn get_type(&self) -> TransformerType {
+        TransformerType::FooterGenerator
     }
 }
 
+#[inline]
 fn create_skippable_footer_frame(mut footer_list: Vec<u8>) -> Result<Bytes> {
     // 65_536 framesize minus 12 bytes for header
     // 1. Magic bytes (4)

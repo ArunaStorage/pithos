@@ -3,9 +3,10 @@ use anyhow::Result;
 use byteorder::LittleEndian;
 use byteorder::ReadBytesExt;
 use bytes::Bytes;
-use sodiumoxide::crypto::aead::chacha20poly1305_ietf;
-use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Key;
-use sodiumoxide::crypto::aead::chacha20poly1305_ietf::Nonce;
+use chacha20poly1305::{
+    aead::{Aead, KeyInit},
+    ChaCha20Poly1305,
+};
 
 pub struct FooterParser {
     footer: [u8; 65536 * 2],
@@ -168,24 +169,22 @@ impl FooterParser {
 }
 
 pub fn decrypt_chunks(chunk: &[u8; (65536 + 28) * 2], decryption_key: &[u8]) -> Result<Bytes> {
-    let key =
-        Key::from_slice(decryption_key).ok_or_else(|| anyhow!("unable to parse decryption key"))?;
-
     let first = &chunk[0..65536 + 28];
     let second = &chunk[65536 + 28..];
 
     let (first_nonce_slice, first_data) = first.split_at(12);
     let (second_nonce_slice, second_data) = second.split_at(12);
-    let first_nonce =
-        Nonce::from_slice(first_nonce_slice).ok_or_else(|| anyhow!("unable to read nonce"))?;
-    let second_nonce =
-        Nonce::from_slice(second_nonce_slice).ok_or_else(|| anyhow!("unable to read nonce"))?;
 
-    let mut first_dec = chacha20poly1305_ietf::open(first_data, None, &first_nonce, &key)
-        .map_err(|_| anyhow!("unable to decrypt part"))?;
+    let decryptor = ChaCha20Poly1305::new_from_slice(decryption_key)
+        .map_err(|_| anyhow!("[FOOTER_PARSER] Unable to initialize decryptor"))?;
+
+    let mut first_dec = decryptor
+        .decrypt(first_nonce_slice.into(), first_data)
+        .map_err(|_| anyhow!("[FOOTER_PARSER] unable to decrypt part 1"))?;
     first_dec.extend(
-        chacha20poly1305_ietf::open(second_data, None, &second_nonce, &key)
-            .map_err(|_| anyhow!("unable to decrypt part"))?,
+        decryptor
+            .decrypt(second_nonce_slice.into(), second_data)
+            .map_err(|_| anyhow!("[FOOTER_PARSER] unable to decrypt part 2"))?,
     );
     Ok(first_dec.into())
 }

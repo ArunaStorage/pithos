@@ -1,42 +1,30 @@
-use anyhow::anyhow;
+use crate::helpers::footer_parser::Range;
+use crate::transformer::{Transformer, TransformerType};
 use anyhow::Result;
 use bytes::Buf;
 
-use crate::helpers::footer_parser::Range;
-use crate::transformer::AddTransformer;
-use crate::transformer::Notifications;
-use crate::transformer::Transformer;
-
-pub struct Filter<'a> {
+pub struct Filter {
     counter: usize,
     filter: Range,
     captured_buf_len: usize,
     advanced_by: usize,
-    next: Option<Box<dyn Transformer + Send + 'a>>,
 }
 
-impl<'a> Filter<'a> {
+impl Filter {
     #[allow(dead_code)]
-    pub fn new(filter: Range) -> Filter<'a> {
+    pub fn new(filter: Range) -> Self {
         Filter {
             counter: 0,
             filter,
             captured_buf_len: 0,
             advanced_by: 0,
-            next: None,
         }
     }
 }
 
-impl<'a> AddTransformer<'a> for Filter<'a> {
-    fn add_transformer(&mut self, t: Box<dyn Transformer + Send + 'a>) {
-        self.next = Some(t)
-    }
-}
-
 #[async_trait::async_trait]
-impl Transformer for Filter<'_> {
-    async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool> {
+impl Transformer for Filter {
+    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, _finished: bool) -> Result<bool> {
         self.captured_buf_len = buf.len();
         self.advanced_by = 0;
         if !buf.is_empty() {
@@ -55,21 +43,11 @@ impl Transformer for Filter<'_> {
         }
 
         self.counter += self.captured_buf_len;
-
-        // Try to write the buf to the "next" in the chain, even if the buf is empty
-        if let Some(next) = &mut self.next {
-            // Should be called even if bytes.len() == 0 to drive underlying Transformer to completion
-            next.process_bytes(buf, finished).await
-        } else {
-            Err(anyhow!(
-                "This decrypter is designed to always contain a 'next'"
-            ))
-        }
+        Ok(true)
     }
-    async fn notify(&mut self, notes: &mut Vec<Notifications>) -> Result<()> {
-        if let Some(next) = &mut self.next {
-            next.notify(notes).await?
-        }
-        Ok(())
+
+    #[inline]
+    fn get_type(&self) -> TransformerType {
+        TransformerType::Filter
     }
 }
