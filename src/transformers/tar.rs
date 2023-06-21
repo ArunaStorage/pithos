@@ -1,7 +1,3 @@
-use std::mem;
-use std::time::Duration;
-use std::time::SystemTime;
-
 use crate::notifications::Message;
 use crate::notifications::Response;
 use crate::transformer::FileContext;
@@ -11,12 +7,13 @@ use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Result;
 use bytes::BufMut;
+use std::time::Duration;
+use std::time::SystemTime;
 use tar::Header;
 
 pub struct TarEnc {
     header: Option<Header>,
     header_written: bool,
-    next_header: Option<Header>,
     first: bool,
     finished: bool,
     head_size: usize,
@@ -54,7 +51,6 @@ impl TarEnc {
         TarEnc {
             header: None,
             header_written: false,
-            next_header: None,
             first: true,
             finished: false,
             head_size: 0,
@@ -85,16 +81,11 @@ impl Transformer for TarEnc {
             }
         }
         if self.current_file == self.head_size {
-            // Add padding
-            dbg!(self.current_file);
-            
-            dbg!(&self.header);
             if self.header_written {
                 buf.put(vec![0u8; 512 - self.current_file % 512].as_ref());
-                self.header = mem::take(&mut self.next_header);
+                self.header = None;
                 self.header_written = false;
             }
-            dbg!(&self.header);
             if let Some(head) = &self.header {
                 dbg!(head);
                 buf.put(head.as_bytes().as_slice());
@@ -122,11 +113,7 @@ impl Transformer for TarEnc {
                     if self.header.is_none() {
                         self.header = Some(TryInto::<Header>::try_into(nfile.context.clone())?);
                     } else {
-                        if self.next_header.is_some() {
-                            bail!("[TAR] Current + next header already used")
-                        }
-                        self.next_header =
-                            Some(TryInto::<Header>::try_into(nfile.context.clone())?);
+                        bail!("[TAR] A Header is still present")
                     }
                     self.finished = false;
                 }
