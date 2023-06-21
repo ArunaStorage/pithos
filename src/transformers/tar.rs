@@ -3,7 +3,6 @@ use crate::notifications::Response;
 use crate::transformer::FileContext;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
-use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Result;
 use bytes::BufMut;
@@ -13,11 +12,9 @@ use tar::Header;
 
 pub struct TarEnc {
     header: Option<Header>,
-    header_written: bool,
-    first: bool,
+    padding: usize,
     finished: bool,
-    head_size: usize,
-    current_file: usize,
+    init: bool,
 }
 
 impl TryFrom<FileContext> for Header {
@@ -50,11 +47,9 @@ impl TarEnc {
     pub fn new() -> TarEnc {
         TarEnc {
             header: None,
-            header_written: false,
-            first: true,
+            padding: 0,
             finished: false,
-            head_size: 0,
-            current_file: 0,
+            init: true,
         }
     }
 }
@@ -62,40 +57,20 @@ impl TarEnc {
 #[async_trait::async_trait]
 impl Transformer for TarEnc {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
-        // This is forbidden! A tar transformer needs all information to build a header before data is received.
-        if buf.len() != 0 && self.header.is_none() {
-            return Err(anyhow!(
-                "[TAR] A tar transformer needs at least one header before data is received."
-            ));
-        }
-        self.current_file += buf.len();
-
-        if self.first {
-            if let Some(header) = &self.header {
-                self.head_size = header.size()? as usize;
-                let temp = buf.split();
-                buf.put(header.as_bytes().as_slice());
-                buf.put(temp);
-                self.first = false;
-                self.header_written = true;
+        if let Some(header) = &self.header {
+            let temp = buf.split();
+            if !self.init {
+                buf.put(vec![0u8; self.padding].as_ref());
+            } else {
+                self.init = false;
             }
-        }
-        if self.current_file == self.head_size {
-            if self.header_written {
-                buf.put(vec![0u8; 512 - self.current_file % 512].as_ref());
-                self.header = None;
-                self.header_written = false;
-            }
-            if let Some(head) = &self.header {
-                dbg!(head);
-                buf.put(head.as_bytes().as_slice());
-                self.head_size = head.size()? as usize;
-                self.header_written = true;
-            }
-            self.current_file = 0;
+            buf.put(header.as_bytes().as_slice());
+            buf.put(temp);
+            self.header = None;
         }
 
         if finished && !self.finished {
+            buf.put(vec![0u8; self.padding].as_ref());
             buf.put([0u8; 1024].as_slice());
             self.finished = true;
         }
@@ -111,6 +86,7 @@ impl Transformer for TarEnc {
             match &message.data {
                 crate::notifications::MessageData::NextFile(nfile) => {
                     if self.header.is_none() {
+                        self.padding = 512 - nfile.context.file_size as usize % 512;
                         self.header = Some(TryInto::<Header>::try_into(nfile.context.clone())?);
                     } else {
                         bail!("[TAR] A Header is still present")
