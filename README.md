@@ -1,3 +1,10 @@
+[![Rust](https://img.shields.io/badge/built_with-Rust-dca282.svg)](https://www.rust-lang.org/)
+[![License](https://img.shields.io/badge/License-MIT-brightgreen.svg)](https://github.com/ArunaStorage/aruna-file/blob/main/LICENSE)
+![CI](https://github.com/ArunaStorage/aruna-file/actions/workflows/push.yaml/badge.svg)
+[![Codecov](https://codecov.io/github/ArunaStorage/aruna-file/coverage.svg?branch=main)](https://codecov.io/gh/ArunaStorage/aruna-file)
+[![Dependency status](https://deps.rs/repo/github/ArunaStorage/aruna-file/status.svg)](https://deps.rs/repo/github/ArunaStorage/aruna-file)
+___
+
 # ArunaReadWriter
 
 Short guidance for usage of the `ArunaReadWriter` custom component. For the formal file specification click [here](#the-aruna-file-format).
