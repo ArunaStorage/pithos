@@ -50,7 +50,9 @@ impl Transformer for ZstdEnc {
             let dif = RAW_FRAME_SIZE - self.size_counter;
             // Make sure that dif is <= RAW_FRAME_SIZE
             assert!(dif <= RAW_FRAME_SIZE);
-            self.internal_buf.write_buf(&mut buf.split_to(dif)).await?;
+            self.internal_buf
+                .write_all_buf(&mut buf.split_to(dif))
+                .await?;
             // Shut the writer down -> Calls flush()
             self.internal_buf.shutdown().await?;
             // Get data from the vector buffer to the "prev_buf" -> Output buffer
@@ -63,6 +65,13 @@ impl Transformer for ZstdEnc {
             self.size_counter = 0;
             // Add the number of chunks to the chunksvec (for indexing)
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
+
+            if buf.len() != 0 {
+                self.size_counter = buf.len();
+                self.internal_buf
+                    .write_all_buf(&mut buf.split_to(dif))
+                    .await?;
+            }
 
             buf.put(self.prev_buf.split().freeze());
             return Ok(self.finished && self.prev_buf.is_empty());
