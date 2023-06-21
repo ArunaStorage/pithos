@@ -38,10 +38,10 @@ Example:
                 ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new(Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
             )
             .add_transformer(ZstdDec::new())
             .add_transformer(ZstdDec::new())
@@ -49,8 +49,6 @@ Example:
             .process()
             .await
             .unwrap();
-
-        println!("{:?}", file2);
         assert_eq!(file2, b"Thi".to_vec());
 ```
 
