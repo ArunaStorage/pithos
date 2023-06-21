@@ -21,6 +21,7 @@ const CIPHER_SEGMENT_SIZE: usize = ENCRYPTION_BLOCK_SIZE + CIPHER_DIFF;
 pub struct ChaCha20Dec {
     input_buffer: BytesMut,
     output_buffer: BytesMut,
+    hard_coded_enc: bool,
     decryption_key: Vec<u8>,
     finished: bool,
     backoff_counter: usize,
@@ -34,6 +35,7 @@ impl ChaCha20Dec {
             input_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
             output_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
             finished: false,
+            hard_coded_enc: dec_key.is_some(),
             backoff_counter: 0,
             decryption_key: dec_key.unwrap_or_default(),
             skip_me: false,
@@ -104,7 +106,9 @@ impl Transformer for ChaCha20Dec {
         if message.target == TransformerType::All {
             if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
                 self.skip_me = nfile.context.skip_decryption;
-                self.decryption_key = nfile.context.encryption_key.clone().unwrap_or_default();
+                if !self.hard_coded_enc {
+                    self.decryption_key = nfile.context.encryption_key.clone().unwrap_or_default();
+                }
             }
         }
 
