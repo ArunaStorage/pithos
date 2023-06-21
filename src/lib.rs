@@ -11,13 +11,13 @@ mod tests {
     use crate::readwrite::ArunaReadWriter;
     use crate::streamreadwrite::ArunaStreamReadWriter;
     use crate::transformer::{FileContext, ReadWriter};
-    use crate::transformers::compressor::ZstdEnc;
-    use crate::transformers::decompressor::ZstdDec;
     use crate::transformers::decrypt::ChaCha20Dec;
     use crate::transformers::encrypt::ChaCha20Enc;
     use crate::transformers::filter::Filter;
     use crate::transformers::footer::FooterGenerator;
     use crate::transformers::tar::TarEnc;
+    use crate::transformers::zstd_comp::ZstdEnc;
+    use crate::transformers::zstd_decomp::ZstdDec;
     use bytes::Bytes;
     use futures::{StreamExt, TryStreamExt};
     use tokio::fs::File;

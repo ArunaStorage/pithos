@@ -9,6 +9,7 @@ pub enum TransformerType {
     All,
     AsyncSenderSink,
     ZstdCompressor,
+    GzipCompressor,
     ZstdDecompressor,
     ChaCha20Encrypt,
     ChaCha20Decrypt,

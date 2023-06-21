@@ -4,7 +4,7 @@ use aruna_file::{
     readwrite::ArunaReadWriter,
     transformer::ReadWriter,
     transformers::{
-        compressor::ZstdEnc, decompressor::ZstdDec, decrypt::ChaCha20Dec, encrypt::ChaCha20Enc,
+        decrypt::ChaCha20Dec, encrypt::ChaCha20Enc, zstd_comp::ZstdEnc, zstd_decomp::ZstdDec,
     },
 };
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
