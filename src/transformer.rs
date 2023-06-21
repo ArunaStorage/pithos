@@ -38,6 +38,10 @@ pub struct FileContext {
     pub mode: Option<u32>,
     // Created at
     pub mtime: Option<u64>,
+    // Should this file be skipped by decompressors
+    pub skip_decompression: bool,
+    // Should this file be skipped by decryptors
+    pub skip_decryption: bool,
 }
 
 // Marker trait to signal that this Transformer can be a "final" destination for data

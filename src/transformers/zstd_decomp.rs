@@ -1,3 +1,5 @@
+use crate::notifications::Message;
+use crate::notifications::Response;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::Result;
@@ -13,6 +15,7 @@ pub struct ZstdDec {
     internal_buf: ZstdDecoder<Vec<u8>>,
     prev_buf: BytesMut,
     finished: bool,
+    skip_me: bool,
 }
 
 impl ZstdDec {
@@ -22,6 +25,7 @@ impl ZstdDec {
             internal_buf: ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK)),
             prev_buf: BytesMut::with_capacity(RAW_FRAME_SIZE + CHUNK),
             finished: false,
+            skip_me: false,
         }
     }
 }
@@ -35,6 +39,9 @@ impl Default for ZstdDec {
 #[async_trait::async_trait]
 impl Transformer for ZstdDec {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
+        if self.skip_me {
+            return Ok(finished);
+        }
         // Only write if the buffer contains data and the current process is not finished
         if !buf.is_empty() && !self.finished {
             self.internal_buf.write_buf(buf).await?;
@@ -58,6 +65,14 @@ impl Transformer for ZstdDec {
     #[inline]
     fn get_type(&self) -> TransformerType {
         TransformerType::ZstdDecompressor
+    }
+    async fn notify(&mut self, message: &Message) -> Result<Response> {
+        if message.target == TransformerType::All {
+            if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
+                self.skip_me = nfile.context.skip_decompression
+            }
+        }
+        Ok(Response::Ok)
     }
 }
 

@@ -1,3 +1,5 @@
+use crate::notifications::Message;
+use crate::notifications::Response;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::bail;
@@ -22,6 +24,7 @@ pub struct ChaCha20Dec {
     decryption_key: Vec<u8>,
     finished: bool,
     backoff_counter: usize,
+    skip_me: bool,
 }
 
 impl ChaCha20Dec {
@@ -33,6 +36,7 @@ impl ChaCha20Dec {
             finished: false,
             backoff_counter: 0,
             decryption_key: dec_key,
+            skip_me: false,
         })
     }
 }
@@ -40,6 +44,9 @@ impl ChaCha20Dec {
 #[async_trait::async_trait]
 impl Transformer for ChaCha20Dec {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
+        if self.skip_me {
+            return Ok(finished);
+        }
         // Only write if the buffer contains data and the current process is not finished
 
         if !buf.is_empty() {
@@ -91,6 +98,16 @@ impl Transformer for ChaCha20Dec {
 
     fn get_type(&self) -> TransformerType {
         TransformerType::ChaCha20Decrypt
+    }
+
+    async fn notify(&mut self, message: &Message) -> Result<Response> {
+        if message.target == TransformerType::All {
+            if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
+                self.skip_me = nfile.context.skip_decryption
+            }
+        }
+
+        Ok(Response::Ok)
     }
 }
 
