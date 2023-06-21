@@ -30,7 +30,7 @@ mod tests {
 
         // Create a new ArunaReadWriter
         ArunaReadWriter::new_with_writer(file, file2)
-            .add_transformer(ZstdEnc::new(1, false))
+            .add_transformer(ZstdEnc::new(false))
             .add_transformer(ZstdDec::new())
             .process()
             .await
@@ -144,8 +144,8 @@ mod tests {
 
         // Create a new ArunaReadWriter
         ArunaReadWriter::new_with_writer(file, file2)
-            .add_transformer(ZstdEnc::new(1, false))
-            .add_transformer(ZstdEnc::new(2, false))
+            .add_transformer(ZstdEnc::new(false))
+            .add_transformer(ZstdEnc::new(false))
             .add_transformer(
                 ChaCha20Enc::new(true, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
@@ -180,8 +180,8 @@ mod tests {
 
         // Create a new ArunaReadWriter
         ArunaReadWriter::new_with_writer(file.as_ref(), &mut file2)
-            .add_transformer(ZstdEnc::new(1, false))
-            .add_transformer(ZstdEnc::new(2, false)) // Double compression because we can
+            .add_transformer(ZstdEnc::new(false))
+            .add_transformer(ZstdEnc::new(false)) // Double compression because we can
             .add_transformer(
                 ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
@@ -207,7 +207,7 @@ mod tests {
         let file = File::open("test.txt").await.unwrap();
         let file2 = File::create("test.txt.out.5").await.unwrap();
         ArunaReadWriter::new_with_writer(file, file2)
-            .add_transformer(ZstdEnc::new(1, false))
+            .add_transformer(ZstdEnc::new(false))
             .add_transformer(
                 ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
@@ -234,7 +234,7 @@ mod tests {
         let file = File::open("test.txt").await.unwrap();
         let file2 = File::create("test.txt.out.6").await.unwrap();
         ArunaReadWriter::new_with_writer(file, file2)
-            .add_transformer(ZstdEnc::new(1, false))
+            .add_transformer(ZstdEnc::new(false))
             .add_transformer(FooterGenerator::new(None))
             .add_transformer(
                 ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
@@ -281,7 +281,7 @@ mod tests {
         let file = File::open("test.txt").await.unwrap();
         let file2 = File::create("test.txt.out.7").await.unwrap();
         ArunaReadWriter::new_with_writer(file, file2)
-            .add_transformer(ZstdEnc::new(1, false))
+            .add_transformer(ZstdEnc::new(false))
             .add_transformer(FooterGenerator::new(None))
             .add_transformer(
                 ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
@@ -325,8 +325,8 @@ mod tests {
 
         // Create a new ArunaReadWriter
         ArunaReadWriter::new_with_writer(file.as_ref(), &mut file2)
-            .add_transformer(ZstdEnc::new(1, false))
-            .add_transformer(ZstdEnc::new(2, false)) // Double compression because we can
+            .add_transformer(ZstdEnc::new(false))
+            .add_transformer(ZstdEnc::new(false)) // Double compression because we can
             .add_transformer(
                 ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
@@ -383,8 +383,8 @@ mod tests {
 
         // Create a new ArunaReadWriter
         let mut aswr = ArunaReadWriter::new_with_writer(combined.as_ref(), &mut file3)
-            .add_transformer(ZstdEnc::new(1, false))
-            .add_transformer(ZstdEnc::new(2, false)) // Double compression because we can
+            .add_transformer(ZstdEnc::new(false))
+            .add_transformer(ZstdEnc::new(false)) // Double compression because we can
             .add_transformer(
                 ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
@@ -423,8 +423,8 @@ mod tests {
 
         // Create a new ArunaReadWriter
         ArunaStreamReadWriter::new_with_writer(stream, &mut file2)
-            .add_transformer(ZstdEnc::new(1, false))
-            .add_transformer(ZstdEnc::new(2, false)) // Double compression because we can
+            .add_transformer(ZstdEnc::new(false))
+            .add_transformer(ZstdEnc::new(false)) // Double compression because we can
             .add_transformer(
                 ChaCha20Enc::new(true, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )

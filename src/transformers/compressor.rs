@@ -20,7 +20,6 @@ pub struct ZstdEnc {
     internal_buf: ZstdEncoder<Vec<u8>>,
     prev_buf: BytesMut,
     size_counter: usize,
-    _comp_num: usize,
     chunks: Vec<u8>,
     is_last: bool,
     finished: bool,
@@ -29,12 +28,11 @@ pub struct ZstdEnc {
 
 impl ZstdEnc {
     #[allow(dead_code)]
-    pub fn new(comp_num: usize, last: bool) -> Self {
+    pub fn new(last: bool) -> Self {
         ZstdEnc {
             internal_buf: ZstdEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK)),
             prev_buf: BytesMut::with_capacity(RAW_FRAME_SIZE + CHUNK),
             size_counter: 0,
-            _comp_num: comp_num,
             chunks: Vec::new(),
             is_last: last,
             finished: false,
@@ -144,7 +142,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_zstd_encoder_with_skip() {
-        let mut encoder = ZstdEnc::new(0, false);
+        let mut encoder = ZstdEnc::new(false);
         let mut buf = BytesMut::new();
         buf.put(b"12345".as_slice());
         encoder.process_bytes(&mut buf, true).await.unwrap();
@@ -162,7 +160,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_zstd_encoder_without_skip() {
-        let mut encoder = ZstdEnc::new(0, true);
+        let mut encoder = ZstdEnc::new(true);
         let mut buf = BytesMut::new();
         buf.put(b"12345".as_slice());
         encoder.process_bytes(&mut buf, true).await.unwrap();
@@ -176,7 +174,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_zstd_encoder_with_notify() {
-        let mut encoder = ZstdEnc::new(0, true);
+        let mut encoder = ZstdEnc::new(true);
         let mut buf = BytesMut::new();
 
         let (sx, rx) = async_channel::unbounded::<Message>();

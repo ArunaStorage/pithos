@@ -16,8 +16,8 @@ async fn read_writer_with_file() {
 
     // Create a new ArunaReadWriter
     ArunaReadWriter::new_with_writer(file, file2)
-        .add_transformer(ZstdEnc::new(1, false))
-        .add_transformer(ZstdEnc::new(2, false))
+        .add_transformer(ZstdEnc::new(false))
+        .add_transformer(ZstdEnc::new(false))
         .add_transformer(
             ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
         )
@@ -39,8 +39,8 @@ async fn read_writer_with_vec() {
 
     // Create a new ArunaReadWriter
     ArunaReadWriter::new_with_writer(file.as_ref(), &mut file2)
-        .add_transformer(ZstdEnc::new(1, false))
-        .add_transformer(ZstdEnc::new(2, false))
+        .add_transformer(ZstdEnc::new(false))
+        .add_transformer(ZstdEnc::new(false))
         .add_transformer(
             ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
         )
