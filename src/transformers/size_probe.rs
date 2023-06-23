@@ -1,21 +1,27 @@
 use crate::notifications::{Message, ProbeBroadcast};
 use crate::transformer::{Transformer, TransformerType};
 use anyhow::Result;
-use async_channel::Sender;
+use async_channel::{Receiver, Sender};
 
-#[derive(Default)]
 pub struct SizeProbe {
     size_counter: u64,
     sender: Option<Sender<Message>>,
+    size_sender: Sender<u64>,
 }
 
 impl SizeProbe {
     #[allow(dead_code)]
-    pub fn new() -> SizeProbe {
-        SizeProbe {
-            size_counter: 0,
-            sender: None,
-        }
+    pub fn new() -> (SizeProbe, Receiver<u64>) {
+        let (size_sender, size_receiver) = async_channel::bounded(1);
+
+        (
+            SizeProbe {
+                size_counter: 0,
+                sender: None,
+                size_sender,
+            },
+            size_receiver,
+        )
     }
 }
 
@@ -33,6 +39,7 @@ impl Transformer for SizeProbe {
                     }),
                 })
                 .await?;
+                self.size_sender.send(self.size_counter).await?;
             }
         }
 
