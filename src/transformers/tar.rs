@@ -66,13 +66,15 @@ impl Transformer for TarEnc {
         &mut self,
         buf: &mut bytes::BytesMut,
         finished: bool,
-        _: bool,
+        should_flush: bool,
     ) -> Result<bool> {
+        if should_flush {
+            buf.put(vec![0u8; self.padding].as_ref());
+            return Ok(finished);
+        }
         if let Some(header) = &self.header {
             let temp = buf.split();
-            if !self.init {
-                buf.put(vec![0u8; self.padding].as_ref());
-            } else {
+            if self.init {
                 self.init = false;
             }
             buf.put(header.as_bytes().as_slice());
