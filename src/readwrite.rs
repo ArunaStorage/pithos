@@ -138,6 +138,13 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
             // Anounce next file
             if next_file {
                 if let Some(rx) = &self.file_ctx_rx {
+                    // Perform a flush through all transformers!
+                    for (_, trans) in self.transformers.iter_mut() {
+                        trans.process_bytes(&mut read_buf, finished, true).await?;
+                    }
+                    self.sink
+                        .process_bytes(&mut read_buf, finished, true)
+                        .await?;
                     let (context, is_last) = rx.recv().await?;
                     self.current_file_context = Some((context.clone(), is_last));
                     self.announce_all(Message {
@@ -148,13 +155,6 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
                         }),
                     })
                     .await?;
-                    // Perform a flush through all transformers!
-                    for (_, trans) in self.transformers.iter_mut() {
-                        trans.process_bytes(&mut read_buf, finished, true).await?;
-                    }
-                    self.sink
-                        .process_bytes(&mut read_buf, finished, true)
-                        .await?;
                     next_file = false;
                 }
             }
