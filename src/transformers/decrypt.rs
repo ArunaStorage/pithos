@@ -57,6 +57,7 @@ impl Transformer for ChaCha20Dec {
                 &self.input_buffer.split(),
                 &self.decryption_key,
             )?);
+            self.should_flush = false;
         }
         // Only write if the buffer contains data and the current process is not finished
 
