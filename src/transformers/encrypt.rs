@@ -104,8 +104,8 @@ impl Transformer for ChaCha20Enc {
     }
     async fn notify(&mut self, message: &Message) -> Result<Response> {
         if message.target == TransformerType::All {
-            if let crate::notifications::MessageData::NextFile(_) = &message.data {
-                self.should_flush = true;
+            if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
+                self.should_flush = nfile.should_flush;
             }
         }
         Ok(Response::Ok)

@@ -29,8 +29,12 @@ impl Transformer for Filter {
         self.advanced_by = 0;
         if !buf.is_empty() {
             if ((self.counter + self.captured_buf_len) as u64) > self.filter.from {
-                self.advanced_by = self.filter.from as usize - self.counter;
-                buf.advance(self.advanced_by);
+                if self.counter > self.filter.from as usize {
+                    buf.clear();
+                } else {
+                    self.advanced_by = self.filter.from as usize - self.counter;
+                    buf.advance(self.advanced_by);
+                }
             } else {
                 buf.clear();
             }

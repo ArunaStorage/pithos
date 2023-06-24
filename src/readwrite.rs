@@ -83,7 +83,11 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
             self.current_file_context = Some((context.clone(), is_last));
             self.announce_all(Message {
                 target: TransformerType::All,
-                data: crate::notifications::MessageData::NextFile(FileMessage { context, is_last }),
+                data: crate::notifications::MessageData::NextFile(FileMessage {
+                    context,
+                    is_last,
+                    should_flush: false,
+                }),
             })
             .await?;
         }
@@ -141,6 +145,7 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
                         data: crate::notifications::MessageData::NextFile(FileMessage {
                             context,
                             is_last,
+                            should_flush: true,
                         }),
                     })
                     .await?;

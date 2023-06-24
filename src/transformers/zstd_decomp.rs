@@ -82,7 +82,7 @@ impl Transformer for ZstdDec {
     async fn notify(&mut self, message: &Message) -> Result<Response> {
         if message.target == TransformerType::All {
             if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
-                self.should_flush = true;
+                self.should_flush = nfile.should_flush;
                 self.skip_me = nfile.context.skip_decompression
             }
         }

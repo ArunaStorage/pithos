@@ -127,11 +127,11 @@ impl Transformer for ZstdEnc {
 
     async fn notify(&mut self, message: &Message) -> Result<Response> {
         if message.target == TransformerType::All {
-            if let crate::notifications::MessageData::NextFile(_) = &message.data {
+            if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
                 if self.sender.is_some() {
                     self.sender = None;
                 }
-                self.should_flush = true;
+                self.should_flush = nfile.should_flush;
             }
         }
         Ok(Response::Ok)
