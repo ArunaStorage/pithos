@@ -45,10 +45,13 @@ impl Transformer for ZstdDec {
             return Ok(finished);
         }
         if self.should_flush {
+            self.internal_buf.write_buf(buf).await?;
             self.internal_buf.shutdown().await?;
             self.prev_buf.put(self.internal_buf.get_ref().as_slice());
             self.internal_buf = ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
             self.should_flush = false;
+            buf.put(self.prev_buf.split().freeze());
+            return Ok(finished);
         }
 
         // Only write if the buffer contains data and the current process is not finished
