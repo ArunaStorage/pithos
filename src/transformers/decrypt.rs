@@ -26,7 +26,6 @@ pub struct ChaCha20Dec {
     finished: bool,
     backoff_counter: usize,
     skip_me: bool,
-    should_flush: bool,
 }
 
 impl ChaCha20Dec {
@@ -40,26 +39,29 @@ impl ChaCha20Dec {
             backoff_counter: 0,
             decryption_key: dec_key.unwrap_or_default(),
             skip_me: false,
-            should_flush: false,
         })
     }
 }
 
 #[async_trait::async_trait]
 impl Transformer for ChaCha20Dec {
-    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
+    async fn process_bytes(
+        &mut self,
+        buf: &mut bytes::BytesMut,
+        finished: bool,
+        should_flush: bool,
+    ) -> Result<bool> {
         if self.skip_me {
             return Ok(finished);
         }
 
-        if self.should_flush {
+        if should_flush {
             self.input_buffer.put(buf.split());
             self.output_buffer.put(decrypt_chunk(
                 &self.input_buffer.split(),
                 &self.decryption_key,
             )?);
             buf.put(self.output_buffer.split().freeze());
-            self.should_flush = false;
             return Ok(finished);
         }
         // Only write if the buffer contains data and the current process is not finished
@@ -118,7 +120,6 @@ impl Transformer for ChaCha20Dec {
     async fn notify(&mut self, message: &Message) -> Result<Response> {
         if message.target == TransformerType::All {
             if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
-                self.should_flush = nfile.should_flush;
                 self.skip_me = nfile.context.skip_decryption;
                 if !self.hard_coded_enc {
                     self.decryption_key = nfile.context.encryption_key.clone().unwrap_or_default();

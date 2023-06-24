@@ -16,7 +16,6 @@ pub struct ZstdDec {
     prev_buf: BytesMut,
     finished: bool,
     skip_me: bool,
-    should_flush: bool,
 }
 
 impl ZstdDec {
@@ -27,7 +26,6 @@ impl ZstdDec {
             prev_buf: BytesMut::with_capacity(RAW_FRAME_SIZE + CHUNK),
             finished: false,
             skip_me: false,
-            should_flush: false,
         }
     }
 }
@@ -40,16 +38,20 @@ impl Default for ZstdDec {
 
 #[async_trait::async_trait]
 impl Transformer for ZstdDec {
-    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
+    async fn process_bytes(
+        &mut self,
+        buf: &mut bytes::BytesMut,
+        finished: bool,
+        should_flush: bool,
+    ) -> Result<bool> {
         if self.skip_me {
             return Ok(finished);
         }
-        if self.should_flush {
-            self.internal_buf.write_buf(buf).await?;
+        if should_flush {
+            self.internal_buf.write_all_buf(buf).await?;
             self.internal_buf.shutdown().await?;
             self.prev_buf.put(self.internal_buf.get_ref().as_slice());
             self.internal_buf = ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
-            self.should_flush = false;
             buf.put(self.prev_buf.split().freeze());
             return Ok(finished);
         }
@@ -82,7 +84,6 @@ impl Transformer for ZstdDec {
     async fn notify(&mut self, message: &Message) -> Result<Response> {
         if message.target == TransformerType::All {
             if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
-                self.should_flush = nfile.should_flush;
                 self.skip_me = nfile.context.skip_decompression
             }
         }
@@ -105,7 +106,7 @@ mod tests {
         ))
         .unwrap();
         buf.put(expected.as_slice());
-        decoder.process_bytes(&mut buf, true).await.unwrap();
+        decoder.process_bytes(&mut buf, true, false).await.unwrap();
         // Expect 65kb size
         assert_eq!(buf.len(), 5);
         assert_eq!(buf, b"12345".as_slice());
@@ -117,7 +118,7 @@ mod tests {
         let mut buf = BytesMut::new();
         let expected = hex::decode(format!("28b52ffd00582900003132333435",)).unwrap();
         buf.put(expected.as_slice());
-        decoder.process_bytes(&mut buf, true).await.unwrap();
+        decoder.process_bytes(&mut buf, true, true).await.unwrap();
         // Expect 65kb size
         assert_eq!(buf.len(), 5);
         assert_eq!(buf, b"12345".as_slice());

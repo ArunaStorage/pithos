@@ -105,11 +105,7 @@ impl<
             self.current_file_context = Some((context.clone(), is_last));
             self.announce_all(Message {
                 target: TransformerType::All,
-                data: crate::notifications::MessageData::NextFile(FileMessage {
-                    context,
-                    is_last,
-                    should_flush: false,
-                }),
+                data: crate::notifications::MessageData::NextFile(FileMessage { context, is_last }),
             })
             .await?;
         }
@@ -155,12 +151,16 @@ impl<
                 } else {
                     maybe_msg = self.receiver.try_recv().ok();
                 }
-                match trans.process_bytes(&mut read_buf, finished).await? {
+                match trans.process_bytes(&mut read_buf, finished, false).await? {
                     true => {}
                     false => finished = false,
                 };
             }
-            match self.sink.process_bytes(&mut read_buf, finished).await? {
+            match self
+                .sink
+                .process_bytes(&mut read_buf, finished, false)
+                .await?
+            {
                 true => {}
                 false => finished = false,
             };
@@ -175,16 +175,17 @@ impl<
                         data: crate::notifications::MessageData::NextFile(FileMessage {
                             context,
                             is_last,
-                            should_flush: true,
                         }),
                     })
                     .await?;
 
                     // Perform a flush through all transformers!
                     for (_, trans) in self.transformers.iter_mut() {
-                        trans.process_bytes(&mut read_buf, finished).await?;
+                        trans.process_bytes(&mut read_buf, finished, true).await?;
                     }
-                    self.sink.process_bytes(&mut read_buf, finished).await?;
+                    self.sink
+                        .process_bytes(&mut read_buf, finished, true)
+                        .await?;
                 }
                 next_file = false;
             }

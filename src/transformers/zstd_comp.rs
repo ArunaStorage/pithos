@@ -1,7 +1,6 @@
 use crate::notifications::FooterData;
 use crate::notifications::Message;
 use crate::notifications::MessageData;
-use crate::notifications::Response;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::anyhow;
@@ -25,7 +24,6 @@ pub struct ZstdEnc {
     is_last: bool,
     finished: bool,
     sender: Option<Sender<Message>>,
-    should_flush: bool,
 }
 
 impl ZstdEnc {
@@ -39,21 +37,24 @@ impl ZstdEnc {
             is_last: last,
             finished: false,
             sender: None,
-            should_flush: false,
         }
     }
 }
 
 #[async_trait::async_trait]
 impl Transformer for ZstdEnc {
-    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
-        if self.should_flush {
+    async fn process_bytes(
+        &mut self,
+        buf: &mut bytes::BytesMut,
+        finished: bool,
+        should_flush: bool,
+    ) -> Result<bool> {
+        if should_flush {
             self.internal_buf.write_all_buf(buf).await?;
             self.internal_buf.shutdown().await?;
             self.prev_buf.extend_from_slice(self.internal_buf.get_ref());
             self.internal_buf = ZstdEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
             buf.put(self.prev_buf.split().freeze());
-            self.should_flush = false;
             return Ok(finished);
         }
 
@@ -125,18 +126,6 @@ impl Transformer for ZstdEnc {
         self.sender = Some(s);
     }
 
-    async fn notify(&mut self, message: &Message) -> Result<Response> {
-        if message.target == TransformerType::All {
-            if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
-                if self.sender.is_some() {
-                    self.sender = None;
-                }
-                self.should_flush = nfile.should_flush;
-            }
-        }
-        Ok(Response::Ok)
-    }
-
     fn get_type(&self) -> TransformerType {
         TransformerType::ZstdCompressor
     }
@@ -179,7 +168,7 @@ mod tests {
         let mut encoder = ZstdEnc::new(false);
         let mut buf = BytesMut::new();
         buf.put(b"12345".as_slice());
-        encoder.process_bytes(&mut buf, true).await.unwrap();
+        encoder.process_bytes(&mut buf, true, false).await.unwrap();
         // Starts with magic zstd header (little-endian)
         assert!(buf.starts_with(&hex::decode("28B52FFD").unwrap()));
         // Expect 65kb size
@@ -197,7 +186,7 @@ mod tests {
         let mut encoder = ZstdEnc::new(true);
         let mut buf = BytesMut::new();
         buf.put(b"12345".as_slice());
-        encoder.process_bytes(&mut buf, true).await.unwrap();
+        encoder.process_bytes(&mut buf, true, false).await.unwrap();
         // Starts with magic zstd header (little-endian)
         assert!(buf.starts_with(&hex::decode("28B52FFD").unwrap()));
         // Expect 14b size
@@ -216,7 +205,7 @@ mod tests {
         encoder.add_sender(sx);
 
         buf.put(b"12345".as_slice());
-        assert!(encoder.process_bytes(&mut buf, true).await.unwrap());
+        assert!(encoder.process_bytes(&mut buf, true, false).await.unwrap());
 
         let taken = buf.split();
         // Starts with magic zstd header (little-endian)

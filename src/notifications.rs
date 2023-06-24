@@ -4,7 +4,6 @@ use crate::transformer::{FileContext, TransformerType};
 pub struct FileMessage {
     pub context: FileContext,
     pub is_last: bool,
-    pub should_flush: bool,
 }
 #[derive(Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FooterData {

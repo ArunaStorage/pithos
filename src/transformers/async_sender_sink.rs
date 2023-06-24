@@ -18,7 +18,12 @@ impl AsyncSenderSink {
 
 #[async_trait::async_trait]
 impl Transformer for AsyncSenderSink {
-    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
+    async fn process_bytes(
+        &mut self,
+        buf: &mut bytes::BytesMut,
+        finished: bool,
+        _: bool,
+    ) -> Result<bool> {
         if !self.sender.is_closed() {
             self.sender.send(Ok(buf.split().freeze())).await?;
         } else if !buf.is_empty() {

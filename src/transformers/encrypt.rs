@@ -1,5 +1,3 @@
-use crate::notifications::Message;
-use crate::notifications::Response;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::anyhow;
@@ -23,7 +21,6 @@ pub struct ChaCha20Enc {
     add_padding: bool,
     encryption_key: Vec<u8>,
     finished: bool,
-    should_flush: bool,
 }
 
 impl ChaCha20Enc {
@@ -35,21 +32,25 @@ impl ChaCha20Enc {
             add_padding,
             finished: false,
             encryption_key: enc_key,
-            should_flush: false,
         })
     }
 }
 
 #[async_trait::async_trait]
 impl Transformer for ChaCha20Enc {
-    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
+    async fn process_bytes(
+        &mut self,
+        buf: &mut bytes::BytesMut,
+        finished: bool,
+        should_flush: bool,
+    ) -> Result<bool> {
         // Only write if the buffer contains data and the current process is not finished
 
         if !buf.is_empty() {
             self.input_buf.put(buf.split());
         }
 
-        if self.should_flush {
+        if should_flush {
             if self.add_padding {
                 let data = self.input_buf.split();
                 let padding =
@@ -64,7 +65,6 @@ impl Transformer for ChaCha20Enc {
                 )?)
             }
             buf.put(self.output_buf.split());
-            self.should_flush = false;
             return Ok(finished);
         }
 
@@ -101,14 +101,6 @@ impl Transformer for ChaCha20Enc {
 
     fn get_type(&self) -> TransformerType {
         TransformerType::ChaCha20Decrypt
-    }
-    async fn notify(&mut self, message: &Message) -> Result<Response> {
-        if message.target == TransformerType::All {
-            if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
-                self.should_flush = nfile.should_flush;
-            }
-        }
-        Ok(Response::Ok)
     }
 }
 

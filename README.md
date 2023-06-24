@@ -61,10 +61,10 @@ The example compresses the vector two times with a custom padded Zstandard compr
 The main logic is build around, the process_bytes function.
 
 ```rust
-async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool) -> Result<bool>;
+async fn process_bytes(&mut self, buf: &mut bytes::Bytes, finished: bool, should_flush: bool) -> Result<bool>;
 ```
 
-The idea is that your Transformer receives a mutable buffer with bytes that you MUST transform. If you have transformed (either all or via an internal buffer) the data is put back into the buffer for the next transformers `process_bytes` method.
+The idea is that your Transformer receives a mutable buffer with bytes that you MUST transform. If you have transformed (either all or via an internal buffer) the data is put back into the buffer for the next transformers `process_bytes` method. If `should_flush` is `true` all internal buffers should be flushed and cleared immediately.
 
 # The ARUNA file format
 

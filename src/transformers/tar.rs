@@ -62,7 +62,12 @@ impl Default for TarEnc {
 
 #[async_trait::async_trait]
 impl Transformer for TarEnc {
-    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
+    async fn process_bytes(
+        &mut self,
+        buf: &mut bytes::BytesMut,
+        finished: bool,
+        _: bool,
+    ) -> Result<bool> {
         if let Some(header) = &self.header {
             let temp = buf.split();
             if !self.init {

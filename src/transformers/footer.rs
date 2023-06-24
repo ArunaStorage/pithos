@@ -30,7 +30,12 @@ impl FooterGenerator {
 
 #[async_trait::async_trait]
 impl Transformer for FooterGenerator {
-    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
+    async fn process_bytes(
+        &mut self,
+        buf: &mut bytes::BytesMut,
+        finished: bool,
+        _: bool,
+    ) -> Result<bool> {
         if buf.is_empty() && !self.finished && finished {
             if self.external_info.is_empty() {
                 return Err(anyhow!("Missing notifications"));
