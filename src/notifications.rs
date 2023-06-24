@@ -3,6 +3,7 @@ use crate::transformer::{FileContext, TransformerType};
 #[derive(Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FileMessage {
     pub context: FileContext,
+    pub is_last: bool,
 }
 #[derive(Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FooterData {

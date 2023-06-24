@@ -105,14 +105,12 @@ impl<
             self.current_file_context = Some((context.clone(), is_last));
             self.announce_all(Message {
                 target: TransformerType::All,
-                data: crate::notifications::MessageData::NextFile(FileMessage { context }),
+                data: crate::notifications::MessageData::NextFile(FileMessage { context, is_last }),
             })
             .await?;
         }
 
         loop {
-            if read_buf.is_empty() {}
-
             if hold_buffer.is_empty() {
                 if read_buf.is_empty() {
                     data = self
@@ -170,7 +168,10 @@ impl<
                     self.current_file_context = Some((context.clone(), is_last));
                     self.announce_all(Message {
                         target: TransformerType::All,
-                        data: crate::notifications::MessageData::NextFile(FileMessage { context }),
+                        data: crate::notifications::MessageData::NextFile(FileMessage {
+                            context,
+                            is_last,
+                        }),
                     })
                     .await?;
                 }
