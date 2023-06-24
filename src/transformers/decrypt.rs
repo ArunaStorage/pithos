@@ -52,12 +52,15 @@ impl Transformer for ChaCha20Dec {
             return Ok(finished);
         }
 
-        if self.should_flush && !self.input_buffer.is_empty() {
+        if self.should_flush {
+            self.input_buffer.put(buf.split());
             self.output_buffer.put(decrypt_chunk(
                 &self.input_buffer.split(),
                 &self.decryption_key,
             )?);
+            buf.put(self.output_buffer.split().freeze());
             self.should_flush = false;
+            return Ok(finished);
         }
         // Only write if the buffer contains data and the current process is not finished
 
@@ -115,7 +118,7 @@ impl Transformer for ChaCha20Dec {
     async fn notify(&mut self, message: &Message) -> Result<Response> {
         if message.target == TransformerType::All {
             if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
-                self.should_flush = !nfile.is_last;
+                self.should_flush = true;
                 self.skip_me = nfile.context.skip_decryption;
                 if !self.hard_coded_enc {
                     self.decryption_key = nfile.context.encryption_key.clone().unwrap_or_default();

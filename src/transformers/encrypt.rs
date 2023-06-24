@@ -1,3 +1,5 @@
+use crate::notifications::Message;
+use crate::notifications::Response;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::anyhow;
@@ -21,6 +23,7 @@ pub struct ChaCha20Enc {
     add_padding: bool,
     encryption_key: Vec<u8>,
     finished: bool,
+    should_flush: bool,
 }
 
 impl ChaCha20Enc {
@@ -32,6 +35,7 @@ impl ChaCha20Enc {
             add_padding,
             finished: false,
             encryption_key: enc_key,
+            should_flush: false,
         })
     }
 }
@@ -44,6 +48,26 @@ impl Transformer for ChaCha20Enc {
         if !buf.is_empty() {
             self.input_buf.put(buf.split());
         }
+
+        if self.should_flush {
+            if self.add_padding {
+                let data = self.input_buf.split();
+                let padding =
+                    generate_padding(ENCRYPTION_BLOCK_SIZE - (data.len() % ENCRYPTION_BLOCK_SIZE))?;
+                self.output_buf
+                    .put(encrypt_chunk(&data, &padding, &self.encryption_key)?);
+            } else {
+                self.output_buf.put(encrypt_chunk(
+                    &self.input_buf.split(),
+                    b"",
+                    &self.encryption_key,
+                )?)
+            }
+            buf.put(self.output_buf.split());
+            self.should_flush = false;
+            return Ok(finished);
+        }
+
         if self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
             while self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
                 self.output_buf.put(encrypt_chunk(
@@ -77,6 +101,14 @@ impl Transformer for ChaCha20Enc {
 
     fn get_type(&self) -> TransformerType {
         TransformerType::ChaCha20Decrypt
+    }
+    async fn notify(&mut self, message: &Message) -> Result<Response> {
+        if message.target == TransformerType::All {
+            if let crate::notifications::MessageData::NextFile(_) = &message.data {
+                self.should_flush = true;
+            }
+        }
+        Ok(Response::Ok)
     }
 }
 

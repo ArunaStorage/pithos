@@ -1,6 +1,7 @@
 use crate::notifications::FooterData;
 use crate::notifications::Message;
 use crate::notifications::MessageData;
+use crate::notifications::Response;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::anyhow;
@@ -24,6 +25,7 @@ pub struct ZstdEnc {
     is_last: bool,
     finished: bool,
     sender: Option<Sender<Message>>,
+    should_flush: bool,
 }
 
 impl ZstdEnc {
@@ -37,6 +39,7 @@ impl ZstdEnc {
             is_last: last,
             finished: false,
             sender: None,
+            should_flush: false,
         }
     }
 }
@@ -44,6 +47,16 @@ impl ZstdEnc {
 #[async_trait::async_trait]
 impl Transformer for ZstdEnc {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
+        if self.should_flush {
+            self.internal_buf.write_all_buf(buf).await?;
+            self.internal_buf.shutdown().await?;
+            self.prev_buf.extend_from_slice(self.internal_buf.get_ref());
+            self.internal_buf = ZstdEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
+            buf.put(self.prev_buf.split().freeze());
+            self.should_flush = false;
+            return Ok(finished);
+        }
+
         // Create a new frame if buf would increase size_counter to more than RAW_FRAME_SIZE
         if self.size_counter + buf.len() > RAW_FRAME_SIZE {
             // Check how much bytes are missing
@@ -110,6 +123,18 @@ impl Transformer for ZstdEnc {
 
     fn add_sender(&mut self, s: Sender<Message>) {
         self.sender = Some(s);
+    }
+
+    async fn notify(&mut self, message: &Message) -> Result<Response> {
+        if message.target == TransformerType::All {
+            if let crate::notifications::MessageData::NextFile(_) = &message.data {
+                if self.sender.is_some() {
+                    self.sender = None;
+                }
+                self.should_flush = true;
+            }
+        }
+        Ok(Response::Ok)
     }
 
     fn get_type(&self) -> TransformerType {
