@@ -128,14 +128,14 @@ impl<
 
             if let Some((context, is_last)) = &self.current_file_context {
                 self.size_counter += read_bytes;
-                if self.size_counter > context.file_size as usize {
-                    let mut diff = read_bytes - (self.size_counter - context.file_size as usize);
-                    if diff >= context.file_size as usize {
-                        diff = context.file_size as usize
+                if self.size_counter > context.input_size as usize {
+                    let mut diff = read_bytes - (self.size_counter - context.input_size as usize);
+                    if diff >= context.input_size as usize {
+                        diff = context.input_size as usize
                     }
                     hold_buffer = read_buf.split_to(diff);
                     mem::swap(&mut read_buf, &mut hold_buffer);
-                    self.size_counter -= context.file_size as usize;
+                    self.size_counter -= context.input_size as usize;
                     next_file = !is_last;
                 }
                 finished = read_buf.is_empty() && read_bytes == 0 && *is_last;

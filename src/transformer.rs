@@ -26,6 +26,8 @@ pub enum TransformerType {
 pub struct FileContext {
     // FileName
     pub file_name: String,
+    // Input size
+    pub input_size: u64,
     // Filesize
     pub file_size: u64,
     // FileSubpath without filename

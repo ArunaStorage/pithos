@@ -363,6 +363,7 @@ mod tests {
         sx.send((
             FileContext {
                 file_name: "file1.txt".to_string(),
+                input_size: file1.len() as u64,
                 file_size: file1.len() as u64,
                 ..Default::default()
             },
@@ -374,6 +375,7 @@ mod tests {
         sx.send((
             FileContext {
                 file_name: "file2.txt".to_string(),
+                input_size: file2.len() as u64,
                 file_size: file2.len() as u64,
                 ..Default::default()
             },
@@ -461,6 +463,7 @@ mod tests {
         sx.send((
             FileContext {
                 file_name: "file1.txt".to_string(),
+                input_size: file2.len() as u64,
                 file_size: file1.len() as u64,
                 ..Default::default()
             },
@@ -472,6 +475,7 @@ mod tests {
         sx.send((
             FileContext {
                 file_name: "file2.txt".to_string(),
+                input_size: file2.len() as u64,
                 file_size: file2.len() as u64,
                 ..Default::default()
             },
@@ -501,6 +505,7 @@ mod tests {
         sx.send((
             FileContext {
                 file_name: "file1.txt".to_string(),
+                input_size: file1.metadata().await.unwrap().len(),
                 file_size: file1.metadata().await.unwrap().len(),
                 ..Default::default()
             },
@@ -512,6 +517,7 @@ mod tests {
         sx.send((
             FileContext {
                 file_name: "file2.txt".to_string(),
+                input_size: file2.metadata().await.unwrap().len(),
                 file_size: file2.metadata().await.unwrap().len(),
                 ..Default::default()
             },
@@ -548,6 +554,7 @@ mod tests {
         sx.send((
             FileContext {
                 file_name: "file1.txt".to_string(),
+                input_size: file1_size,
                 file_size: file1_size,
                 ..Default::default()
             },
@@ -559,6 +566,7 @@ mod tests {
         sx.send((
             FileContext {
                 file_name: "file2.txt".to_string(),
+                input_size: file2_size,
                 file_size: file2_size,
                 ..Default::default()
             },
@@ -595,6 +603,7 @@ mod tests {
         sx.send((
             FileContext {
                 file_name: "file1.txt".to_string(),
+                input_size: file1_size,
                 file_size: file1_size,
                 ..Default::default()
             },
@@ -606,6 +615,7 @@ mod tests {
         sx.send((
             FileContext {
                 file_name: "file2.txt".to_string(),
+                input_size: file2_size,
                 file_size: file2_size,
                 ..Default::default()
             },
