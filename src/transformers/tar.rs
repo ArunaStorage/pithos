@@ -64,15 +64,17 @@ impl Default for TarEnc {
 impl Transformer for TarEnc {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, finished: bool) -> Result<bool> {
         if let Some(header) = &self.header {
-            let temp = buf.split();
-            if !self.init {
-                buf.put(vec![0u8; self.padding].as_ref());
-            } else {
-                self.init = false;
+            if buf.len() != 0 {
+                let temp = buf.split();
+                if !self.init {
+                    buf.put(vec![0u8; self.padding].as_ref());
+                } else {
+                    self.init = false;
+                }
+                buf.put(header.as_bytes().as_slice());
+                buf.put(temp);
+                self.header = None;
             }
-            buf.put(header.as_bytes().as_slice());
-            buf.put(temp);
-            self.header = None;
         }
 
         if finished && !self.finished {

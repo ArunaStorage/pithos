@@ -16,6 +16,7 @@ pub struct ZstdDec {
     prev_buf: BytesMut,
     finished: bool,
     skip_me: bool,
+    should_flush: bool,
 }
 
 impl ZstdDec {
@@ -26,6 +27,7 @@ impl ZstdDec {
             prev_buf: BytesMut::with_capacity(RAW_FRAME_SIZE + CHUNK),
             finished: false,
             skip_me: false,
+            should_flush: false,
         }
     }
 }
@@ -42,6 +44,13 @@ impl Transformer for ZstdDec {
         if self.skip_me {
             return Ok(finished);
         }
+        if self.should_flush {
+            self.internal_buf.shutdown().await?;
+            self.prev_buf.put(self.internal_buf.get_ref().as_slice());
+            self.internal_buf = ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
+            self.should_flush = false;
+        }
+
         // Only write if the buffer contains data and the current process is not finished
         if !buf.is_empty() && !self.finished {
             self.internal_buf.write_buf(buf).await?;
@@ -62,6 +71,7 @@ impl Transformer for ZstdDec {
         buf.put(self.prev_buf.split().freeze());
         Ok(self.finished && self.prev_buf.is_empty())
     }
+
     #[inline]
     fn get_type(&self) -> TransformerType {
         TransformerType::ZstdDecompressor
@@ -69,6 +79,7 @@ impl Transformer for ZstdDec {
     async fn notify(&mut self, message: &Message) -> Result<Response> {
         if message.target == TransformerType::All {
             if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
+                self.should_flush = !nfile.is_last;
                 self.skip_me = nfile.context.skip_decompression
             }
         }
