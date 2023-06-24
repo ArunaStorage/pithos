@@ -174,6 +174,12 @@ impl<
                         }),
                     })
                     .await?;
+
+                    // Perform a flush through all transformers!
+                    for (_, trans) in self.transformers.iter_mut() {
+                        trans.process_bytes(&mut read_buf, finished).await?;
+                    }
+                    self.sink.process_bytes(&mut read_buf, finished).await?;
                 }
                 next_file = false;
             }
