@@ -68,7 +68,7 @@ impl Transformer for ZstdEnc {
                 // Make sure that dif is <= RAW_FRAME_SIZE
                 assert!(dif <= RAW_FRAME_SIZE);
                 self.internal_buf
-                    .write_all_buf(&mut buf.split_to(dif))
+                    .write_all_buf(&mut all_data.split_to(dif))
                     .await?;
                 // Shut the writer down -> Calls flush()
                 self.internal_buf.shutdown().await?;
