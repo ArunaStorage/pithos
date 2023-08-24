@@ -60,40 +60,43 @@ impl Transformer for ZstdEnc {
 
         // Create a new frame if buf would increase size_counter to more than RAW_FRAME_SIZE
         if self.size_counter + buf.len() > RAW_FRAME_SIZE {
-            // Check how much bytes are missing
-            let dif = RAW_FRAME_SIZE - self.size_counter;
-            // Make sure that dif is <= RAW_FRAME_SIZE
-            assert!(dif <= RAW_FRAME_SIZE);
-            self.internal_buf
-                .write_all_buf(&mut buf.split_to(dif))
-                .await?;
-            // Shut the writer down -> Calls flush()
-            self.internal_buf.shutdown().await?;
-            // Get data from the vector buffer to the "prev_buf" -> Output buffer
-            self.prev_buf.extend_from_slice(self.internal_buf.get_ref());
-            // Create a new Encoder
-            self.internal_buf = ZstdEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
-            // Add a skippable frame to the output buffer
-            self.add_skippable().await;
-            // Reset the size_counter
-            self.size_counter = 0;
-            // Add the number of chunks to the chunksvec (for indexing)
-            self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
+            let mut all_data = buf.split().freeze();
 
-            if !buf.is_empty() {
-                self.size_counter = buf.len();
+            while self.size_counter + all_data.len() >= RAW_FRAME_SIZE {
+                // Check how much bytes are missing
+                let dif = RAW_FRAME_SIZE - self.size_counter;
+                // Make sure that dif is <= RAW_FRAME_SIZE
+                assert!(dif <= RAW_FRAME_SIZE);
                 self.internal_buf
                     .write_all_buf(&mut buf.split_to(dif))
                     .await?;
+                // Shut the writer down -> Calls flush()
+                self.internal_buf.shutdown().await?;
+                // Get data from the vector buffer to the "prev_buf" -> Output buffer
+                self.prev_buf.extend_from_slice(self.internal_buf.get_ref());
+                // Create a new Encoder
+                self.internal_buf = ZstdEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
+                // Add a skippable frame to the output buffer
+                self.add_skippable().await;
+                // Reset the size_counter
+                self.size_counter = 0;
+                // Add the number of chunks to the chunksvec (for indexing)
+                self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
+                buf.put(self.prev_buf.split().freeze());
+            }
+            if !all_data.is_empty() {
+                assert!(all_data.len() <= RAW_FRAME_SIZE);
+                self.size_counter = all_data.len();
+                self.internal_buf.write_all_buf(&mut all_data).await?;
             }
 
-            buf.put(self.prev_buf.split().freeze());
             return Ok(self.finished && self.prev_buf.is_empty());
         }
 
         // Only write if the buffer contains data and the current process is not finished
         if !buf.is_empty() && !self.finished {
             self.size_counter += buf.len();
+            assert!(self.size_counter <= RAW_FRAME_SIZE);
             self.internal_buf.write_buf(buf).await?;
         }
 
