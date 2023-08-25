@@ -1,5 +1,6 @@
 use crate::notifications::{Message, ProbeBroadcast};
 use crate::transformer::{Transformer, TransformerType};
+use anyhow::anyhow;
 use anyhow::Result;
 use async_channel::{Receiver, Sender};
 
@@ -44,7 +45,15 @@ impl Transformer for SizeProbe {
                     }),
                 })
                 .await?;
-                self.size_sender.send(self.size_counter).await?;
+                match self.size_sender.try_send(self.size_counter) {
+                    Ok(_) => {}
+                    Err(e) => match e {
+                        async_channel::TrySendError::Full(_) => {}
+                        async_channel::TrySendError::Closed(_) => {
+                            return Err(anyhow!("SizeProbe: Channel closed"))
+                        }
+                    },
+                };
             }
         }
 

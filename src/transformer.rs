@@ -20,6 +20,7 @@ pub enum TransformerType {
     TarEncoder,
     TarDecoder,
     WriterSink,
+    Hashing,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
