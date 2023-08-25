@@ -136,6 +136,10 @@ impl Transformer for ZstdEnc {
 
 impl ZstdEnc {
     async fn add_skippable(&mut self) {
+        // No skippable frame needed if the buffer is empty
+        if self.prev_buf.len() == 0 {
+            return;
+        }
         if CHUNK - (self.prev_buf.len() % CHUNK) > 8 {
             self.prev_buf.extend(create_skippable_padding_frame(
                 CHUNK - (self.prev_buf.len() % CHUNK),

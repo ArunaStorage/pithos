@@ -24,6 +24,7 @@ async-channel = "1.9.0"
 async-stream = "0.3.5"
 log = "0.4.20"
 tar = "0.4.40"
+digest = "0.10.7"
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
