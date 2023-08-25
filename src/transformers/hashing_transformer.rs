@@ -31,9 +31,9 @@ where
         finished: bool,
         _: bool,
     ) -> Result<bool> {
-        Digest::update(&mut self.hasher, buf);
+        Digest::update(&mut self.hasher, &buf);
 
-        if finished {
+        if finished && buf.is_empty() {
             match self
                 .sender
                 .try_send(format!("{}", hex::encode(self.hasher.finalize_reset())))

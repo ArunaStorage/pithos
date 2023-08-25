@@ -36,7 +36,7 @@ impl Transformer for SizeProbe {
     ) -> Result<bool> {
         self.size_counter += buf.len() as u64;
 
-        if finished {
+        if finished && buf.is_empty() {
             if let Some(s) = &self.sender {
                 s.send(Message {
                     target: TransformerType::ReadWriter,
