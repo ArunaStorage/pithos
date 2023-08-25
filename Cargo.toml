@@ -29,6 +29,7 @@ digest = "0.10.7"
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
 tokio-util = { version = "0.7.8", features = ["io"]}
+md-5 = "0.10.5"
 
 [[bench]]
 name = "performance"

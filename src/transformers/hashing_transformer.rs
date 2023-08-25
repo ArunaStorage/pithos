@@ -36,7 +36,7 @@ where
         if finished {
             match self
                 .sender
-                .try_send(format!("{:x?}", self.hasher.finalize_reset()))
+                .try_send(format!("{}", hex::encode(self.hasher.finalize_reset())))
             {
                 Ok(_) => {}
                 Err(e) => match e {

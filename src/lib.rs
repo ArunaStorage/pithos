@@ -16,11 +16,14 @@ mod tests {
     use crate::transformers::filter::Filter;
     use crate::transformers::footer::FooterGenerator;
     use crate::transformers::gzip_comp::GzipEnc;
+    use crate::transformers::size_probe::SizeProbe;
     use crate::transformers::tar::TarEnc;
     use crate::transformers::zstd_comp::ZstdEnc;
     use crate::transformers::zstd_decomp::ZstdDec;
     use bytes::Bytes;
+    use digest::Digest;
     use futures::{StreamExt, TryStreamExt};
+    use md5::Md5;
     use tokio::fs::File;
     use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
@@ -630,5 +633,29 @@ mod tests {
             .add_transformer(GzipEnc::new());
         aswr.add_file_context_receiver(rx).await.unwrap();
         aswr.process().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn hashing_transformer_test() {
+        let file = b"This is a very very important test".to_vec();
+        let mut file2 = Vec::new();
+
+        let (probe, rx) = SizeProbe::new();
+        let (md5_trans, rx2) =
+            crate::transformers::hashing_transformer::HashingTransformer::new(Md5::new());
+
+        // Create a new ArunaReadWriter
+        ArunaReadWriter::new_with_writer(file.as_ref(), &mut file2)
+            .add_transformer(md5_trans)
+            .add_transformer(probe)
+            .process()
+            .await
+            .unwrap();
+
+        let size = rx.try_recv().unwrap();
+        let md5 = rx2.try_recv().unwrap();
+
+        assert_eq!(size, 34);
+        assert_eq!(md5, "4f276870b4b5f84c0b2bbfce30757176".to_string());
     }
 }
