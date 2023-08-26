@@ -21,6 +21,7 @@ pub enum TransformerType {
     TarDecoder,
     WriterSink,
     Hashing,
+    ZipEncoder,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
@@ -51,6 +52,15 @@ pub struct FileContext {
     pub is_dir: bool,
     // Is this file a symlink
     pub is_symlink: bool,
+}
+
+impl FileContext {
+    pub fn get_path(&self) -> String {
+        match &self.file_path {
+            Some(p) => p.clone() + "/" + &self.file_name,
+            None => self.file_name.clone(),
+        }
+    }
 }
 
 // Marker trait to signal that this Transformer can be a "final" destination for data

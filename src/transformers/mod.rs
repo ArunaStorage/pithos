@@ -9,5 +9,6 @@ pub mod hyper_sink;
 pub mod size_probe;
 pub mod tar;
 pub mod writer_sink;
+pub mod zip;
 pub mod zstd_comp;
 pub mod zstd_decomp;
