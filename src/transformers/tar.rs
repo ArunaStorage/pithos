@@ -69,7 +69,10 @@ impl Transformer for TarEnc {
         should_flush: bool,
     ) -> Result<bool> {
         if should_flush {
-            buf.put(vec![0u8; self.padding].as_ref());
+            if self.padding > 0 {
+                buf.put(vec![0u8; self.padding].as_ref());
+            }
+            self.padding = 0;
             return Ok(finished);
         }
         if let Some(header) = &self.header {
@@ -98,7 +101,11 @@ impl Transformer for TarEnc {
         if message.target == TransformerType::All {
             if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
                 if self.header.is_none() {
-                    self.padding = 512 - nfile.context.file_size as usize % 512;
+                    if nfile.context.is_dir || nfile.context.is_symlink {
+                        self.padding = 0;
+                    } else {
+                        self.padding = 512 - nfile.context.file_size as usize % 512;
+                    }
                     self.header = Some(TryInto::<Header>::try_into(nfile.context.clone())?);
                 } else {
                     bail!("[TAR] A Header is still present")

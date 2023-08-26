@@ -99,9 +99,13 @@ impl<
         let mut data;
         let mut read_bytes: usize = 0;
         let mut next_file = false;
+        let mut context_zero_file = false;
 
         if let Some(rx) = &self.file_ctx_rx {
             let (context, is_last) = rx.try_recv()?;
+            if context.is_dir || context.is_symlink {
+                context_zero_file = true;
+            }
             self.current_file_context = Some((context.clone(), is_last));
             self.announce_all(Message {
                 target: TransformerType::All,
@@ -111,24 +115,29 @@ impl<
         }
 
         loop {
-            if hold_buffer.is_empty() {
-                if read_buf.is_empty() {
-                    data = self
-                        .input_stream
-                        .next()
-                        .await
-                        .unwrap_or_else(|| Ok(Bytes::new()))
-                        .unwrap_or_default();
-                    read_bytes = data.len();
-                    read_buf.put(data);
+            if !context_zero_file {
+                if hold_buffer.is_empty() {
+                    if read_buf.is_empty() {
+                        data = self
+                            .input_stream
+                            .next()
+                            .await
+                            .unwrap_or_else(|| Ok(Bytes::new()))
+                            .unwrap_or_default();
+                        read_bytes = data.len();
+                        read_buf.put(data);
+                    }
+                } else if read_buf.is_empty() {
+                    mem::swap(&mut hold_buffer, &mut read_buf);
                 }
-            } else if read_buf.is_empty() {
-                mem::swap(&mut hold_buffer, &mut read_buf);
             }
 
             if let Some((context, is_last)) = &self.current_file_context {
                 self.size_counter += read_bytes;
-                if self.size_counter > context.input_size as usize {
+                if self.size_counter > context.input_size as usize
+                    && !context.is_dir
+                    && !context.is_symlink
+                {
                     let mut diff = read_bytes - (self.size_counter - context.input_size as usize);
                     if diff >= context.input_size as usize {
                         diff = context.input_size as usize
@@ -136,6 +145,9 @@ impl<
                     hold_buffer = read_buf.split_to(diff);
                     mem::swap(&mut read_buf, &mut hold_buffer);
                     self.size_counter -= context.input_size as usize;
+                    next_file = !is_last;
+                }
+                if context.is_dir || context.is_symlink {
                     next_file = !is_last;
                 }
                 finished = read_buf.is_empty() && read_bytes == 0 && *is_last;
@@ -169,6 +181,7 @@ impl<
             if next_file {
                 if let Some(rx) = &self.file_ctx_rx {
                     // Perform a flush through all transformers!
+                    assert!(read_buf.is_empty());
                     for (_, trans) in self.transformers.iter_mut() {
                         trans.process_bytes(&mut read_buf, finished, true).await?;
                     }
@@ -176,6 +189,8 @@ impl<
                         .process_bytes(&mut read_buf, finished, true)
                         .await?;
                     let (context, is_last) = rx.recv().await?;
+
+                    context_zero_file = context.is_dir || context.is_symlink;
                     self.current_file_context = Some((context.clone(), is_last));
                     self.announce_all(Message {
                         target: TransformerType::All,
@@ -185,8 +200,16 @@ impl<
                         }),
                     })
                     .await?;
+                    for (_, trans) in self.transformers.iter_mut() {
+                        trans.process_bytes(&mut read_buf, finished, false).await?;
+                    }
+                    self.sink
+                        .process_bytes(&mut read_buf, finished, true)
+                        .await?;
                 }
-                next_file = false;
+                if !context_zero_file {
+                    next_file = false;
+                }
             }
 
             if read_buf.is_empty() & finished {

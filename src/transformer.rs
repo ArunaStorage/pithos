@@ -47,6 +47,10 @@ pub struct FileContext {
     pub skip_decryption: bool,
     // Encryption key
     pub encryption_key: Option<Vec<u8>>,
+    // Is this file a directory
+    pub is_dir: bool,
+    // Is this file a symlink
+    pub is_symlink: bool,
 }
 
 // Marker trait to signal that this Transformer can be a "final" destination for data
