@@ -18,6 +18,7 @@ mod tests {
     use crate::transformers::gzip_comp::GzipEnc;
     use crate::transformers::size_probe::SizeProbe;
     use crate::transformers::tar::TarEnc;
+    use crate::transformers::zip::ZipEnc;
     use crate::transformers::zstd_comp::ZstdEnc;
     use crate::transformers::zstd_decomp::ZstdDec;
     use bytes::Bytes;
@@ -731,6 +732,57 @@ mod tests {
         // Create a new ArunaReadWriter
         let mut aswr = ArunaStreamReadWriter::new_with_writer(mapped, &mut file3)
             .add_transformer(TarEnc::new());
+        //.add_transformer(GzipEnc::new());
+        aswr.add_file_context_receiver(rx).await.unwrap();
+        aswr.process().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn e2e_test_stream_zip() {
+        let file1 = File::open("test.txt").await.unwrap();
+        let file2 = File::open("test.txt").await.unwrap();
+
+        let file1_size = file1.metadata().await.unwrap().len();
+        let file2_size = file2.metadata().await.unwrap().len();
+
+        let stream1 = tokio_util::io::ReaderStream::new(file1);
+        let stream2 = tokio_util::io::ReaderStream::new(file2);
+
+        let chained = stream1.chain(stream2);
+        let mapped = chained.map_err(|_| {
+            Box::<(dyn std::error::Error + Send + Sync + 'static)>::from("a_str_error")
+        });
+        let mut file3 = File::create("test.txt.out.zip").await.unwrap();
+
+        let (sx, rx) = async_channel::bounded(10);
+
+        sx.send((
+            FileContext {
+                file_name: "file1.txt".to_string(),
+                input_size: file1_size,
+                file_size: file1_size,
+                ..Default::default()
+            },
+            false,
+        ))
+        .await
+        .unwrap();
+
+        sx.send((
+            FileContext {
+                file_name: "blip/file2.txt".to_string(),
+                input_size: file2_size,
+                file_size: file2_size,
+                ..Default::default()
+            },
+            true,
+        ))
+        .await
+        .unwrap();
+
+        // Create a new ArunaReadWriter
+        let mut aswr = ArunaStreamReadWriter::new_with_writer(mapped, &mut file3)
+            .add_transformer(ZipEnc::new());
         //.add_transformer(GzipEnc::new());
         aswr.add_file_context_receiver(rx).await.unwrap();
         aswr.process().await.unwrap();
