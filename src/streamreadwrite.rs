@@ -115,7 +115,6 @@ impl<
         }
 
         loop {
-            // Read bytes if object content is larger than 0 bytes
             if !context_zero_file {
                 if hold_buffer.is_empty() {
                     if read_buf.is_empty() {
@@ -133,12 +132,9 @@ impl<
                 }
             }
 
-            // Check if all (or too much) bytes of file are read from input stream
             if let Some((context, is_last)) = &self.current_file_context {
-                // Update size counter
                 self.size_counter += read_bytes;
-                // If read too much bytes -> calc diff and process only bytes until file end
-                if self.size_counter >= context.input_size as usize
+                if self.size_counter > context.input_size as usize
                     && !context.is_dir
                     && !context.is_symlink
                 {
@@ -159,34 +155,33 @@ impl<
                 finished = read_buf.is_empty() && read_bytes == 0;
             }
 
-            // Process read bytes from buffer with transformers; else announce next file and flush transformers
-            if !next_file {
-                for (ttype, trans) in self.transformers.iter_mut() {
-                    if let Some(m) = &maybe_msg {
-                        if m.target == *ttype {
-                            trans.notify(m).await?;
-                        }
-                    } else {
-                        maybe_msg = self.receiver.try_recv().ok();
+            for (ttype, trans) in self.transformers.iter_mut() {
+                if let Some(m) = &maybe_msg {
+                    if m.target == *ttype {
+                        trans.notify(m).await?;
                     }
-                    match trans.process_bytes(&mut read_buf, finished, false).await? {
-                        true => {}
-                        false => finished = false,
-                    };
+                } else {
+                    maybe_msg = self.receiver.try_recv().ok();
                 }
-
-                // Process transformed bytes in registered sink
-                match self
-                    .sink
-                    .process_bytes(&mut read_buf, finished, false)
-                    .await?
-                {
+                match trans.process_bytes(&mut read_buf, finished, false).await? {
                     true => {}
                     false => finished = false,
                 };
-            } else {
+            }
+            match self
+                .sink
+                .process_bytes(&mut read_buf, finished, false)
+                .await?
+            {
+                true => {}
+                false => finished = false,
+            };
+
+            // Anounce next file
+            if next_file {
                 if let Some(rx) = &self.file_ctx_rx {
                     // Perform a flush through all transformers!
+                    assert!(read_buf.is_empty());
                     for (_, trans) in self.transformers.iter_mut() {
                         trans.process_bytes(&mut read_buf, finished, true).await?;
                     }
@@ -222,10 +217,8 @@ impl<
             }
             read_bytes = 0;
         }
-
         Ok(())
     }
-
     async fn announce_all(&mut self, message: Message) -> Result<()> {
         for (_, trans) in self.transformers.iter_mut() {
             trans.notify(&message).await?;

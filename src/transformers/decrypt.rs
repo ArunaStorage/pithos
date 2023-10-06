@@ -57,10 +57,14 @@ impl Transformer for ChaCha20Dec {
 
         if should_flush {
             self.input_buffer.put(buf.split());
-            self.output_buffer.put(decrypt_chunk(
-                &self.input_buffer.split(),
-                &self.decryption_key,
-            )?);
+
+            if self.input_buffer.len() > 0 {
+                self.output_buffer.put(decrypt_chunk(
+                    &self.input_buffer.split(),
+                    &self.decryption_key,
+                )?);
+            }
+            
             buf.put(self.output_buffer.split().freeze());
             return Ok(finished);
         }
