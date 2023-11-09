@@ -12,7 +12,6 @@ use tokio::io::{AsyncWrite, BufWriter};
 pub struct ArunaStreamReadWriter<
     'a,
     R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
-        + Unpin
         + Send
         + Sync,
 > {
@@ -29,7 +28,6 @@ pub struct ArunaStreamReadWriter<
 impl<
         'a,
         R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
-            + Unpin
             + Send
             + Sync,
     > ArunaStreamReadWriter<'a, R>
@@ -52,15 +50,14 @@ impl<
         }
     }
 
-    pub fn new_with_writer<W: AsyncWrite + Unpin + Send + Sync + 'a>(
+    pub fn new_with_writer<W: AsyncWrite + Send + Sync + 'a>(
         input_stream: R,
         writer: W,
     ) -> Self {
         let (sx, rx) = async_channel::unbounded();
-
         ArunaStreamReadWriter {
             input_stream,
-            sink: Box::new(WriterSink::new(BufWriter::new(writer))),
+            sink: Box::new(WriterSink::new(BufWriter::new(Box::pin(writer)))),
             transformers: Vec::new(),
             sender: sx,
             receiver: rx,
@@ -85,9 +82,9 @@ impl<
 impl<
         'a,
         R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
-            + Unpin
             + Send
-            + Sync,
+            + Sync
+            + Unpin
     > ReadWriter for ArunaStreamReadWriter<'a, R>
 {
     async fn process(&mut self) -> Result<()> {
