@@ -55,6 +55,7 @@ pub struct FileContext {
 }
 
 impl FileContext {
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn get_path(&self) -> String {
         match &self.file_path {
             Some(p) => p.clone() + "/" + &self.file_name,

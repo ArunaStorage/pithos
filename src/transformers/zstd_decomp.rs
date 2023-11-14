@@ -7,6 +7,7 @@ use async_compression::tokio::write::ZstdDecoder;
 use bytes::BufMut;
 use bytes::BytesMut;
 use tokio::io::AsyncWriteExt;
+use tracing::debug;
 
 const RAW_FRAME_SIZE: usize = 5_242_880;
 const CHUNK: usize = 65_536;
@@ -19,6 +20,7 @@ pub struct ZstdDec {
 }
 
 impl ZstdDec {
+    #[tracing::instrument(level = "trace", skip())]
     #[allow(dead_code)]
     pub fn new() -> ZstdDec {
         ZstdDec {
@@ -31,6 +33,7 @@ impl ZstdDec {
 }
 
 impl Default for ZstdDec {
+    #[tracing::instrument(level = "trace", skip())]
     fn default() -> Self {
         Self::new()
     }
@@ -38,6 +41,7 @@ impl Default for ZstdDec {
 
 #[async_trait::async_trait]
 impl Transformer for ZstdDec {
+    #[tracing::instrument(level = "trace", skip(self, buf, finished, should_flush))]
     async fn process_bytes(
         &mut self,
         buf: &mut bytes::BytesMut,
@@ -45,9 +49,11 @@ impl Transformer for ZstdDec {
         should_flush: bool,
     ) -> Result<bool> {
         if self.skip_me {
+            debug!("skipped zstd decoder");
             return Ok(finished);
         }
         if should_flush {
+            debug!("flushed zstd decoder");
             self.internal_buf.write_all_buf(buf).await?;
             self.internal_buf.shutdown().await?;
             self.prev_buf.put(self.internal_buf.get_ref().as_slice());
@@ -68,6 +74,7 @@ impl Transformer for ZstdDec {
         }
 
         if !self.finished && buf.is_empty() && finished {
+            debug!("finish zstd decoder");
             self.internal_buf.shutdown().await?;
             self.prev_buf.put(self.internal_buf.get_ref().as_slice());
             self.finished = true;
@@ -77,10 +84,12 @@ impl Transformer for ZstdDec {
         Ok(self.finished && self.prev_buf.is_empty())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     #[inline]
     fn get_type(&self) -> TransformerType {
         TransformerType::ZstdDecompressor
     }
+    #[tracing::instrument(level = "trace", skip(self, message))]
     async fn notify(&mut self, message: &Message) -> Result<Response> {
         if message.target == TransformerType::All {
             if let crate::notifications::MessageData::NextFile(nfile) = &message.data {

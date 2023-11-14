@@ -12,6 +12,8 @@ use byteorder::WriteBytesExt;
 use bytes::BufMut;
 use bytes::{Bytes, BytesMut};
 use tokio::io::AsyncWriteExt;
+use tracing::debug;
+use tracing::error;
 
 const RAW_FRAME_SIZE: usize = 5_242_880;
 const CHUNK: usize = 65_536;
@@ -27,6 +29,7 @@ pub struct ZstdEnc {
 }
 
 impl ZstdEnc {
+    #[tracing::instrument(level = "trace", skip(last))]
     #[allow(dead_code)]
     pub fn new(last: bool) -> Self {
         ZstdEnc {
@@ -43,6 +46,7 @@ impl ZstdEnc {
 
 #[async_trait::async_trait]
 impl Transformer for ZstdEnc {
+    #[tracing::instrument(level = "trace", skip(self, buf, finished, should_flush))]
     async fn process_bytes(
         &mut self,
         buf: &mut bytes::BytesMut,
@@ -50,6 +54,7 @@ impl Transformer for ZstdEnc {
         should_flush: bool,
     ) -> Result<bool> {
         if should_flush {
+            debug!("flushed zstd encoder");
             self.internal_buf.write_all_buf(buf).await?;
             self.internal_buf.shutdown().await?;
             self.prev_buf.extend_from_slice(self.internal_buf.get_ref());
@@ -110,6 +115,7 @@ impl Transformer for ZstdEnc {
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
             buf.put(self.prev_buf.split().freeze());
             if let Some(s) = &self.sender {
+                debug!(chunks = ?self.chunks, "sending footer");
                 s.send(Message {
                     target: TransformerType::FooterGenerator,
                     data: MessageData::Footer(FooterData {
@@ -125,16 +131,19 @@ impl Transformer for ZstdEnc {
         Ok(self.finished && self.prev_buf.is_empty())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, s))]
     fn add_sender(&mut self, s: Sender<Message>) {
         self.sender = Some(s);
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn get_type(&self) -> TransformerType {
         TransformerType::ZstdCompressor
     }
 }
 
 impl ZstdEnc {
+    #[tracing::instrument(level = "trace", skip(self))]
     async fn add_skippable(&mut self) {
         // No skippable frame needed if the buffer is empty
         if self.prev_buf.len() == 0 {
@@ -152,9 +161,11 @@ impl ZstdEnc {
     }
 }
 
+#[tracing::instrument(level = "trace", skip(size))]
 #[inline]
 fn create_skippable_padding_frame(size: usize) -> Result<Bytes> {
     if size < 8 {
+        error!(size = size, "Size too small");
         return Err(anyhow!("{size} is too small, minimum is 8 bytes"));
     }
     // Add frame_header

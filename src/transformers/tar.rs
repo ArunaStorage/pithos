@@ -6,6 +6,8 @@ use crate::transformer::TransformerType;
 use anyhow::bail;
 use anyhow::Result;
 use bytes::BufMut;
+use tracing::debug;
+use tracing::error;
 use std::time::Duration;
 use std::time::SystemTime;
 use tar::Header;
@@ -20,6 +22,7 @@ pub struct TarEnc {
 impl TryFrom<FileContext> for Header {
     type Error = anyhow::Error;
 
+    #[tracing::instrument(level = "trace", skip(value))]
     fn try_from(value: FileContext) -> Result<Self> {
         let mut header = Header::new_gnu();
 
@@ -44,6 +47,7 @@ impl TryFrom<FileContext> for Header {
 }
 
 impl TarEnc {
+    #[tracing::instrument(level = "trace", skip())]
     pub fn new() -> TarEnc {
         TarEnc {
             header: None,
@@ -55,6 +59,7 @@ impl TarEnc {
 }
 
 impl Default for TarEnc {
+    #[tracing::instrument(level = "trace", skip())]
     fn default() -> Self {
         Self::new()
     }
@@ -62,6 +67,7 @@ impl Default for TarEnc {
 
 #[async_trait::async_trait]
 impl Transformer for TarEnc {
+    #[tracing::instrument(level = "trace", skip(self, buf, finished, should_flush))]
     async fn process_bytes(
         &mut self,
         buf: &mut bytes::BytesMut,
@@ -93,13 +99,16 @@ impl Transformer for TarEnc {
         Ok(self.finished)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn get_type(&self) -> TransformerType {
         TransformerType::TarEncoder
     }
 
+    #[tracing::instrument(level = "trace", skip(self, message))]
     async fn notify(&mut self, message: &Message) -> Result<Response> {
         if message.target == TransformerType::All {
             if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
+                debug!("received next file message");
                 if self.header.is_none() {
                     if nfile.context.is_dir || nfile.context.is_symlink {
                         self.padding = 0;
@@ -108,6 +117,7 @@ impl Transformer for TarEnc {
                     }
                     self.header = Some(TryInto::<Header>::try_into(nfile.context.clone())?);
                 } else {
+                    error!("A Header is still present");
                     bail!("[TAR] A Header is still present")
                 }
                 self.finished = false;

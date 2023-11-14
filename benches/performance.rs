@@ -10,6 +10,7 @@ use aruna_file::{
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use tokio::fs::File;
 
+#[tracing::instrument(level = "trace", skip())]
 async fn read_writer_with_file() {
     let file = File::open("test.txt").await.unwrap();
     let file2 = File::create("test.txt.out.1").await.unwrap();
@@ -37,6 +38,7 @@ async fn read_writer_with_file() {
         .unwrap();
 }
 
+#[tracing::instrument(level = "trace", skip())]
 async fn read_writer_with_vec() {
     let file = b"This is a very very important test".to_vec();
     let mut file2 = Vec::new();
@@ -64,6 +66,7 @@ async fn read_writer_with_vec() {
         .unwrap();
 }
 
+#[tracing::instrument(level = "trace", skip(c))]
 fn criterion_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("file_benches");
     group.measurement_time(Duration::from_secs(10));

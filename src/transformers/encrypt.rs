@@ -12,6 +12,8 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit, Payload},
     ChaCha20Poly1305,
 };
+use tracing::debug;
+use tracing::error;
 
 const ENCRYPTION_BLOCK_SIZE: usize = 65_536;
 
@@ -24,6 +26,7 @@ pub struct ChaCha20Enc {
 }
 
 impl ChaCha20Enc {
+    #[tracing::instrument(level = "trace", skip(add_padding, enc_key))]
     #[allow(dead_code)]
     pub fn new(add_padding: bool, enc_key: Vec<u8>) -> Result<Self> {
         Ok(ChaCha20Enc {
@@ -38,6 +41,7 @@ impl ChaCha20Enc {
 
 #[async_trait::async_trait]
 impl Transformer for ChaCha20Enc {
+    #[tracing::instrument(level = "trace", skip(self, buf, finished, should_flush))]
     async fn process_bytes(
         &mut self,
         buf: &mut bytes::BytesMut,
@@ -65,6 +69,7 @@ impl Transformer for ChaCha20Enc {
                 )?)
             }
             buf.put(self.output_buf.split());
+            debug!(?buf, "flushed");
             return Ok(finished);
         }
 
@@ -99,14 +104,17 @@ impl Transformer for ChaCha20Enc {
         Ok(self.finished && self.input_buf.is_empty() && self.output_buf.is_empty())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn get_type(&self) -> TransformerType {
         TransformerType::ChaCha20Decrypt
     }
 }
 
+#[tracing::instrument(level = "trace", skip(msg, aad, enc))]
 #[inline]
 pub fn encrypt_chunk(msg: &[u8], aad: &[u8], enc: &[u8]) -> Result<Bytes> {
     if msg.len() > ENCRYPTION_BLOCK_SIZE {
+        error!(len = msg.len(), "Message too large");
         bail!("[CHACHA_ENCRYPT] Invalid encryption block size")
     }
 
@@ -114,17 +122,26 @@ pub fn encrypt_chunk(msg: &[u8], aad: &[u8], enc: &[u8]) -> Result<Bytes> {
     let mut bytes = BytesMut::new();
     let pload = Payload { msg, aad };
     let cipher = ChaCha20Poly1305::new_from_slice(enc)
-        .map_err(|_| anyhow!("[CHACHA_ENCRYPT] Unable to initialize cipher from key"))?;
+        .map_err(|e| {
+            error!(error = ?e, ?msg, ?aad, "Unable to initialize cipher from key");
+            anyhow!("[CHACHA_ENCRYPT] Unable to initialize cipher from key")
+        })?;
     let mut result = cipher
         .encrypt(&nonce, pload)
-        .map_err(|_| anyhow!("[CHACHA_ENCRYPT] Unable to encrypt chunk"))?;
+        .map_err(|e| {
+            error!(error = ?e, ?msg, ?aad, "Unable to encrypt chunk");
+            anyhow!("[CHACHA_ENCRYPT] Unable to encrypt chunk")        
+        })?;
 
     while result.ends_with(&[0u8]) {
         let pload = Payload { msg, aad };
         nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
         result = cipher
             .encrypt(&nonce, pload)
-            .map_err(|_| anyhow!("[CHACHA_ENCRYPT] Unable to encrypt chunk"))?;
+            .map_err(|e| {
+                error!(error = ?e, ?msg, ?aad, "Unable to encrypt chunk");
+                anyhow!("[CHACHA_ENCRYPT] Unable to encrypt chunk")
+            })?;
     }
 
     bytes.put(nonce.as_ref());
@@ -134,6 +151,7 @@ pub fn encrypt_chunk(msg: &[u8], aad: &[u8], enc: &[u8]) -> Result<Bytes> {
     Ok(bytes.freeze())
 }
 
+#[tracing::instrument(level = "trace", skip(size))]
 #[inline]
 pub fn generate_padding(size: usize) -> Result<Vec<u8>> {
     match size {

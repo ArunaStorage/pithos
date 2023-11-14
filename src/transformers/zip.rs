@@ -22,12 +22,14 @@ pub struct ZipEnc<'a> {
 }
 
 impl From<FileContext> for ZipEntry {
+    #[tracing::instrument(level = "trace", skip(ctx))]
     fn from(ctx: FileContext) -> Self {
         ZipEntryBuilder::new(ctx.file_name.into(), Compression::Deflate).build()
     }
 }
 
 impl<'a> ZipEnc<'a> {
+    #[tracing::instrument(level = "trace", skip(writer))]
     pub fn new(writer: &'a ZipFileWriter<Vec<u8>>) -> ZipEnc<'a> {
         ZipEnc {
             writer,
@@ -39,6 +41,7 @@ impl<'a> ZipEnc<'a> {
 
 #[async_trait::async_trait]
 impl<'a> Transformer for ZipEnc<'a> {
+    #[tracing::instrument(level = "trace", skip(self, buf, finished, should_flush))]
     async fn process_bytes(
         &mut self,
         buf: &mut bytes::BytesMut,
@@ -58,10 +61,12 @@ impl<'a> Transformer for ZipEnc<'a> {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn get_type(&self) -> TransformerType {
         TransformerType::ZipEncoder
     }
 
+    #[tracing::instrument(level = "trace", skip(self, message))]
     async fn notify(&mut self, message: &Message) -> Result<Response> {
         if message.target == TransformerType::All {
             if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
@@ -70,6 +75,7 @@ impl<'a> Transformer for ZipEnc<'a> {
                     let new_stream = self.writer.write_entry_stream(entry).await?;
                     mem::replace(&mut self.current_file, Some(new_stream));
                 } else {
+                    error!("a header is still present");
                     bail!("[TAR] A Header is still present")
                 }
                 self.finished = false;

@@ -4,6 +4,7 @@ use anyhow::Result;
 use async_compression::tokio::write::GzipEncoder;
 use bytes::BufMut;
 use tokio::io::AsyncWriteExt;
+use tracing::debug;
 
 const RAW_FRAME_SIZE: usize = 5_242_880;
 
@@ -13,6 +14,7 @@ pub struct GzipEnc {
 }
 
 impl GzipEnc {
+    #[tracing::instrument(level = "trace", skip())]
     #[allow(dead_code)]
     pub fn new() -> Self {
         GzipEnc {
@@ -23,6 +25,7 @@ impl GzipEnc {
 }
 
 impl Default for GzipEnc {
+    #[tracing::instrument(level = "trace", skip())]
     fn default() -> Self {
         Self::new()
     }
@@ -30,6 +33,7 @@ impl Default for GzipEnc {
 
 #[async_trait::async_trait]
 impl Transformer for GzipEnc {
+    #[tracing::instrument(level = "trace", skip(self, buf, finished))]
     async fn process_bytes(
         &mut self,
         buf: &mut bytes::BytesMut,
@@ -40,6 +44,7 @@ impl Transformer for GzipEnc {
         self.internal_buf.write_all_buf(buf).await?;
         // Create a new frame if buf would increase size_counter to more than RAW_FRAME_SIZE
         if self.size_counter > RAW_FRAME_SIZE {
+            debug!("new_frame");
             self.internal_buf.flush().await?;
             buf.put(self.internal_buf.get_ref().as_slice());
             self.internal_buf.get_mut().clear();
@@ -47,6 +52,7 @@ impl Transformer for GzipEnc {
         }
 
         if finished && self.size_counter != 0 {
+            debug!("finished");
             self.internal_buf.shutdown().await?;
             buf.put(self.internal_buf.get_ref().as_slice());
             self.size_counter = 0;
@@ -55,6 +61,7 @@ impl Transformer for GzipEnc {
         Ok(finished)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn get_type(&self) -> TransformerType {
         TransformerType::GzipCompressor
     }

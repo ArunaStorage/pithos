@@ -7,6 +7,7 @@ use anyhow::{bail, Result};
 use async_channel::{Receiver, Sender};
 use bytes::BytesMut;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, BufWriter};
+use tracing::{debug, error};
 
 pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin> {
     reader: BufReader<R>,
@@ -20,6 +21,7 @@ pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin> {
 }
 
 impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
+    #[tracing::instrument(level = "trace", skip(reader, writer))]
     pub fn new_with_writer<W: AsyncWrite + Unpin + Send + Sync + 'a>(
         reader: R,
         writer: W,
@@ -37,6 +39,7 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(reader, transformer))]
     pub fn new_with_sink<T: Transformer + Sink + Send + Sync + 'a>(
         reader: R,
         transformer: T,
@@ -55,6 +58,7 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self, transformer))]
     pub fn add_transformer<T: Transformer + Send + Sync + 'a>(
         mut self,
         mut transformer: T,
@@ -69,6 +73,7 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
 
 #[async_trait::async_trait]
 impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, R> {
+    #[tracing::instrument(err, level = "trace", skip(self))]
     async fn process(&mut self) -> Result<()> {
         // The buffer that accumulates the "actual" data
         let mut read_buf = BytesMut::with_capacity(65_536 * 2);
@@ -80,6 +85,7 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
 
         if let Some(rx) = &self.file_ctx_rx {
             let (context, is_last) = rx.try_recv()?;
+            debug!(?context, ?is_last, "received file context");
             self.current_file_context = Some((context.clone(), is_last));
             self.announce_all(Message {
                 target: TransformerType::All,
@@ -167,6 +173,7 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, message))]
     async fn announce_all(&mut self, mut message: Message) -> Result<()> {
         message.target = TransformerType::All;
         for (_, trans) in self.transformers.iter_mut() {
@@ -175,26 +182,15 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, rx))]
     async fn add_file_context_receiver(&mut self, rx: Receiver<(FileContext, bool)>) -> Result<()> {
         if self.file_ctx_rx.is_none() {
             self.file_ctx_rx = Some(rx);
             Ok(())
         } else {
+            error!("Overwriting existing receivers is not allowed!");
             bail!("[READ_WRITER] Overwriting existing receivers is not allowed!")
         }
     }
 
-    // async fn next_context(&mut self, context: FileContext, is_last: bool) -> Result<()> {
-    //     if self.current_file_context.is_none() {
-    //         self.current_file_context = Some((context.clone(), is_last));
-    //         self.announce_all(Message {
-    //             target: TransformerType::All,
-    //             data: crate::notifications::MessageData::NextFile(FileMessage { context }),
-    //         })
-    //         .await?;
-    //     } else {
-    //         self.next_file_context = Some((context, is_last))
-    //     }
-    //     Ok(())
-    // }
 }

@@ -11,6 +11,7 @@ pub struct Filter {
 }
 
 impl Filter {
+    #[tracing::instrument(level = "trace", skip(filter))]
     #[allow(dead_code)]
     pub fn new(filter: Range) -> Self {
         Filter {
@@ -24,6 +25,7 @@ impl Filter {
 
 #[async_trait::async_trait]
 impl Transformer for Filter {
+    #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut, _: bool, _: bool) -> Result<bool> {
         self.captured_buf_len = buf.len();
         self.advanced_by = 0;
@@ -50,6 +52,7 @@ impl Transformer for Filter {
         Ok(true)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     #[inline]
     fn get_type(&self) -> TransformerType {
         TransformerType::Filter

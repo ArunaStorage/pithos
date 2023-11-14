@@ -7,6 +7,8 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305,
 };
+use tracing::debug;
+use tracing::error;
 
 pub struct FooterParser {
     footer: [u8; 65536 * 2],
@@ -22,6 +24,7 @@ pub struct Range {
 }
 
 impl FooterParser {
+    #[tracing::instrument(level = "trace", skip(footer))]
     pub fn new(footer: &[u8; 65536 * 2]) -> Self {
         FooterParser {
             footer: *footer,
@@ -31,6 +34,7 @@ impl FooterParser {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(encrypted_footer, decryption_key))]
     pub fn from_encrypted(
         encrypted_footer: &[u8; (65536 + 28) * 2],
         decryption_key: &[u8],
@@ -46,10 +50,12 @@ impl FooterParser {
         })
     }
 
+    #[tracing::instrument(err, level = "trace", skip(self))]
     pub fn parse(&mut self) -> Result<()> {
         let mut x = 0;
         if self.footer[0..4] == *hex::decode("522A4D18")?.as_slice() {
             if self.footer[4..8].as_ref().read_u32::<LittleEndian>()? != 65536 - 8 {
+                error!(size = ?self.footer[4..8].as_ref(), "Unexpected skippable framesize");
                 return Err(anyhow!("Unexpected skippable framesize"));
             };
             self.total = self.footer[8..12].as_ref().read_u32::<LittleEndian>()?;
@@ -69,7 +75,9 @@ impl FooterParser {
                 .as_ref()
                 .read_u32::<LittleEndian>()?
                 != 65536 - 8
-            {
+            {   
+                error!(size = ?self.footer[65536 + 4..65536 + 8]
+                    .as_ref(), "Unexpected skippable framesize");
                 return Err(anyhow!("Unexpected skippable framesize"));
             };
 
@@ -86,6 +94,7 @@ impl FooterParser {
             // This is a double_footer
         } else {
             if self.footer[65536..65540] != *hex::decode("512A4D18")?.as_slice() {
+                error!(magic_number = ?self.footer[65536..65540], "Unexpected slice, does not start with magic number 512A4D18");
                 return Err(anyhow!(
                     "Unexpected slice, does not start with magic number 512A4D18"
                 ));
@@ -95,9 +104,9 @@ impl FooterParser {
                 .read_u32::<LittleEndian>()?
                 != 65536 - 8
             {
-                dbg!(self.footer[65536 + 4..65536 + 8]
+                error!(size = ?self.footer[65536 + 4..65536 + 8]
                     .as_ref()
-                    .read_u32::<LittleEndian>()?);
+                    .read_u32::<LittleEndian>()?, "Unexpected skippable framesize");
                 return Err(anyhow!("Unexpected skippable framesize"));
             };
 
@@ -118,6 +127,7 @@ impl FooterParser {
         Ok(())
     }
 
+    #[tracing::instrument(level = "trace", skip(self, range))]
     pub fn get_offsets_by_range(&self, range: Range) -> Result<(Range, Range)> {
         let from_chunk = range.from / 5_242_880;
         let to_chunk = range.to / 5_242_880;
@@ -126,6 +136,7 @@ impl FooterParser {
         let mut to_block: u64 = 0;
 
         if from_chunk > to_chunk {
+            error!(from_chunk = from_chunk, to_chunk = to_chunk, "From must be smaller than to");
             return Err(anyhow!("From must be smaller than to"));
         }
 
@@ -162,12 +173,13 @@ impl FooterParser {
         ))
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     pub fn debug(&self) {
-        dbg!(&self.blocklist);
-        dbg!(&self.total);
+        debug!(?self.blocklist, ?self.total);
     }
 }
 
+#[tracing::instrument(level = "trace", skip(chunk, decryption_key))]
 pub fn decrypt_chunks(chunk: &[u8; (65536 + 28) * 2], decryption_key: &[u8]) -> Result<Bytes> {
     let first = &chunk[0..65536 + 28];
     let second = &chunk[65536 + 28..];
@@ -176,15 +188,23 @@ pub fn decrypt_chunks(chunk: &[u8; (65536 + 28) * 2], decryption_key: &[u8]) -> 
     let (second_nonce_slice, second_data) = second.split_at(12);
 
     let decryptor = ChaCha20Poly1305::new_from_slice(decryption_key)
-        .map_err(|_| anyhow!("[FOOTER_PARSER] Unable to initialize decryptor"))?;
+        .map_err(|e| {
+            error!(error = ?e, "Unable to initialize decryptor");
+            anyhow!("[FOOTER_PARSER] Unable to initialize decryptor")
+        })?;
 
     let mut first_dec = decryptor
         .decrypt(first_nonce_slice.into(), first_data)
-        .map_err(|_| anyhow!("[FOOTER_PARSER] unable to decrypt part 1"))?;
+        .map_err(|e| {
+            error!(error = ?e, data = ?first_data, nonce = ?first_nonce_slice, "Unable to decrypt footer part 1");
+            anyhow!("[FOOTER_PARSER] unable to decrypt part 1")})?;
     first_dec.extend(
         decryptor
             .decrypt(second_nonce_slice.into(), second_data)
-            .map_err(|_| anyhow!("[FOOTER_PARSER] unable to decrypt part 2"))?,
+            .map_err(|e| {
+                error!(error = ?e, data = ?second_data, nonce = ?second_nonce_slice, "Unable to decrypt footer part 2");
+                anyhow!("[FOOTER_PARSER] unable to decrypt part 2")
+            })?,
     );
     Ok(first_dec.into())
 }

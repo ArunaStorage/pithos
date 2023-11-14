@@ -9,6 +9,8 @@ use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
 use bytes::BufMut;
 use bytes::{Bytes, BytesMut};
+use tracing::debug;
+use tracing::error;
 
 pub struct FooterGenerator {
     finished: bool,
@@ -16,8 +18,10 @@ pub struct FooterGenerator {
 }
 
 impl FooterGenerator {
+    #[tracing::instrument(level = "trace", skip(external_info))]
     #[allow(dead_code)]
     pub fn new(external_info: Option<Vec<u8>>) -> FooterGenerator {
+        debug!(has_info = external_info.is_some(), "new footergenerator");
         FooterGenerator {
             finished: false,
             external_info: match external_info {
@@ -30,6 +34,7 @@ impl FooterGenerator {
 
 #[async_trait::async_trait]
 impl Transformer for FooterGenerator {
+    #[tracing::instrument(level = "trace", skip(self, buf, finished))]
     async fn process_bytes(
         &mut self,
         buf: &mut bytes::BytesMut,
@@ -38,32 +43,41 @@ impl Transformer for FooterGenerator {
     ) -> Result<bool> {
         if buf.is_empty() && !self.finished && finished {
             if self.external_info.is_empty() {
-                return Err(anyhow!("Missing notifications"));
+                error!("Missing chunk info");
+                return Err(anyhow!("Missing chunk info"));
             }
             buf.put(create_skippable_footer_frame(self.external_info.to_vec())?);
+            debug!("added footer");
             self.finished = true;
         }
         Ok(self.finished)
     }
+    #[tracing::instrument(level = "trace", skip(self, message))]
     async fn notify(&mut self, message: &Message) -> Result<Response> {
         match message.target {
             TransformerType::FooterGenerator => {
                 if let notifications::MessageData::Footer(data) = &message.data {
+                    debug!(num_chunks = ?data.chunks.len(), "received footer info message");
                     self.external_info.put(data.chunks.as_ref())
                 }
             }
             TransformerType::All => {}
-            _ => return Err(anyhow!("Received invalid message")),
+            _ => {
+                error!(?message, "Received invalid message");    
+                return Err(anyhow!("Received invalid message"))
+            },
         }
         Ok(Response::Ok)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     #[inline]
     fn get_type(&self) -> TransformerType {
         TransformerType::FooterGenerator
     }
 }
 
+#[tracing::instrument(level = "trace", skip(footer_list))]
 #[inline]
 fn create_skippable_footer_frame(mut footer_list: Vec<u8>) -> Result<Bytes> {
     // 65_536 framesize minus 12 bytes for header

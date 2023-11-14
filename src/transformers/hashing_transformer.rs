@@ -3,6 +3,7 @@ use anyhow::anyhow;
 use anyhow::Result;
 use async_channel::{Receiver, Sender};
 use digest::{Digest, FixedOutputReset};
+use tracing::error;
 
 pub struct HashingTransformer<T: Digest + Send + FixedOutputReset> {
     hasher: T,
@@ -13,6 +14,7 @@ impl<T> HashingTransformer<T>
 where
     T: Digest + Send + Sync + FixedOutputReset,
 {
+    #[tracing::instrument(level = "trace", skip(hasher))]
     #[allow(dead_code)]
     pub fn new(hasher: T) -> (HashingTransformer<T>, Receiver<String>) {
         let (sender, receiver) = async_channel::bounded(1);
@@ -25,6 +27,7 @@ impl<T> Transformer for HashingTransformer<T>
 where
     T: Digest + Send + Sync + FixedOutputReset,
 {
+    #[tracing::instrument(level = "trace", skip(self, buf, finished))]
     async fn process_bytes(
         &mut self,
         buf: &mut bytes::BytesMut,
@@ -42,6 +45,7 @@ where
                 Err(e) => match e {
                     async_channel::TrySendError::Full(_) => {}
                     async_channel::TrySendError::Closed(_) => {
+                        error!("Sending in closed channel");
                         return Err(anyhow!("HashingTransformer: Channel closed"))
                     }
                 },
@@ -50,6 +54,7 @@ where
         Ok(true)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn get_type(&self) -> TransformerType {
         TransformerType::Hashing
     }

@@ -13,6 +13,9 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit, Payload},
     ChaCha20Poly1305,
 };
+use tracing::debug;
+use tracing::error;
+use tracing::info;
 
 const ENCRYPTION_BLOCK_SIZE: usize = 65_536;
 const CIPHER_DIFF: usize = 28;
@@ -29,6 +32,7 @@ pub struct ChaCha20Dec {
 }
 
 impl ChaCha20Dec {
+    #[tracing::instrument(level = "trace", skip(dec_key))]
     #[allow(dead_code)]
     pub fn new(dec_key: Option<Vec<u8>>) -> Result<Self> {
         Ok(ChaCha20Dec {
@@ -45,6 +49,7 @@ impl ChaCha20Dec {
 
 #[async_trait::async_trait]
 impl Transformer for ChaCha20Dec {
+    #[tracing::instrument(level = "trace", skip(self, buf, finished, should_flush))]
     async fn process_bytes(
         &mut self,
         buf: &mut bytes::BytesMut,
@@ -52,6 +57,7 @@ impl Transformer for ChaCha20Dec {
         should_flush: bool,
     ) -> Result<bool> {
         if self.skip_me {
+            debug!("skipped");
             return Ok(finished);
         }
 
@@ -66,6 +72,7 @@ impl Transformer for ChaCha20Dec {
             }
             
             buf.put(self.output_buffer.split().freeze());
+            debug!(buf_len = buf.len(), "bytes flushed");
             return Ok(finished);
         }
         // Only write if the buffer contains data and the current process is not finished
@@ -92,21 +99,20 @@ impl Transformer for ChaCha20Dec {
                         )?);
                     }
                 } else {
-                    log::debug!(
-                        "[AF_DECRYPT] Buffer too small {}, starting backoff_counter: {}",
-                        self.input_buffer.len(),
-                        self.backoff_counter
+                    info!(
+                        len = self.input_buffer.len(),
+                        self.backoff_counter,
+                        "Buffer too small, backoff"
                     );
 
                     self.backoff_counter += 1;
 
-                    if self.backoff_counter > 100 {
+                    if self.backoff_counter > 10 {
                         self.input_buffer.clear();
                         self.finished = true;
-                        log::debug!(
-                            "[AF_DECRYPT] Buffer too small {}, backoff reached, discarding rest",
-                            self.input_buffer.len()
-                        );
+                        error!(len = self.input_buffer.len(),
+                        "Buffer too small, backoff reached, discarding rest");
+                        bail!("Buffer too small, backoff reached, would discard rest");
                     }
                 }
             } else {
@@ -117,10 +123,12 @@ impl Transformer for ChaCha20Dec {
         Ok(self.finished && self.input_buffer.is_empty() && self.output_buffer.is_empty())
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn get_type(&self) -> TransformerType {
         TransformerType::ChaCha20Decrypt
     }
 
+    #[tracing::instrument(level = "trace", skip(self, message))]
     async fn notify(&mut self, message: &Message) -> Result<Response> {
         if message.target == TransformerType::All {
             if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
@@ -135,15 +143,18 @@ impl Transformer for ChaCha20Dec {
     }
 }
 
+#[tracing::instrument(level = "trace", skip(chunk, decryption_key))]
 #[inline]
 pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
     if chunk.len() < 15 {
+        error!(len = chunk.len(), "Unexpected chunk size < 15");
         bail!("[CHACHA_DECRYPT] Unexpected chunk size < 15")
     }
 
     let (nonce_slice, data) = chunk.split_at(12);
 
     if nonce_slice.len() != 12 {
+        error!(len = nonce_slice.len(), "Invalid nonce size");
         bail!("[CHACHA_DECRYPT] Invalid nonce")
     }
 
@@ -192,8 +203,15 @@ pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
     };
 
     Ok(ChaCha20Poly1305::new_from_slice(decryption_key)
-        .map_err(|_| anyhow::anyhow!("[CHACHA_DECRYPT] Unable to initialize decryptor"))?
+        .map_err(|e| {
+            error!(?e, "Unable to initialize decryptor");
+            anyhow::anyhow!("[CHACHA_DECRYPT] Unable to initialize decryptor")
+        })?
         .decrypt(nonce_slice.into(), payload)
-        .map_err(|_| anyhow::anyhow!("[CHACHA_DECRYPT] Unable to decrypt chunk"))?
+        .map_err(|e| 
+            {
+                error!(?e, "Unable to initialize decryptor");
+                anyhow::anyhow!("[CHACHA_DECRYPT] Unable to decrypt chunk")
+            })?
         .into())
 }

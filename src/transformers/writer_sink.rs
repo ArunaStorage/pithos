@@ -13,6 +13,7 @@ pub struct WriterSink<W: AsyncWrite + Unpin> {
 impl<W: AsyncWrite + Unpin + Send> Sink for WriterSink<W> {}
 
 impl<W: AsyncWrite + Unpin> WriterSink<W> {
+    #[tracing::instrument(level = "trace", skip(writer))]
     pub fn new(writer: BufWriter<W>) -> Self {
         Self { writer }
     }
@@ -20,6 +21,7 @@ impl<W: AsyncWrite + Unpin> WriterSink<W> {
 
 #[async_trait::async_trait]
 impl<W: AsyncWrite + Unpin + Send> Transformer for WriterSink<W> {
+    #[tracing::instrument(level = "trace", skip(self, buf, finished))]
     async fn process_bytes(
         &mut self,
         buf: &mut bytes::BytesMut,
@@ -38,6 +40,7 @@ impl<W: AsyncWrite + Unpin + Send> Transformer for WriterSink<W> {
         Ok(false)
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn get_type(&self) -> TransformerType {
         TransformerType::WriterSink
     }
