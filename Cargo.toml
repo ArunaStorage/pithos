@@ -1,7 +1,7 @@
 [package]
 authors = ["Sebastian <sb@pus.de>"]
 name = "aruna-file"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 repository = "https://github.com/ArunaStorage/aruna-file"
 license = "MIT OR Apache-2.0"
@@ -26,6 +26,7 @@ log = "0.4.20"
 tar = "0.4.40"
 digest = "0.10.7"
 async_zip = { version = "0.0.15", features = ["chrono", "tokio", "deflate"] }
+pin-project = "1"
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }

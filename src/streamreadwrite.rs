@@ -1,5 +1,4 @@
 use std::mem;
-
 use crate::notifications::{FileMessage, Message};
 use crate::transformer::{FileContext, ReadWriter, Sink, Transformer, TransformerType};
 use crate::transformers::writer_sink::WriterSink;
@@ -12,6 +11,7 @@ use tokio::io::{AsyncWrite, BufWriter};
 pub struct ArunaStreamReadWriter<
     'a,
     R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
+        + Unpin
         + Send
         + Sync,
 > {
@@ -28,6 +28,7 @@ pub struct ArunaStreamReadWriter<
 impl<
         'a,
         R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
+            + Unpin
             + Send
             + Sync,
     > ArunaStreamReadWriter<'a, R>
@@ -37,9 +38,8 @@ impl<
         transformer: T,
     ) -> Self {
         let (sx, rx) = async_channel::unbounded();
-
         ArunaStreamReadWriter {
-            input_stream,
+            input_stream: input_stream,
             sink: Box::new(transformer),
             transformers: Vec::new(),
             sender: sx,
@@ -56,7 +56,7 @@ impl<
     ) -> Self {
         let (sx, rx) = async_channel::unbounded();
         ArunaStreamReadWriter {
-            input_stream,
+            input_stream: input_stream,
             sink: Box::new(WriterSink::new(BufWriter::new(Box::pin(writer)))),
             transformers: Vec::new(),
             sender: sx,
@@ -82,9 +82,9 @@ impl<
 impl<
         'a,
         R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
+            + Unpin
             + Send
             + Sync
-            + Unpin
     > ReadWriter for ArunaStreamReadWriter<'a, R>
 {
     async fn process(&mut self) -> Result<()> {

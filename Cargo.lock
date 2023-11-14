@@ -71,7 +71,7 @@ checksum = "a4668cab20f66d8d020e1fbc0ebe47217433c1b6c8f2040faf858554e394ace6"
 
 [[package]]
 name = "aruna-file"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -89,6 +89,7 @@ dependencies = [
  "hyper",
  "log",
  "md-5",
+ "pin-project",
  "tar",
  "tokio",
  "tokio-util",
