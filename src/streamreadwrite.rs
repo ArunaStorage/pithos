@@ -97,7 +97,7 @@ impl<
         let mut read_buf = BytesMut::with_capacity(65_536 * 2);
         let mut hold_buffer = BytesMut::with_capacity(65536);
         let mut finished;
-        let mut maybe_msg: Option<Message> = None;
+        let mut maybe_msg: Vec<Message> = vec![];
         let mut data;
         let mut read_bytes: usize = 0;
         let mut next_file = false;
@@ -159,12 +159,15 @@ impl<
             }
 
             for (ttype, trans) in self.transformers.iter_mut() {
-                if let Some(m) = &maybe_msg {
-                    if m.target == *ttype {
-                        trans.notify(m).await?;
+                if !maybe_msg.is_empty() {
+                    for msg in &maybe_msg {
+                        if msg.target == *ttype {
+                            trans.notify(msg).await?;
+                        }
                     }
-                } else {
-                    maybe_msg = self.receiver.try_recv().ok();
+                }
+                if let Some(msg) = self.receiver.try_recv().ok() {
+                    maybe_msg.push(msg);
                 }
                 match trans.process_bytes(&mut read_buf, finished, false).await? {
                     true => {}
@@ -182,7 +185,7 @@ impl<
 
             // Anounce next file
             if next_file {
-                if let Some(rx) = &self.file_ctx_rx {
+                if let Some(rx) = &self.file_ctx_rx {                    
                     // Perform a flush through all transformers!
                     assert!(read_buf.is_empty());
                     for (_, trans) in self.transformers.iter_mut() {
@@ -193,6 +196,10 @@ impl<
                         .await?;
                     let (context, is_last) = rx.recv().await?;
 
+                    // Empty message queue
+                    maybe_msg.clear();
+
+                    // Fetch next file context
                     context_zero_file = context.is_dir || context.is_symlink;
                     self.current_file_context = Some((context.clone(), is_last));
                     self.announce_all(Message {
