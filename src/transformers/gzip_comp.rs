@@ -48,8 +48,8 @@ impl Transformer for GzipEnc {
             self.internal_buf.shutdown().await?;
             buf.put(self.internal_buf.get_ref().as_slice());
             self.size_counter = 0;
-            
-            return Ok(true)
+
+            return Ok(true);
         }
 
         // Create a new frame if buf would increase size_counter to more than RAW_FRAME_SIZE

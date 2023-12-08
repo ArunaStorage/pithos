@@ -136,7 +136,11 @@ impl FooterParser {
         let mut to_block: u64 = 0;
 
         if from_chunk > to_chunk {
-            error!(from_chunk = from_chunk, to_chunk = to_chunk, "From must be smaller than to");
+            error!(
+                from_chunk = from_chunk,
+                to_chunk = to_chunk,
+                "From must be smaller than to"
+            );
             return Err(anyhow!("From must be smaller than to"));
         }
 
@@ -195,7 +199,7 @@ pub fn decrypt_chunks(chunk: &[u8; (65536 + 28) * 2], decryption_key: &[u8]) -> 
     let mut first_dec = decryptor
         .decrypt(first_nonce_slice.into(), first_data)
         .unwrap_or(vec![]);
-    
+
     first_dec.extend(
         decryptor
             .decrypt(second_nonce_slice.into(), second_data)

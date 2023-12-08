@@ -1,4 +1,3 @@
-use std::mem;
 use crate::notifications::{FileMessage, Message};
 use crate::transformer::{FileContext, ReadWriter, Sink, Transformer, TransformerType};
 use crate::transformers::writer_sink::WriterSink;
@@ -6,6 +5,7 @@ use anyhow::{bail, Result};
 use async_channel::{Receiver, Sender};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{Stream, StreamExt};
+use std::mem;
 use tokio::io::{AsyncWrite, BufWriter};
 use tracing::{debug, error};
 
@@ -41,7 +41,7 @@ impl<
     ) -> Self {
         let (sx, rx) = async_channel::unbounded();
         ArunaStreamReadWriter {
-            input_stream: input_stream,
+            input_stream,
             sink: Box::new(transformer),
             transformers: Vec::new(),
             sender: sx,
@@ -53,13 +53,10 @@ impl<
     }
 
     #[tracing::instrument(level = "trace", skip(input_stream, writer))]
-    pub fn new_with_writer<W: AsyncWrite + Send + Sync + 'a>(
-        input_stream: R,
-        writer: W,
-    ) -> Self {
+    pub fn new_with_writer<W: AsyncWrite + Send + Sync + 'a>(input_stream: R, writer: W) -> Self {
         let (sx, rx) = async_channel::unbounded();
         ArunaStreamReadWriter {
-            input_stream: input_stream,
+            input_stream,
             sink: Box::new(WriterSink::new(BufWriter::new(Box::pin(writer)))),
             transformers: Vec::new(),
             sender: sx,
@@ -88,7 +85,7 @@ impl<
         R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
             + Unpin
             + Send
-            + Sync
+            + Sync,
     > ReadWriter for ArunaStreamReadWriter<'a, R>
 {
     #[tracing::instrument(err, level = "trace", skip(self))]
@@ -166,7 +163,7 @@ impl<
                         }
                     }
                 }
-                if let Some(msg) = self.receiver.try_recv().ok() {
+                if let Ok(msg) = self.receiver.try_recv() {
                     maybe_msg.push(msg);
                 }
                 match trans.process_bytes(&mut read_buf, finished, false).await? {
@@ -185,7 +182,7 @@ impl<
 
             // Anounce next file
             if next_file {
-                if let Some(rx) = &self.file_ctx_rx {                    
+                if let Some(rx) = &self.file_ctx_rx {
                     // Perform a flush through all transformers!
                     assert!(read_buf.is_empty());
                     for (_, trans) in self.transformers.iter_mut() {

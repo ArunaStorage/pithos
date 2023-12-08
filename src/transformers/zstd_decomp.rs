@@ -125,7 +125,7 @@ mod tests {
     async fn test_zstd_encoder_without_skip() {
         let mut decoder = ZstdDec::new();
         let mut buf = BytesMut::new();
-        let expected = hex::decode(format!("28b52ffd00582900003132333435",)).unwrap();
+        let expected = hex::decode("28b52ffd00582900003132333435").unwrap();
         buf.put(expected.as_slice());
         decoder.process_bytes(&mut buf, true, true).await.unwrap();
         // Expect 65kb size

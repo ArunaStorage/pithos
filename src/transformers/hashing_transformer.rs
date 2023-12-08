@@ -39,14 +39,14 @@ where
         if finished && buf.is_empty() {
             match self
                 .sender
-                .try_send(format!("{}", hex::encode(self.hasher.finalize_reset())))
+                .try_send(hex::encode(self.hasher.finalize_reset()).to_string())
             {
                 Ok(_) => {}
                 Err(e) => match e {
                     async_channel::TrySendError::Full(_) => {}
                     async_channel::TrySendError::Closed(_) => {
                         error!("Sending in closed channel");
-                        return Err(anyhow!("HashingTransformer: Channel closed"))
+                        return Err(anyhow!("HashingTransformer: Channel closed"));
                     }
                 },
             }

@@ -54,7 +54,7 @@ impl Transformer for SizeProbe {
                         async_channel::TrySendError::Full(_) => {}
                         async_channel::TrySendError::Closed(_) => {
                             error!("Sending in closed channel");
-                            return Err(anyhow!("SizeProbe: Channel closed"))
+                            return Err(anyhow!("SizeProbe: Channel closed"));
                         }
                     },
                 };
