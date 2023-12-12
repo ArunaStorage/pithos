@@ -35,8 +35,10 @@ impl Transformer for Filter {
             // If counter + incoming bytes are larger than lower limit
             //   -> Advance buffer to lower limit
             if ((self.counter + self.captured_buf_len) as u64) > self.filter.from {
-                self.advanced_by = self.filter.from as usize - self.counter;
-                buf.advance(self.advanced_by);
+                if !(self.counter > self.filter.from as usize) {
+                    self.advanced_by = self.filter.from as usize - self.counter;
+                    buf.advance(self.advanced_by);
+                }
             } else {
                 // If counter + incoming bytes are smaller than lower limit
                 //   -> discard buffer
