@@ -1,8 +1,8 @@
 use crate::transformer::Sink;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
-use anyhow::Result;
 use anyhow::anyhow;
+use anyhow::Result;
 use async_channel::Sender;
 use tracing::debug;
 use tracing::error;

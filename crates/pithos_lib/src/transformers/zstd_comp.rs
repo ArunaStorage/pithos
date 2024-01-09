@@ -146,7 +146,7 @@ impl ZstdEnc {
     #[tracing::instrument(level = "trace", skip(self))]
     async fn add_skippable(&mut self) {
         // No skippable frame needed if the buffer is empty
-        if self.prev_buf.len() == 0 {
+        if self.prev_buf.is_empty() {
             return;
         }
         if CHUNK - (self.prev_buf.len() % CHUNK) > 8 {
@@ -209,7 +209,7 @@ mod tests {
         assert!(buf.starts_with(&hex::decode("28B52FFD").unwrap()));
         // Expect 14b size
         assert_eq!(buf.len(), 14);
-        let expected = hex::decode(format!("28b52ffd00582900003132333435",)).unwrap();
+        let expected = hex::decode("28b52ffd00582900003132333435").unwrap();
         assert_eq!(buf.as_ref(), &expected)
     }
 
@@ -230,7 +230,7 @@ mod tests {
         assert!(taken.starts_with(&hex::decode("28B52FFD").unwrap()));
         // Expect 14b size
         assert_eq!(taken.len(), 14);
-        let expected = hex::decode(format!("28b52ffd00582900003132333435",)).unwrap();
+        let expected = hex::decode("28b52ffd00582900003132333435").unwrap();
         assert_eq!(taken.as_ref(), &expected);
         let received = rx.recv().await.unwrap();
         assert_eq!(

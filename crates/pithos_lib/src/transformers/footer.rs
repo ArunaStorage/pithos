@@ -63,9 +63,9 @@ impl Transformer for FooterGenerator {
             }
             TransformerType::All => {}
             _ => {
-                error!(?message, "Received invalid message");    
-                return Err(anyhow!("Received invalid message"))
-            },
+                error!(?message, "Received invalid message");
+                return Err(anyhow!("Received invalid message"));
+            }
         }
         Ok(Response::Ok)
     }

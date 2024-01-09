@@ -121,27 +121,22 @@ pub fn encrypt_chunk(msg: &[u8], aad: &[u8], enc: &[u8]) -> Result<Bytes> {
     let mut nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
     let mut bytes = BytesMut::new();
     let pload = Payload { msg, aad };
-    let cipher = ChaCha20Poly1305::new_from_slice(enc)
-        .map_err(|e| {
-            error!(error = ?e, ?msg, ?aad, "Unable to initialize cipher from key");
-            anyhow!("[CHACHA_ENCRYPT] Unable to initialize cipher from key")
-        })?;
-    let mut result = cipher
-        .encrypt(&nonce, pload)
-        .map_err(|e| {
-            error!(error = ?e, ?msg, ?aad, "Unable to encrypt chunk");
-            anyhow!("[CHACHA_ENCRYPT] Unable to encrypt chunk")        
-        })?;
+    let cipher = ChaCha20Poly1305::new_from_slice(enc).map_err(|e| {
+        error!(error = ?e, ?msg, ?aad, "Unable to initialize cipher from key");
+        anyhow!("[CHACHA_ENCRYPT] Unable to initialize cipher from key")
+    })?;
+    let mut result = cipher.encrypt(&nonce, pload).map_err(|e| {
+        error!(error = ?e, ?msg, ?aad, "Unable to encrypt chunk");
+        anyhow!("[CHACHA_ENCRYPT] Unable to encrypt chunk")
+    })?;
 
     while result.ends_with(&[0u8]) {
         let pload = Payload { msg, aad };
         nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
-        result = cipher
-            .encrypt(&nonce, pload)
-            .map_err(|e| {
-                error!(error = ?e, ?msg, ?aad, "Unable to encrypt chunk");
-                anyhow!("[CHACHA_ENCRYPT] Unable to encrypt chunk")
-            })?;
+        result = cipher.encrypt(&nonce, pload).map_err(|e| {
+            error!(error = ?e, ?msg, ?aad, "Unable to encrypt chunk");
+            anyhow!("[CHACHA_ENCRYPT] Unable to encrypt chunk")
+        })?;
     }
 
     bytes.put(nonce.as_ref());

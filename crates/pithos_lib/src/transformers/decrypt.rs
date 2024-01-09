@@ -64,13 +64,13 @@ impl Transformer for ChaCha20Dec {
         if should_flush {
             self.input_buffer.put(buf.split());
 
-            if self.input_buffer.len() > 0 {
+            if !self.input_buffer.is_empty() {
                 self.output_buffer.put(decrypt_chunk(
                     &self.input_buffer.split(),
                     &self.decryption_key,
                 )?);
             }
-            
+
             buf.put(self.output_buffer.split().freeze());
             debug!(buf_len = buf.len(), "bytes flushed");
             return Ok(finished);
@@ -101,8 +101,7 @@ impl Transformer for ChaCha20Dec {
                 } else {
                     info!(
                         len = self.input_buffer.len(),
-                        self.backoff_counter,
-                        "Buffer too small, backoff"
+                        self.backoff_counter, "Buffer too small, backoff"
                     );
 
                     self.backoff_counter += 1;
@@ -110,8 +109,10 @@ impl Transformer for ChaCha20Dec {
                     if self.backoff_counter > 10 {
                         self.input_buffer.clear();
                         self.finished = true;
-                        error!(len = self.input_buffer.len(),
-                        "Buffer too small, backoff reached, discarding rest");
+                        error!(
+                            len = self.input_buffer.len(),
+                            "Buffer too small, backoff reached, discarding rest"
+                        );
                         bail!("Buffer too small, backoff reached, would discard rest");
                     }
                 }
@@ -208,10 +209,9 @@ pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
             anyhow::anyhow!("[CHACHA_DECRYPT] Unable to initialize decryptor")
         })?
         .decrypt(nonce_slice.into(), payload)
-        .map_err(|e| 
-            {
-                error!(?e, "Unable to initialize decryptor");
-                anyhow::anyhow!("[CHACHA_DECRYPT] Unable to decrypt chunk")
-            })?
+        .map_err(|e| {
+            error!(?e, "Unable to initialize decryptor");
+            anyhow::anyhow!("[CHACHA_DECRYPT] Unable to decrypt chunk")
+        })?
         .into())
 }

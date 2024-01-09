@@ -75,7 +75,7 @@ impl FooterParser {
                 .as_ref()
                 .read_u32::<LittleEndian>()?
                 != 65536 - 8
-            {   
+            {
                 error!(size = ?self.footer[65536 + 4..65536 + 8]
                     .as_ref(), "Unexpected skippable framesize");
                 return Err(anyhow!("Unexpected skippable framesize"));
@@ -136,7 +136,11 @@ impl FooterParser {
         let mut to_block: u64 = 0;
 
         if from_chunk > to_chunk {
-            error!(from_chunk = from_chunk, to_chunk = to_chunk, "From must be smaller than to");
+            error!(
+                from_chunk = from_chunk,
+                to_chunk = to_chunk,
+                "From must be smaller than to"
+            );
             return Err(anyhow!("From must be smaller than to"));
         }
 
@@ -187,22 +191,21 @@ pub fn decrypt_chunks(chunk: &[u8; (65536 + 28) * 2], decryption_key: &[u8]) -> 
     let (first_nonce_slice, first_data) = first.split_at(12);
     let (second_nonce_slice, second_data) = second.split_at(12);
 
-    let decryptor = ChaCha20Poly1305::new_from_slice(decryption_key)
-        .map_err(|e| {
-            error!(error = ?e, "Unable to initialize decryptor");
-            anyhow!("[FOOTER_PARSER] Unable to initialize decryptor")
-        })?;
+    let decryptor = ChaCha20Poly1305::new_from_slice(decryption_key).map_err(|e| {
+        error!(error = ?e, "Unable to initialize decryptor");
+        anyhow!("[FOOTER_PARSER] Unable to initialize decryptor")
+    })?;
 
     let mut first_dec = decryptor
         .decrypt(first_nonce_slice.into(), first_data)
-        .map_err(|e| {
-            error!(error = ?e, data = ?first_data, nonce = ?first_nonce_slice, "Unable to decrypt footer part 1");
-            anyhow!("[FOOTER_PARSER] unable to decrypt part 1")})?;
+        .unwrap_or(vec![]);
+
     first_dec.extend(
         decryptor
             .decrypt(second_nonce_slice.into(), second_data)
             .map_err(|e| {
-                error!(error = ?e, data = ?second_data, nonce = ?second_nonce_slice, "Unable to decrypt footer part 2");
+                //error!(error = ?e, data = ?second_data, nonce = ?second_nonce_slice, "Unable to decrypt footer part 2");
+                error!(error = ?e, "Unable to decrypt footer part 2");
                 anyhow!("[FOOTER_PARSER] unable to decrypt part 2")
             })?,
     );

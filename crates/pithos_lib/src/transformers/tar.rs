@@ -6,11 +6,11 @@ use crate::transformer::TransformerType;
 use anyhow::bail;
 use anyhow::Result;
 use bytes::BufMut;
-use tracing::debug;
-use tracing::error;
 use std::time::Duration;
 use std::time::SystemTime;
 use tar::Header;
+use tracing::debug;
+use tracing::error;
 
 pub struct TarEnc {
     header: Option<Header>,
