@@ -1,11 +1,11 @@
 [package]
-authors = ["Sebastian Beyvers <sb@pus.de>"]
 name = "pithos_lib"
-version = "0.5.0"
-edition = "2021"
-repository = "https://github.com/ArunaStorage/aruna-file"
-license = "MIT OR Apache-2.0"
-description = "Library and component for encrypting / compressing .pth files, including specification"
+description = "Library and components for encrypting / compressing pithos (.pto) files, including specification"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
