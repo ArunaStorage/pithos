@@ -15,7 +15,7 @@ async fn read_writer_with_file() {
     let file = File::open("test.txt").await.unwrap();
     let file2 = File::create("test.txt.out.1").await.unwrap();
 
-    // Create a new ArunaReadWriter
+    // Create a new PithosReadWriter
     PithosReadWriter::new_with_writer(file, file2)
         .add_transformer(ZstdEnc::new(false))
         .add_transformer(ZstdEnc::new(false))
@@ -43,7 +43,7 @@ async fn read_writer_with_vec() {
     let file = b"This is a very very important test".to_vec();
     let mut file2 = Vec::new();
 
-    // Create a new ArunaReadWriter
+    // Create a new PithosReadWriter
     PithosReadWriter::new_with_writer(file.as_ref(), &mut file2)
         .add_transformer(ZstdEnc::new(false))
         .add_transformer(ZstdEnc::new(false))

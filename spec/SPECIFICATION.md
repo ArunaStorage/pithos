@@ -1,14 +1,14 @@
-# The ARUNA file format
+# The Pithos file format
 
-This document contains the formal description for the aruna (`.aruna` equivalent to `.zst.c4gh`) file format. A file format that enables compression and encryption while still maintaining a resonable performant indexing solution for large multi-gigabyte files. Optimized for usage with object storage solutions, like S3.
+This document contains the formal description for the pithos (`.pto` equivalent to `.zst.c4gh`) file format. A file format that enables compression and encryption while still maintaining a resonable performant indexing solution for large multi-gigabyte files. Optimized for usage with object storage solutions, like S3.
 
 ## Specification
 
-The core of the aruna file format is the combination of GA4GH's [crypt4gh](http://samtools.github.io/hts-specs/crypt4gh.pdf) encryption format with the zstandard compression algorithm ([RFC8878](https://datatracker.ietf.org/doc/rfc8878/)). This is extended by an optional custom footer block containing positional information for decrypting and decompressing blocks within larger files.
+The core of the pithos file format is the combination of GA4GH's [crypt4gh](http://samtools.github.io/hts-specs/crypt4gh.pdf) encryption format with the zstandard compression algorithm ([RFC8878](https://datatracker.ietf.org/doc/rfc8878/)). This is extended by an optional custom footer block containing positional information for decrypting and decompressing blocks within larger files.
 
 ### **Structure**
 
-Aruna files consist of three distinct parts. A Header section followed by blocks of compressed and encrypted data and an optional footer section containing indirect index information and block sizes.
+Pithos files consist of three distinct parts. A Header section followed by blocks of compressed and encrypted data and an optional footer section containing indirect index information and block sizes.
 
 
 #### **Data structure**
