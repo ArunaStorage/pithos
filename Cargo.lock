@@ -84,25 +84,13 @@ dependencies = [
 
 [[package]]
 name = "async-compression"
-version = "0.3.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "942c7cd7ae39e91bde4820d74132e9862e62c2f386c3aa90ccf55949f5bad63a"
-dependencies = [
- "flate2",
- "futures-core",
- "futures-io",
- "memchr",
- "pin-project-lite",
-]
-
-[[package]]
-name = "async-compression"
 version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bc2d0cfb2a7388d34f590e76686704c494ed7aaceed62ee1ba35cbf363abc2a5"
 dependencies = [
  "flate2",
  "futures-core",
+ "futures-io",
  "memchr",
  "pin-project-lite",
  "tokio",
@@ -145,15 +133,14 @@ dependencies = [
 
 [[package]]
 name = "async_zip"
-version = "0.0.15"
+version = "0.0.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "795310de3218cde15219fc98c1cf7d8fe9db4865aab27fcf1d535d6cb61c6b54"
+checksum = "527207465fb6dcafbf661b0d4a51d0d2306c9d0c2975423079a6caa807930daf"
 dependencies = [
- "async-compression 0.3.15",
+ "async-compression",
  "chrono",
  "crc32fast",
- "futures-util",
- "log",
+ "futures-lite",
  "pin-project",
  "thiserror",
  "tokio",
@@ -502,6 +489,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fastrand"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25cbce373ec4653f1a01a31e8a5e5ec0c622dc27ff9c4e6606eefef5cbbed4a5"
+
+[[package]]
 name = "filetime"
 version = "0.2.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -576,6 +569,19 @@ name = "futures-io"
 version = "0.3.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a44623e20b9681a318efdd71c299b6b222ed6f231972bfe2f224ebad6311f0c1"
+
+[[package]]
+name = "futures-lite"
+version = "2.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "445ba825b27408685aaecefd65178908c36c6e96aaf6d8599419d46e624192ba"
+dependencies = [
+ "fastrand",
+ "futures-core",
+ "futures-io",
+ "parking",
+ "pin-project-lite",
+]
 
 [[package]]
 name = "futures-macro"
@@ -1016,7 +1022,7 @@ version = "0.5.0"
 dependencies = [
  "anyhow",
  "async-channel",
- "async-compression 0.4.5",
+ "async-compression",
  "async-stream",
  "async-trait",
  "async_zip",
