@@ -1,18 +1,24 @@
 use std::mem;
-
 use crate::notifications::{FileMessage, Message};
 use crate::transformer::{FileContext, ReadWriter, Sink, Transformer, TransformerType};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::{bail, Result};
 use async_channel::{Receiver, Sender};
-use bytes::BytesMut;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, BufWriter};
+use bytes::{BufMut, Bytes, BytesMut};
+use futures::{Stream, StreamExt};
+use tokio::io::{AsyncWrite, BufWriter};
 use tracing::{debug, error};
 
-pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin> {
-    reader: BufReader<R>,
+pub struct PithosStreamReadWriter<
+    'a,
+    R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
+        + Unpin
+        + Send
+        + Sync,
+> {
+    input_stream: R,
     transformers: Vec<(TransformerType, Box<dyn Transformer + Send + Sync + 'a>)>,
-    sink: Box<dyn Transformer + Send + Sync + 'a>,
+    sink: Box<dyn Sink + Send + Sync + 'a>,
     receiver: Receiver<Message>,
     sender: Sender<Message>,
     size_counter: usize,
@@ -20,16 +26,23 @@ pub struct ArunaReadWriter<'a, R: AsyncRead + Unpin> {
     file_ctx_rx: Option<Receiver<(FileContext, bool)>>,
 }
 
-impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
-    #[tracing::instrument(level = "trace", skip(reader, writer))]
-    pub fn new_with_writer<W: AsyncWrite + Unpin + Send + Sync + 'a>(
-        reader: R,
-        writer: W,
-    ) -> ArunaReadWriter<'a, R> {
+impl<
+        'a,
+        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
+            + Unpin
+            + Send
+            + Sync,
+    > PithosStreamReadWriter<'a, R>
+{
+    #[tracing::instrument(level = "trace", skip(input_stream, transformer))]
+    pub fn new_with_sink<T: Transformer + Sink + Send + Sync + 'a>(
+        input_stream: R,
+        transformer: T,
+    ) -> Self {
         let (sx, rx) = async_channel::unbounded();
-        ArunaReadWriter {
-            reader: BufReader::new(reader),
-            sink: Box::new(WriterSink::new(BufWriter::new(writer))),
+        PithosStreamReadWriter {
+            input_stream: input_stream,
+            sink: Box::new(transformer),
             transformers: Vec::new(),
             sender: sx,
             receiver: rx,
@@ -39,16 +52,15 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
         }
     }
 
-    #[tracing::instrument(level = "trace", skip(reader, transformer))]
-    pub fn new_with_sink<T: Transformer + Sink + Send + Sync + 'a>(
-        reader: R,
-        transformer: T,
-    ) -> ArunaReadWriter<'a, R> {
+    #[tracing::instrument(level = "trace", skip(input_stream, writer))]
+    pub fn new_with_writer<W: AsyncWrite + Send + Sync + 'a>(
+        input_stream: R,
+        writer: W,
+    ) -> Self {
         let (sx, rx) = async_channel::unbounded();
-
-        ArunaReadWriter {
-            reader: BufReader::new(reader),
-            sink: Box::new(transformer),
+        PithosStreamReadWriter {
+            input_stream: input_stream,
+            sink: Box::new(WriterSink::new(BufWriter::new(Box::pin(writer)))),
             transformers: Vec::new(),
             sender: sx,
             receiver: rx,
@@ -62,9 +74,8 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
     pub fn add_transformer<T: Transformer + Send + Sync + 'a>(
         mut self,
         mut transformer: T,
-    ) -> Self {
+    ) -> PithosStreamReadWriter<'a, R> {
         transformer.add_sender(self.sender.clone());
-
         self.transformers
             .push((transformer.get_type(), Box::new(transformer)));
         self
@@ -72,7 +83,14 @@ impl<'a, R: AsyncRead + Unpin> ArunaReadWriter<'a, R> {
 }
 
 #[async_trait::async_trait]
-impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, R> {
+impl<
+        'a,
+        R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
+            + Unpin
+            + Send
+            + Sync
+    > ReadWriter for PithosStreamReadWriter<'a, R>
+{
     #[tracing::instrument(err, level = "trace", skip(self))]
     async fn process(&mut self) -> Result<()> {
         // The buffer that accumulates the "actual" data
@@ -80,11 +98,16 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
         let mut hold_buffer = BytesMut::with_capacity(65536);
         let mut finished;
         let mut maybe_msg: Option<Message> = None;
+        let mut data;
         let mut read_bytes: usize = 0;
-        let mut next_file: bool = false;
+        let mut next_file = false;
+        let mut context_zero_file = false;
 
         if let Some(rx) = &self.file_ctx_rx {
             let (context, is_last) = rx.try_recv()?;
+            if context.is_dir || context.is_symlink {
+                context_zero_file = true;
+            }
             debug!(?context, ?is_last, "received file context");
             self.current_file_context = Some((context.clone(), is_last));
             self.announce_all(Message {
@@ -95,15 +118,29 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
         }
 
         loop {
-            if hold_buffer.is_empty() {
-                read_bytes = self.reader.read_buf(&mut read_buf).await?;
-            } else if read_buf.is_empty() {
-                mem::swap(&mut hold_buffer, &mut read_buf);
+            if !context_zero_file {
+                if hold_buffer.is_empty() {
+                    if read_buf.is_empty() {
+                        data = self
+                            .input_stream
+                            .next()
+                            .await
+                            .unwrap_or_else(|| Ok(Bytes::new()))
+                            .unwrap_or_default();
+                        read_bytes = data.len();
+                        read_buf.put(data);
+                    }
+                } else if read_buf.is_empty() {
+                    mem::swap(&mut hold_buffer, &mut read_buf);
+                }
             }
 
             if let Some((context, is_last)) = &self.current_file_context {
                 self.size_counter += read_bytes;
-                if self.size_counter > context.input_size as usize {
+                if self.size_counter > context.input_size as usize
+                    && !context.is_dir
+                    && !context.is_symlink
+                {
                     let mut diff = read_bytes - (self.size_counter - context.input_size as usize);
                     if diff >= context.input_size as usize {
                         diff = context.input_size as usize
@@ -113,10 +150,14 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
                     self.size_counter -= context.input_size as usize;
                     next_file = !is_last;
                 }
+                if context.is_dir || context.is_symlink {
+                    next_file = !is_last;
+                }
                 finished = read_buf.is_empty() && read_bytes == 0 && *is_last;
             } else {
                 finished = read_buf.is_empty() && read_bytes == 0;
             }
+
             for (ttype, trans) in self.transformers.iter_mut() {
                 if let Some(m) = &maybe_msg {
                     if m.target == *ttype {
@@ -125,13 +166,11 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
                 } else {
                     maybe_msg = self.receiver.try_recv().ok();
                 }
-
                 match trans.process_bytes(&mut read_buf, finished, false).await? {
                     true => {}
                     false => finished = false,
                 };
             }
-
             match self
                 .sink
                 .process_bytes(&mut read_buf, finished, false)
@@ -145,6 +184,7 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
             if next_file {
                 if let Some(rx) = &self.file_ctx_rx {
                     // Perform a flush through all transformers!
+                    assert!(read_buf.is_empty());
                     for (_, trans) in self.transformers.iter_mut() {
                         trans.process_bytes(&mut read_buf, finished, true).await?;
                     }
@@ -152,6 +192,8 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
                         .process_bytes(&mut read_buf, finished, true)
                         .await?;
                     let (context, is_last) = rx.recv().await?;
+
+                    context_zero_file = context.is_dir || context.is_symlink;
                     self.current_file_context = Some((context.clone(), is_last));
                     self.announce_all(Message {
                         target: TransformerType::All,
@@ -161,21 +203,27 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
                         }),
                     })
                     .await?;
+                    for (_, trans) in self.transformers.iter_mut() {
+                        trans.process_bytes(&mut read_buf, finished, false).await?;
+                    }
+                    self.sink
+                        .process_bytes(&mut read_buf, finished, true)
+                        .await?;
+                }
+                if !context_zero_file {
                     next_file = false;
                 }
             }
 
-            if read_buf.is_empty() && finished {
+            if read_buf.is_empty() & finished {
                 break;
             }
             read_bytes = 0;
         }
         Ok(())
     }
-
     #[tracing::instrument(level = "trace", skip(self, message))]
-    async fn announce_all(&mut self, mut message: Message) -> Result<()> {
-        message.target = TransformerType::All;
+    async fn announce_all(&mut self, message: Message) -> Result<()> {
         for (_, trans) in self.transformers.iter_mut() {
             trans.notify(&message).await?;
         }
@@ -192,5 +240,4 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for ArunaReadWriter<'a, 
             bail!("[READ_WRITER] Overwriting existing receivers is not allowed!")
         }
     }
-
 }

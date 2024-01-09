@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use aruna_file::{
-    readwrite::ArunaReadWriter,
+use pithos_lib::{
+    readwrite::PithosReadWriter,
     transformer::ReadWriter,
     transformers::{
         decrypt::ChaCha20Dec, encrypt::ChaCha20Enc, zstd_comp::ZstdEnc, zstd_decomp::ZstdDec,
@@ -16,7 +16,7 @@ async fn read_writer_with_file() {
     let file2 = File::create("test.txt.out.1").await.unwrap();
 
     // Create a new ArunaReadWriter
-    ArunaReadWriter::new_with_writer(file, file2)
+    PithosReadWriter::new_with_writer(file, file2)
         .add_transformer(ZstdEnc::new(false))
         .add_transformer(ZstdEnc::new(false))
         .add_transformer(
@@ -44,7 +44,7 @@ async fn read_writer_with_vec() {
     let mut file2 = Vec::new();
 
     // Create a new ArunaReadWriter
-    ArunaReadWriter::new_with_writer(file.as_ref(), &mut file2)
+    PithosReadWriter::new_with_writer(file.as_ref(), &mut file2)
         .add_transformer(ZstdEnc::new(false))
         .add_transformer(ZstdEnc::new(false))
         .add_transformer(
