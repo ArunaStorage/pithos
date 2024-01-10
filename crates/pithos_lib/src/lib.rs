@@ -4,6 +4,7 @@ pub mod readwrite;
 pub mod streamreadwrite;
 pub mod transformer;
 pub mod transformers;
+pub mod structs;
 
 #[cfg(test)]
 mod tests {
