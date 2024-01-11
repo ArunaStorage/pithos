@@ -1,17 +1,19 @@
-[![Rust](https://img.shields.io/badge/built_with-Rust-dca282.svg)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/License-MIT-brightgreen.svg)](https://github.com/ArunaStorage/aruna-file/blob/main/LICENSE)
-![CI](https://github.com/ArunaStorage/aruna-file/actions/workflows/push.yaml/badge.svg)
-___
-
-<div style="align-items: center">
-    <img src="./assets/pithos_logo.png" width="100" height="100">
+<div style="display: flex; align-items: center; justify-content: center;">
+    <img src="./assets/pithos_logo.png" style="height: 8rem; width: 8rem;">
+    <p style="serif; font-size: 6rem; margin: 2rem;">Pithos</p>
 </div>
+<p align="center">
+     <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/built_with-Rust-dca282.svg" alt="Language: Rust"></a>
+     <a href="https://github.com/ArunaStorage/aruna-file/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-brightgreen.svg" alt="License: MIT"></a>
+     <a href="#"><img src="https://github.com/ArunaStorage/aruna-file/actions/workflows/push.yaml/badge.svg" alt="License: MIT"></a>
+</p>
 
-# Pithos File Format (.pto)
+<p align="center">🔑 A secure, fast and versatile package file format for object storage focused data management 📦</p>
+<div style="margin-top: 3rem"><div/>
 
-Pithos is the greek name of a large storage container.
+## Description
 
-Pithos is a packaging file format for arbitrary data that enhances the use of Object Storage for (research) data management. This is done by combining multiple existing file standards with new enhancements. A format specification can be found [[here]](./spec/SPECIFICATION.md).
+Pithos (a large ancient greek storage container) is a packaging file format for arbitrary data that enhances the use of Object Storage for (research) data management. This is done by combining multiple existing file standards with new enhancements. A format specification can be found [[here]](./spec/SPECIFICATION.md).
 
 ## Features
 
