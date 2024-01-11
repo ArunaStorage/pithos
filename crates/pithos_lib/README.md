@@ -23,7 +23,7 @@ from / to Pithos files for a wide variety of options including:
 
 ## Guidance 
 
-Short guidance for usage of the `PithosReadWriter` and similarly for the `PithosStreamReadWriter` custom component. For the formal file specification click [here](../../spec/SPECIFICATION.md).
+Short guidance for usage of the `GenericReadWriter` and similarly for the `GenericStreamReadWriter` custom component. For the formal file specification click [here](../../spec/SPECIFICATION.md).
 
 An overhauled generic version of customisable data transformer component for the Pithos file format and associated transformation logic.
 The idea is simple, you implement these simple base trait with your custom data transformation logic:
@@ -35,7 +35,7 @@ pub trait Transformer {
 }
 ```
 
-And afterwards the structs implementing `Transformer` can be registered in the `PithosReadWriter` to be plugged between the `Read` and `Write` parts of a ReadWriter.
+And afterwards the structs implementing `Transformer` can be registered in the `GenericReadWriter` to be plugged between the `Read` and `Write` parts of a ReadWriter.
 
 Example:
 
@@ -43,8 +43,8 @@ Example:
         let file = b"This is a very very important test".to_vec();
         let mut file2 = Vec::new();
 
-        // Create a new PithosReadWriter
-        PithosReadWriter::new_with_writer(file.as_ref(), &mut file2)
+        // Create a new GenericReadWriter
+        GenericReadWriter::new_with_writer(file.as_ref(), &mut file2)
             .add_transformer(ZstdEnc::new(1, false))
             .add_transformer(ZstdEnc::new(2, false)) // Double compression because we can
             .add_transformer(

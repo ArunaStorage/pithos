@@ -1,5 +1,5 @@
-use byteorder::{LittleEndian, ByteOrder};
 use anyhow::anyhow;
+use byteorder::{ByteOrder, LittleEndian};
 
 pub struct EndOfFileMetadata {
     pub magic_bytes: [u8; 4], // Should be 0x50, 0x2A, 0x4D, 0x18
@@ -13,13 +13,14 @@ pub struct EndOfFileMetadata {
     pub semantic_start: u64,
     pub blocklist_start: u64,
     pub encryption_start: u64,
-    pub extra: [u8; 1436], // CURRENTLY UNUSED
+    pub disk_hash_sha1: [u8; 32], // Everything except disk_hash_sha1 is 0
+    pub extra: [u8; 380],         // CURRENTLY UNUSED IGNORED FOR hashing
 }
 
-impl TryFrom<&[u8; 2048]> for EndOfFileMetadata {
+impl TryFrom<&[u8; 1024]> for EndOfFileMetadata {
     type Error = anyhow::Error;
 
-    fn try_from(value: &[u8; 2048]) -> Result<Self, Self::Error> {
+    fn try_from(value: &[u8; 1024]) -> Result<Self, Self::Error> {
         let mut magic_bytes = [0; 4];
 
         magic_bytes.copy_from_slice(&value[0..4]);
@@ -30,7 +31,7 @@ impl TryFrom<&[u8; 2048]> for EndOfFileMetadata {
 
         let len = LittleEndian::read_u32(&value[4..8]);
 
-        if len as usize != 2040 {
+        if len as usize != 1016 {
             return Err(anyhow!("Invalid EOFMetadata length"));
         }
 
@@ -51,8 +52,11 @@ impl TryFrom<&[u8; 2048]> for EndOfFileMetadata {
         let blocklist_start = LittleEndian::read_u64(&value[596..604]);
         let encryption_start = LittleEndian::read_u64(&value[604..612]);
 
-        let mut extra = [0; 1436];
-        extra.copy_from_slice(&value[612..2048]);
+        let mut disk_hash_sha1 = [0; 32];
+        disk_hash_sha1.copy_from_slice(&value[612..644]);
+
+        let mut extra = [0; 380];
+        extra.copy_from_slice(&value[644..1024]);
 
         Ok(Self {
             magic_bytes,
@@ -66,14 +70,15 @@ impl TryFrom<&[u8; 2048]> for EndOfFileMetadata {
             semantic_start,
             blocklist_start,
             encryption_start,
+            disk_hash_sha1,
             extra,
         })
     }
 }
 
-impl Into<[u8; 2048]> for EndOfFileMetadata {
-    fn into(self) -> [u8; 2048] {
-        let mut buffer = [0; 2048];
+impl Into<[u8; 1024]> for EndOfFileMetadata {
+    fn into(self) -> [u8; 1024] {
+        let mut buffer = [0; 1024];
         buffer[0..4].copy_from_slice(&self.magic_bytes);
         LittleEndian::write_u32(&mut buffer[4..8], self.len);
         LittleEndian::write_u32(&mut buffer[8..12], self.version);
@@ -85,7 +90,8 @@ impl Into<[u8; 2048]> for EndOfFileMetadata {
         LittleEndian::write_u64(&mut buffer[588..596], self.semantic_start);
         LittleEndian::write_u64(&mut buffer[596..604], self.blocklist_start);
         LittleEndian::write_u64(&mut buffer[604..612], self.encryption_start);
-        buffer[612..2048].copy_from_slice(&self.extra);
+        buffer[612..644].copy_from_slice(&self.disk_hash_sha1);
+        buffer[644..1024].copy_from_slice(&self.extra);
         buffer
     }
 }
@@ -106,7 +112,6 @@ pub struct EncryptionMetadata {
     pub packets: Vec<EncryptionPacket>,
     pub padding: Vec<u8>, // -> Multiple of 512 Bytes
 }
-
 
 impl TryFrom<&[u8]> for EncryptionMetadata {
     type Error = anyhow::Error;
@@ -136,7 +141,6 @@ impl TryFrom<&[u8]> for EncryptionMetadata {
             pubkey.copy_from_slice(&value[offset + 4..offset + 36]);
             let mut nonce = [0; 12];
             nonce.copy_from_slice(&value[offset + 36..offset + 48]);
-            from_utf8
             let mut keys = Vec::new();
             let mut key_offset = offset + 48;
             while key_offset < offset + packet_len as usize - 16 {
@@ -147,7 +151,9 @@ impl TryFrom<&[u8]> for EncryptionMetadata {
             }
 
             let mut mac = [0; 16];
-            mac.copy_from_slice(&value[offset + packet_len as usize - 16..offset + packet_len as usize]);
+            mac.copy_from_slice(
+                &value[offset + packet_len as usize - 16..offset + packet_len as usize],
+            );
 
             packets.push(EncryptionPacket {
                 len: packet_len,
@@ -169,7 +175,6 @@ impl TryFrom<&[u8]> for EncryptionMetadata {
         })
     }
 }
-
 
 impl Into<Vec<u8>> for EncryptionMetadata {
     fn into(self) -> Vec<u8> {
@@ -275,4 +280,3 @@ impl Into<Vec<u8>> for SemanticMetadata {
         buffer
     }
 }
-

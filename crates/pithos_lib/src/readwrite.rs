@@ -9,7 +9,7 @@ use bytes::BytesMut;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, BufWriter};
 use tracing::{debug, error};
 
-pub struct PithosReadWriter<'a, R: AsyncRead + Unpin> {
+pub struct GenericReadWriter<'a, R: AsyncRead + Unpin> {
     reader: BufReader<R>,
     transformers: Vec<(TransformerType, Box<dyn Transformer + Send + Sync + 'a>)>,
     sink: Box<dyn Transformer + Send + Sync + 'a>,
@@ -20,14 +20,14 @@ pub struct PithosReadWriter<'a, R: AsyncRead + Unpin> {
     file_ctx_rx: Option<Receiver<(FileContext, bool)>>,
 }
 
-impl<'a, R: AsyncRead + Unpin> PithosReadWriter<'a, R> {
+impl<'a, R: AsyncRead + Unpin> GenericReadWriter<'a, R> {
     #[tracing::instrument(level = "trace", skip(reader, writer))]
     pub fn new_with_writer<W: AsyncWrite + Unpin + Send + Sync + 'a>(
         reader: R,
         writer: W,
-    ) -> PithosReadWriter<'a, R> {
+    ) -> GenericReadWriter<'a, R> {
         let (sx, rx) = async_channel::unbounded();
-        PithosReadWriter {
+        GenericReadWriter {
             reader: BufReader::new(reader),
             sink: Box::new(WriterSink::new(BufWriter::new(writer))),
             transformers: Vec::new(),
@@ -43,10 +43,10 @@ impl<'a, R: AsyncRead + Unpin> PithosReadWriter<'a, R> {
     pub fn new_with_sink<T: Transformer + Sink + Send + Sync + 'a>(
         reader: R,
         transformer: T,
-    ) -> PithosReadWriter<'a, R> {
+    ) -> GenericReadWriter<'a, R> {
         let (sx, rx) = async_channel::unbounded();
 
-        PithosReadWriter {
+        GenericReadWriter {
             reader: BufReader::new(reader),
             sink: Box::new(transformer),
             transformers: Vec::new(),
@@ -72,7 +72,7 @@ impl<'a, R: AsyncRead + Unpin> PithosReadWriter<'a, R> {
 }
 
 #[async_trait::async_trait]
-impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for PithosReadWriter<'a, R> {
+impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for GenericReadWriter<'a, R> {
     #[tracing::instrument(err, level = "trace", skip(self))]
     async fn process(&mut self) -> Result<()> {
         // The buffer that accumulates the "actual" data

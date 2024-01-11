@@ -8,4 +8,5 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
+clap = { version = "4.4.14", features = ["derive"] }
 pithos_lib = { path = "../pithos_lib" }

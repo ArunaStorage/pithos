@@ -133,7 +133,7 @@ impl Transformer for ChaCha20Dec {
     async fn notify(&mut self, message: &Message) -> Result<Response> {
         if message.target == TransformerType::All {
             if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
-                self.skip_me = nfile.context.skip_decryption;
+                self.skip_me = nfile.context.encryption_key.is_none();
                 if !self.hard_coded_enc {
                     self.decryption_key = nfile.context.encryption_key.clone().unwrap_or_default();
                 }

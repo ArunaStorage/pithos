@@ -27,11 +27,12 @@ digest = "0.10.7"
 async_zip = { version = "0.0.16", features = ["chrono", "tokio", "deflate"] }
 pin-project = "1"
 tracing = "0.1.40"
+md-5 = "0.10.5"
+sha1 = "0.10.1"
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
 tokio-util = { version = "0.7.8", features = ["io"]}
-md-5 = "0.10.5"
 
 [[bench]]
 name = "performance"

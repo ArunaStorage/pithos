@@ -1,34 +1,45 @@
 use crate::transformer::{FileContext, TransformerType};
+use async_channel::Sender;
 
-#[derive(Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct FileMessage {
-    pub context: FileContext,
-    pub is_last: bool,
-}
-#[derive(Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct FooterData {
-    pub chunks: Vec<u8>,
-}
-#[derive(Clone, Default, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ProbeBroadcast {
-    pub message: String,
+#[non_exhaustive]
+pub enum HashType {
+    Sha1,
+    Md5,
+    Other(String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Message {
-    pub target: TransformerType,
-    pub data: MessageData,
+#[non_exhaustive]
+pub enum Message {
+    Completed,
+    Finished,
+    FileContext(FileContext),
+    Hash((HashType, String)),
+    Metadata(String),
+    SizeInfo(u64),
+    BlockList(Vec<u8>),
+    ShouldFlush,
+    Skip,
+    Custom((String, Vec<u8>)),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum MessageData {
-    NextFile(FileMessage),
-    Footer(FooterData),
-    ProbeBroadcast(ProbeBroadcast),
+pub struct Notifier {
+    read_writer: Sender<Message>,
+    notifiers: Vec<(TransformerType, Sender<Message>)>,
 }
 
-#[derive(Clone, Default)]
-pub enum Response {
-    #[default]
-    Ok,
+impl Notifier {
+    pub fn send_next(&self, idx: usize, message: Message) -> anyhow::Result<()> {
+        if idx + 1 < self.notifiers.len() {
+            self.notifiers[idx + 1].1.try_send(message)?;
+        }
+        Ok(())
+    }
+    pub fn send_type(&self, trans_type: TransformerType) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    pub fn send_read_writer(&self, message: Message) -> anyhow::Result<()> {
+        self.read_writer.try_send(message)?;
+        Ok(())
+    }
 }

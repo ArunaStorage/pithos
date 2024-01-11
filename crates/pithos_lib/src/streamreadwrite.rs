@@ -9,7 +9,7 @@ use std::mem;
 use tokio::io::{AsyncWrite, BufWriter};
 use tracing::{debug, error};
 
-pub struct PithosStreamReadWriter<
+pub struct GenericStreamReadWriter<
     'a,
     R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
         + Unpin
@@ -32,7 +32,7 @@ impl<
             + Unpin
             + Send
             + Sync,
-    > PithosStreamReadWriter<'a, R>
+    > GenericStreamReadWriter<'a, R>
 {
     #[tracing::instrument(level = "trace", skip(input_stream, transformer))]
     pub fn new_with_sink<T: Transformer + Sink + Send + Sync + 'a>(
@@ -40,7 +40,7 @@ impl<
         transformer: T,
     ) -> Self {
         let (sx, rx) = async_channel::unbounded();
-        PithosStreamReadWriter {
+        GenericStreamReadWriter {
             input_stream: input_stream,
             sink: Box::new(transformer),
             transformers: Vec::new(),
@@ -55,7 +55,7 @@ impl<
     #[tracing::instrument(level = "trace", skip(input_stream, writer))]
     pub fn new_with_writer<W: AsyncWrite + Send + Sync + 'a>(input_stream: R, writer: W) -> Self {
         let (sx, rx) = async_channel::unbounded();
-        PithosStreamReadWriter {
+        GenericStreamReadWriter {
             input_stream: input_stream,
             sink: Box::new(WriterSink::new(BufWriter::new(Box::pin(writer)))),
             transformers: Vec::new(),
@@ -71,7 +71,7 @@ impl<
     pub fn add_transformer<T: Transformer + Send + Sync + 'a>(
         mut self,
         mut transformer: T,
-    ) -> PithosStreamReadWriter<'a, R> {
+    ) -> GenericStreamReadWriter<'a, R> {
         transformer.add_sender(self.sender.clone());
         self.transformers
             .push((transformer.get_type(), Box::new(transformer)));
@@ -85,8 +85,8 @@ impl<
         R: Stream<Item = Result<Bytes, Box<dyn std::error::Error + Send + Sync + 'static>>>
             + Unpin
             + Send
-            + Sync
-    > ReadWriter for PithosStreamReadWriter<'a, R>
+            + Sync,
+    > ReadWriter for GenericStreamReadWriter<'a, R>
 {
     #[tracing::instrument(err, level = "trace", skip(self))]
     async fn process(&mut self) -> Result<()> {
@@ -180,7 +180,7 @@ impl<
                 false => finished = false,
             };
 
-            // Anounce next file
+            // Announce next file
             if next_file {
                 if let Some(rx) = &self.file_ctx_rx {
                     // Perform a flush through all transformers!

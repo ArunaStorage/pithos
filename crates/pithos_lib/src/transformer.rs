@@ -1,6 +1,7 @@
-use crate::notifications::{Message, Response};
+use crate::notifications::{Message, Notifier};
 use anyhow::Result;
 use async_channel::{Receiver, Sender};
+use std::sync::Arc;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum TransformerType {
@@ -19,7 +20,7 @@ pub enum TransformerType {
     SizeProbe,
     TarEncoder,
     TarDecoder,
-    WriterSink,
+    Sink,
     Hashing,
     ZipEncoder,
 }
@@ -43,15 +44,17 @@ pub struct FileContext {
     // Created at
     pub mtime: Option<u64>,
     // Should this file be skipped by decompressors
-    pub skip_decompression: bool,
-    // Should this file be skipped by decryptors
-    pub skip_decryption: bool,
+    pub compression: bool,
     // Encryption key
     pub encryption_key: Option<Vec<u8>>,
     // Is this file a directory
     pub is_dir: bool,
     // Is this file a symlink
     pub is_symlink: bool,
+    // Expected SHA1 hash
+    pub expected_sha1: Option<String>,
+    // Expected MD5 hash
+    pub expected_md5: Option<String>,
 }
 
 impl FileContext {
@@ -71,25 +74,15 @@ pub trait Sink: Transformer {}
 pub trait ReadWriter {
     async fn process(&mut self) -> Result<()>;
     async fn announce_all(&mut self, message: Message) -> Result<()>;
-    async fn add_file_context_receiver(&mut self, rx: Receiver<(FileContext, bool)>) -> Result<()>;
+    async fn add_message_receiver(&mut self, rx: Receiver<Message>) -> Result<()>;
 }
 
 #[async_trait::async_trait]
 pub trait Transformer {
-    async fn process_bytes(
-        &mut self,
-        buf: &mut bytes::BytesMut,
-        finished: bool,
-        should_flush: bool,
-    ) -> Result<bool>;
     #[allow(unused_variables)]
-    async fn notify(&mut self, message: &Message) -> Result<Response> {
-        Ok(Response::Ok)
-    }
-    #[allow(unused_variables)]
-    fn add_sender(&mut self, s: Sender<Message>) {}
-    #[allow(unused_variables)]
-    fn get_type(&self) -> TransformerType {
-        TransformerType::Unspecified
-    }
+    async fn initialize(&mut self, idx: usize) -> (TransformerType, Sender<Message>);
+
+    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()>;
+
+    async fn set_notifier(&mut self, notifier: Arc<Notifier>) -> Result<()>;
 }

@@ -169,7 +169,7 @@ fn create_skippable_padding_frame(size: usize) -> Result<Bytes> {
         return Err(anyhow!("{size} is too small, minimum is 8 bytes"));
     }
     // Add frame_header
-    let mut frame = hex::decode("502A4D18")?;
+    let mut frame = hex::decode("542A4D18")?;
     // 4 Bytes (little-endian) for size
     WriteBytesExt::write_u32::<LittleEndian>(&mut frame, size as u32 - 8)?;
     frame.extend(vec![0; size - 8]);

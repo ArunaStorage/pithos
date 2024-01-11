@@ -3,6 +3,10 @@
 ![CI](https://github.com/ArunaStorage/aruna-file/actions/workflows/push.yaml/badge.svg)
 ___
 
+<div style="align-items: center">
+    <img src="./assets/pithos_logo.png" width="100" height="100">
+</div>
+
 # Pithos File Format (.pto)
 
 Pithos is the greek name of a large storage container.

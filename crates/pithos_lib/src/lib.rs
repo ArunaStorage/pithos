@@ -1,16 +1,18 @@
 pub mod helpers;
 pub mod notifications;
+pub mod pithosreader;
+pub mod pithoswriter;
 pub mod readwrite;
 pub mod streamreadwrite;
+pub mod structs;
 pub mod transformer;
 pub mod transformers;
-pub mod structs;
 
 #[cfg(test)]
 mod tests {
     use crate::helpers::footer_parser::{FooterParser, Range};
-    use crate::readwrite::PithosReadWriter;
-    use crate::streamreadwrite::PithosStreamReadWriter;
+    use crate::readwrite::GenericReadWriter;
+    use crate::streamreadwrite::GenericStreamReadWriter;
     use crate::transformer::{FileContext, ReadWriter};
     use crate::transformers::decrypt::ChaCha20Dec;
     use crate::transformers::encrypt::ChaCha20Enc;
@@ -19,7 +21,6 @@ mod tests {
     use crate::transformers::gzip_comp::GzipEnc;
     use crate::transformers::size_probe::SizeProbe;
     use crate::transformers::tar::TarEnc;
-    //use crate::transformers::zip::ZipEnc;
     use crate::transformers::zstd_comp::ZstdEnc;
     use crate::transformers::zstd_decomp::ZstdDec;
     use bytes::Bytes;
@@ -34,8 +35,8 @@ mod tests {
         let file = File::open("test.txt").await.unwrap();
         let file2 = File::create("test.txt.out.1").await.unwrap();
 
-        // Create a new PithosReadWriter
-        PithosReadWriter::new_with_writer(file, file2)
+        // Create a new GenericReadWriter
+        GenericReadWriter::new_with_writer(file, file2)
             .add_transformer(ZstdEnc::new(false))
             .add_transformer(ZstdDec::new())
             .process()
@@ -56,8 +57,8 @@ mod tests {
         let file = b"This is a very very important test".to_vec();
         let mut file2 = Vec::new();
 
-        // Create a new PithosReadWriter
-        PithosReadWriter::new_with_writer(file.as_ref(), &mut file2)
+        // Create a new GenericReadWriter
+        GenericReadWriter::new_with_writer(file.as_ref(), &mut file2)
             .add_transformer(
                 ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
@@ -76,8 +77,8 @@ mod tests {
         let file = b"This is a very very important test".to_vec();
         let mut file2 = Vec::new();
 
-        // Create a new PithosReadWriter
-        PithosReadWriter::new_with_writer(file.as_ref(), &mut file2)
+        // Create a new GenericReadWriter
+        GenericReadWriter::new_with_writer(file.as_ref(), &mut file2)
             .add_transformer(
                 ChaCha20Enc::new(true, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
@@ -96,8 +97,8 @@ mod tests {
         let file = File::open("test.txt").await.unwrap();
         let file2 = File::create("test.txt.out.2").await.unwrap();
 
-        // Create a new PithosReadWriter
-        PithosReadWriter::new_with_writer(file, file2)
+        // Create a new GenericReadWriter
+        GenericReadWriter::new_with_writer(file, file2)
             .add_transformer(
                 ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
@@ -122,8 +123,8 @@ mod tests {
         let file = File::open("test.txt").await.unwrap();
         let file2 = File::create("test.txt.out.3").await.unwrap();
 
-        // Create a new PithosReadWriter
-        PithosReadWriter::new_with_writer(file, file2)
+        // Create a new GenericReadWriter
+        GenericReadWriter::new_with_writer(file, file2)
             .add_transformer(
                 ChaCha20Enc::new(true, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
@@ -148,8 +149,8 @@ mod tests {
         let file = File::open("test.txt").await.unwrap();
         let file2 = File::create("test.txt.out.4").await.unwrap();
 
-        // Create a new PithosReadWriter
-        PithosReadWriter::new_with_writer(file, file2)
+        // Create a new GenericReadWriter
+        GenericReadWriter::new_with_writer(file, file2)
             .add_transformer(ZstdEnc::new(false))
             .add_transformer(ZstdEnc::new(false))
             .add_transformer(
@@ -184,8 +185,8 @@ mod tests {
         let file = b"This is a very very important test".to_vec();
         let mut file2 = Vec::new();
 
-        // Create a new PithosReadWriter
-        PithosReadWriter::new_with_writer(file.as_ref(), &mut file2)
+        // Create a new GenericReadWriter
+        GenericReadWriter::new_with_writer(file.as_ref(), &mut file2)
             .add_transformer(ZstdEnc::new(false))
             .add_transformer(ZstdEnc::new(false)) // Double compression because we can
             .add_transformer(
@@ -212,7 +213,7 @@ mod tests {
     async fn test_with_file_footer() {
         let file = File::open("test.txt").await.unwrap();
         let file2 = File::create("test.txt.out.5").await.unwrap();
-        PithosReadWriter::new_with_writer(file, file2)
+        GenericReadWriter::new_with_writer(file, file2)
             .add_transformer(ZstdEnc::new(false))
             .add_transformer(
                 ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
@@ -239,7 +240,7 @@ mod tests {
     async fn test_footer_parsing() {
         let file = File::open("test.txt").await.unwrap();
         let file2 = File::create("test.txt.out.6").await.unwrap();
-        PithosReadWriter::new_with_writer(file, file2)
+        GenericReadWriter::new_with_writer(file, file2)
             .add_transformer(ZstdEnc::new(false))
             .add_transformer(FooterGenerator::new(None))
             .add_transformer(
@@ -286,7 +287,7 @@ mod tests {
     async fn test_footer_parsing_encrypted() {
         let file = File::open("test.txt").await.unwrap();
         let file2 = File::create("test.txt.out.7").await.unwrap();
-        PithosReadWriter::new_with_writer(file, file2)
+        GenericReadWriter::new_with_writer(file, file2)
             .add_transformer(ZstdEnc::new(false))
             .add_transformer(FooterGenerator::new(None))
             .add_transformer(
@@ -329,8 +330,8 @@ mod tests {
         let file = b"This is a very very important test".to_vec();
         let mut file2 = Vec::new();
 
-        // Create a new PithosReadWriter
-        PithosReadWriter::new_with_writer(file.as_ref(), &mut file2)
+        // Create a new GenericReadWriter
+        GenericReadWriter::new_with_writer(file.as_ref(), &mut file2)
             .add_transformer(ZstdEnc::new(false))
             .add_transformer(ZstdEnc::new(false)) // Double compression because we can
             .add_transformer(
@@ -389,8 +390,8 @@ mod tests {
         .await
         .unwrap();
 
-        // Create a new PithosReadWriter
-        let mut aswr = PithosReadWriter::new_with_writer(combined.as_ref(), &mut file3)
+        // Create a new GenericReadWriter
+        let mut aswr = GenericReadWriter::new_with_writer(combined.as_ref(), &mut file3)
             .add_transformer(ZstdEnc::new(false))
             .add_transformer(ZstdEnc::new(false)) // Double compression because we can
             .add_transformer(
@@ -429,8 +430,8 @@ mod tests {
             Ok(Bytes::from(b"This is a very very important test".to_vec())),
         ]);
 
-        // Create a new PithosStreamReadWriter
-        PithosStreamReadWriter::new_with_writer(stream, &mut file2)
+        // Create a new GenericStreamReadWriter
+        GenericStreamReadWriter::new_with_writer(stream, &mut file2)
             .add_transformer(ZstdEnc::new(false))
             .add_transformer(ZstdEnc::new(false)) // Double compression because we can
             .add_transformer(
@@ -489,8 +490,8 @@ mod tests {
         .await
         .unwrap();
 
-        // Create a new PithosReadWriter
-        let mut aswr = PithosReadWriter::new_with_writer(combined.as_ref(), &mut file3)
+        // Create a new GenericReadWriter
+        let mut aswr = GenericReadWriter::new_with_writer(combined.as_ref(), &mut file3)
             .add_transformer(TarEnc::new());
         aswr.add_file_context_receiver(rx).await.unwrap();
         aswr.process().await.unwrap();
@@ -531,8 +532,8 @@ mod tests {
         .await
         .unwrap();
 
-        // Create a new PithosReadWriter
-        let mut aswr = PithosReadWriter::new_with_writer(combined.as_ref(), &mut file3)
+        // Create a new GenericReadWriter
+        let mut aswr = GenericReadWriter::new_with_writer(combined.as_ref(), &mut file3)
             .add_transformer(TarEnc::new());
         aswr.add_file_context_receiver(rx).await.unwrap();
         aswr.process().await.unwrap();
@@ -580,8 +581,8 @@ mod tests {
         .await
         .unwrap();
 
-        // Create a new PithosStreamReadWriter
-        let mut aswr = PithosStreamReadWriter::new_with_writer(mapped, &mut file3)
+        // Create a new GenericStreamReadWriter
+        let mut aswr = GenericStreamReadWriter::new_with_writer(mapped, &mut file3)
             .add_transformer(TarEnc::new());
         aswr.add_file_context_receiver(rx).await.unwrap();
         aswr.process().await.unwrap();
@@ -629,8 +630,8 @@ mod tests {
         .await
         .unwrap();
 
-        // Create a new PithosStreamReadWriter
-        let mut aswr = PithosStreamReadWriter::new_with_writer(mapped, &mut file3)
+        // Create a new GenericStreamReadWriter
+        let mut aswr = GenericStreamReadWriter::new_with_writer(mapped, &mut file3)
             .add_transformer(TarEnc::new())
             .add_transformer(GzipEnc::new());
         aswr.add_file_context_receiver(rx).await.unwrap();
@@ -646,8 +647,8 @@ mod tests {
         let (md5_trans, rx2) =
             crate::transformers::hashing_transformer::HashingTransformer::new(Md5::new());
 
-        // Create a new PithosReadWriter
-        PithosReadWriter::new_with_writer(file.as_ref(), &mut file2)
+        // Create a new GenericReadWriter
+        GenericReadWriter::new_with_writer(file.as_ref(), &mut file2)
             .add_transformer(md5_trans)
             .add_transformer(probe)
             .process()
@@ -730,8 +731,8 @@ mod tests {
         .await
         .unwrap();
 
-        // Create a new PithosStreamReadWriter
-        let mut aswr = PithosStreamReadWriter::new_with_writer(mapped, &mut file3)
+        // Create a new GenericStreamReadWriter
+        let mut aswr = GenericStreamReadWriter::new_with_writer(mapped, &mut file3)
             .add_transformer(TarEnc::new());
         //.add_transformer(GzipEnc::new());
         aswr.add_file_context_receiver(rx).await.unwrap();
