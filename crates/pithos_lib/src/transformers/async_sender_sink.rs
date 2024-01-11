@@ -46,7 +46,7 @@ impl AsyncSenderSink {
                     }
                     Err(TryRecvError::Closed) => {
                         error!("Message receiver closed");
-                        return Err(anyhow!("Message receiver closed"))
+                        return Err(anyhow!("Message receiver closed"));
                     }
                 }
             }

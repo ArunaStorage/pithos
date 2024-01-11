@@ -14,9 +14,9 @@ pub enum Message {
     Finished,
     FileContext(FileContext),
     Hash((HashType, String)),
-    Metadata(String),
+    Metadata((Option<Vec<u8>>, String)), // Optional different Key, JSON Metadata value
     SizeInfo(u64),
-    BlockList(Vec<u8>),
+    Blocklist(Vec<u8>),
     ShouldFlush,
     Skip,
     Custom((String, Vec<u8>)),

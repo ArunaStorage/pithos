@@ -1,148 +1,169 @@
-use crate::notifications;
-use crate::notifications::Message;
-use crate::notifications::Response;
-use crate::transformer::Transformer;
+use std::sync::Arc;
+use crate::notifications::{HashType, Message, Notifier};
+use crate::transformer::{FileContext, Transformer};
 use crate::transformer::TransformerType;
 use anyhow::anyhow;
 use anyhow::Result;
-use byteorder::LittleEndian;
-use byteorder::WriteBytesExt;
+use async_channel::{Receiver, Sender, TryRecvError};
 use bytes::BufMut;
-use bytes::{Bytes, BytesMut};
+use digest::{Digest, Reset, Update};
+use sha1::Sha1;
 use tracing::debug;
 use tracing::error;
+use crate::structs::{BlockList, EncryptionMetadata, EndOfFileMetadata, SemanticMetadata};
+use crate::transformers::encrypt::encrypt_chunk;
 
 pub struct FooterGenerator {
     finished: bool,
-    external_info: BytesMut,
+    hasher: Sha1,
+    counter: u64,
+    endoffile: EndOfFileMetadata,
+    blocklist: Option<Vec<u8>>,
+    filectx: Option<FileContext>,
+    metadata: Option<(Option<Vec<u8>>, String)>,
+    sha1_hash: Option<String>,
+    md5_hash: Option<String>,
+    notifier: Option<Arc<Notifier>>,
+    msg_receiver: Option<Receiver<Message>>,
+    idx: Option<usize>,
 }
 
 impl FooterGenerator {
-    #[tracing::instrument(level = "trace", skip(external_info))]
+    #[tracing::instrument(level = "trace")]
     #[allow(dead_code)]
-    pub fn new(external_info: Option<Vec<u8>>) -> FooterGenerator {
-        debug!(has_info = external_info.is_some(), "new footergenerator");
+    pub fn new() -> FooterGenerator {
+        debug!("new FooterGenerator");
         FooterGenerator {
             finished: false,
-            external_info: match external_info {
-                Some(i) => i.as_slice().into(),
-                _ => BytesMut::new(),
-            },
+            hasher: Sha1::new(),
+            counter: 0,
+            endoffile: EndOfFileMetadata::init(),
+            blocklist: None,
+            filectx: None,
+            metadata: None,
+            sha1_hash: None,
+            md5_hash: None,
+            notifier: None,
+            msg_receiver: None,
+            idx: None,
         }
+    }
+
+    fn process_messages(&mut self) -> Result<bool> {
+        if let Some(rx) = &self.msg_receiver {
+            loop {
+                match rx.try_recv() {
+                    Ok(Message::Finished) | Ok(Message::ShouldFlush) => return Ok(true),
+                    Ok(Message::FileContext(ctx)) => {
+                        self.filectx = Some(ctx);
+                    },
+                    Ok(Message::Blocklist(bl)) => {
+                        self.blocklist = Some(bl);
+                    },
+                    Ok(Message::Metadata(md)) => {
+                        self.metadata = Some(md);
+                    },
+                    Ok(Message::Hash((hash_type, hash))) => {
+                        match hash_type {
+                            HashType::Md5 => self.md5_hash = Some(hash),
+                            HashType::Sha1 => self.sha1_hash = Some(hash),
+                            _ => {}
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(TryRecvError::Empty) => {
+                        break;
+                    }
+                    Err(TryRecvError::Closed) => {
+                        error!("Message receiver closed");
+                        return Err(anyhow!("Message receiver closed"));
+                    }
+                }
+            }
+        }
+        Ok(false)
     }
 }
 
 #[async_trait::async_trait]
 impl Transformer for FooterGenerator {
-    #[tracing::instrument(level = "trace", skip(self, buf, finished))]
-    async fn process_bytes(
-        &mut self,
-        buf: &mut bytes::BytesMut,
-        finished: bool,
-        _: bool,
-    ) -> Result<bool> {
-        if buf.is_empty() && !self.finished && finished {
-            if self.external_info.is_empty() {
-                error!("Missing chunk info");
-                return Err(anyhow!("Missing chunk info"));
-            }
-            buf.put(create_skippable_footer_frame(self.external_info.to_vec())?);
-            debug!("added footer");
-            self.finished = true;
-        }
-        Ok(self.finished)
-    }
-    #[tracing::instrument(level = "trace", skip(self, message))]
-    async fn notify(&mut self, message: &Message) -> Result<Response> {
-        match message.target {
-            TransformerType::FooterGenerator => {
-                if let notifications::MessageData::Footer(data) = &message.data {
-                    debug!(num_chunks = ?data.chunks.len(), "received footer info message");
-                    self.external_info.put(data.chunks.as_ref())
-                }
-            }
-            TransformerType::All => {}
-            _ => {
-                error!(?message, "Received invalid message");
-                return Err(anyhow!("Received invalid message"));
-            }
-        }
-        Ok(Response::Ok)
+    #[tracing::instrument(level = "trace", skip(self))]
+    async fn initialize(&mut self, idx: usize) -> (TransformerType, Sender<Message>) {
+        self.idx = Some(idx);
+        let (sx, rx) = async_channel::bounded(10);
+        self.msg_receiver = Some(rx);
+        (TransformerType::FooterGenerator, sx)
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
-    #[inline]
-    fn get_type(&self) -> TransformerType {
-        TransformerType::FooterGenerator
+    async fn process_bytes(
+        &mut self,
+        buf: &mut bytes::BytesMut,
+    ) -> Result<()> {
+        // Update overall hash & size counter
+        self.hasher.update(buf.as_ref());
+        self.counter += buf.len();
+
+        if self.process_messages().is_ok() {
+            if let Some(file_ctx) = &self.filectx {
+                // (optional) Metadata (optional) encrypted
+                if let Some((encryption_key, metadata)) = &self.metadata {
+                    let encoded_metadata: Vec<u8> = SemanticMetadata::new(metadata.clone()).into();
+                    let metadata_bytes = if let Some(key) = encryption_key.or(file_ctx.encryption_key.clone()) {
+                        encrypt_chunk(&encoded_metadata, &[], key.as_slice(), false)?
+                    } else {
+                        encoded_metadata
+                    };
+                    self.endoffile.semantic_start = self.counter;
+                    self.hasher.update(metadata_bytes.as_bytes());
+                    self.counter += metadata_bytes.len();
+                    buf.put(metadata_bytes);
+                }
+
+                // (optional) Blocklist
+                if let Some(blocklist) = &self.blocklist {
+                    let encoded_blocklist: Vec<u8> = BlockList::new(blocklist.clone()).into();
+
+                    self.endoffile.blocklist_start = self.counter;
+                    self.hasher.update(encoded_blocklist.as_bytes());
+                    self.counter += encoded_blocklist.len();
+                    buf.put(encoded_blocklist);
+                }
+
+                // (optional) Encryption
+                if let Some(key) = &file_ctx.encryption_key {
+                    self.endoffile.encryption_start = self.counter;
+
+
+                    let encryption_block = EncryptionMetadata::new();
+                    buf.put(encoded_encryption);
+
+                }
+
+                // Technical Metadata
+                self.endoffile.update_with_file_ctx(file_ctx)?;
+                let encoded_technical_metadata: Vec<u8> = self.endoffile.into();
+                self.hasher.update(encoded_technical_metadata.as_bytes());
+                self.endoffile.disk_hash_sha1 = self.hasher.finalize().into();
+                buf.put(encoded_technical_metadata);
+
+                // Reset counter & hasher
+                self.counter = 0;
+                self.hasher.reset();
+            }else{
+                return Err(anyhow!("Missing file context"));
+            }
+        }else {
+            return Err(anyhow!("Error processing messages"));
+        };
+
+        Ok(())
     }
-}
 
-#[tracing::instrument(level = "trace", skip(footer_list))]
-#[inline]
-fn create_skippable_footer_frame(mut footer_list: Vec<u8>) -> Result<Bytes> {
-    // 65_536 framesize minus 12 bytes for header
-    // 1. Magic bytes (4)
-    // 2. Size (4) -> The number 65536 - 8 bytes for needed skippable frame header
-    // 3. BlockTotal -> footer_list.len() + frames
-    // Up to 65_536 - 12 footer entries for one frame
-    let total: u32 = footer_list.iter().map(|e| *e as u32).sum();
-
-    let frames = if footer_list.len() < (65_536 - 12) {
-        1
-    } else {
-        2
-    };
-    // Create a frame_header
-    let mut frame = hex::decode(format!("5{frames}2A4D18"))?;
-
-    if frames == 1 {
-        let target_size = 65_536 - footer_list.len() - 12;
-        //
-        WriteBytesExt::write_u32::<LittleEndian>(&mut frame, 65_536 - 8)?;
-        WriteBytesExt::write_u32::<LittleEndian>(&mut frame, total + frames)?;
-
-        if let Some(e) = footer_list.last_mut() {
-            *e += 1
-        };
-        for size in footer_list {
-            WriteBytesExt::write_u8(&mut frame, size)?;
-            assert!(size < 84)
-        }
-        frame.extend(vec![0; target_size]);
-        assert!(frame.len() == 65_536);
-        Ok(Bytes::from(frame))
-    } else {
-        // Magic frame "size"
-        WriteBytesExt::write_u32::<LittleEndian>(&mut frame, 65_536 - 8)?;
-        // Footerlist count
-        WriteBytesExt::write_u32::<LittleEndian>(&mut frame, total + frames)?;
-
-        if let Some(e) = footer_list.last_mut() {
-            *e += 2
-        };
-        // Blocklist
-        for size in &footer_list[..(65_536 - 12)] {
-            WriteBytesExt::write_u8(&mut frame, *size)?;
-            assert!(*size < 84)
-        }
-        assert!(frame.len() == 65_536);
-        // Repeat the header
-        frame.put(hex::decode(format!("5{frames}2A4D18"))?.as_slice());
-        // Magic frame "size"
-        WriteBytesExt::write_u32::<LittleEndian>(&mut frame, 65_536 - 8)?;
-        // Repeat footerlist count
-        WriteBytesExt::write_u32::<LittleEndian>(&mut frame, total + frames)?;
-
-        // Write the whole footerlist
-        for size in &footer_list[(65_536 - 12)..] {
-            WriteBytesExt::write_u8(&mut frame, *size)?;
-            assert!(*size < 84)
-        }
-
-        let target_size = footer_list.len() - 12 - 65_536;
-
-        frame.extend(vec![0; target_size]);
-        assert!(frame.len() == 65_536 * 2);
-        Ok(Bytes::from(frame))
+    #[tracing::instrument(level = "trace", skip(self, notifier))]
+    #[inline]
+    async fn set_notifier(&mut self, notifier: Arc<Notifier>) -> Result<()> {
+        self.notifier = Some(notifier);
+        Ok(())
     }
 }

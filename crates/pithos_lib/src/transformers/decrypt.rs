@@ -1,8 +1,8 @@
 use crate::notifications::{Message, Notifier};
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
-use anyhow::{anyhow, bail};
 use anyhow::Result;
+use anyhow::{anyhow, bail};
 use async_channel::{Receiver, Sender, TryRecvError};
 use byteorder::BigEndian;
 use byteorder::ByteOrder;
@@ -57,23 +57,19 @@ impl ChaCha20Dec {
                 match rx.try_recv() {
                     Ok(Message::FileContext(ctx)) => {
                         self.decryption_key = ctx.encryption_key;
-                    },
-                    Ok(Message::ShouldFlush) => {
-                        return Ok((true, false))
                     }
+                    Ok(Message::ShouldFlush) => return Ok((true, false)),
                     Ok(Message::Skip) => {
                         self.skip_me = true;
                     }
-                    Ok(Message::Finished) => {
-                        return Ok((false, true))
-                    }
+                    Ok(Message::Finished) => return Ok((false, true)),
                     Ok(_) => {}
                     Err(TryRecvError::Empty) => {
                         break;
                     }
                     Err(TryRecvError::Closed) => {
                         error!("Message receiver closed");
-                        return Err(anyhow!("Message receiver closed"))
+                        return Err(anyhow!("Message receiver closed"));
                     }
                 }
             }
@@ -93,10 +89,7 @@ impl Transformer for ChaCha20Dec {
     }
 
     #[tracing::instrument(level = "trace", skip(self, buf))]
-    async fn process_bytes(
-        &mut self,
-        buf: &mut bytes::BytesMut,
-    ) -> Result<()> {
+    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
         if self.skip_me {
             debug!("skipped");
             return Ok(());
@@ -112,7 +105,9 @@ impl Transformer for ChaCha20Dec {
             if !self.input_buffer.is_empty() {
                 self.output_buffer.put(decrypt_chunk(
                     &self.input_buffer.split(),
-                    &self.decryption_key.ok_or_else(|| anyhow!("Missing decryption key"))?,
+                    &self
+                        .decryption_key
+                        .ok_or_else(|| anyhow!("Missing decryption key"))?,
                 )?);
             }
 
@@ -130,7 +125,9 @@ impl Transformer for ChaCha20Dec {
             while self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
                 self.output_buffer.put(decrypt_chunk(
                     &self.input_buffer.split_to(CIPHER_SEGMENT_SIZE),
-                    &self.decryption_key.ok_or_else(|| anyhow!("Missing decryption key"))?,,
+                    &self
+                        .decryption_key
+                        .ok_or_else(|| anyhow!("Missing decryption key"))?,
                 )?)
             }
         } else if finished && !self.finished {
@@ -140,7 +137,9 @@ impl Transformer for ChaCha20Dec {
                     if !self.input_buffer.is_empty() {
                         self.output_buffer.put(decrypt_chunk(
                             &self.input_buffer.split(),
-                            &self.decryption_key.ok_or_else(|| anyhow!("Missing decryption key"))?,,
+                            &self
+                                .decryption_key
+                                .ok_or_else(|| anyhow!("Missing decryption key"))?,
                         )?);
                     }
                 } else {
@@ -169,7 +168,10 @@ impl Transformer for ChaCha20Dec {
 
         if self.finished && self.input_buffer.is_empty() && self.output_buffer.is_empty() {
             if let Some(notifier) = &self.notifier {
-                notifier.send_next(self.idx.ok_or_else(|| anyhow!("Missing idx"))?, Message::Finished)?;
+                notifier.send_next(
+                    self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
+                    Message::Finished,
+                )?;
             }
         }
 

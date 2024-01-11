@@ -1,5 +1,19 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use byteorder::{ByteOrder, LittleEndian};
+use crate::transformer::FileContext;
+
+
+
+// Flags:
+// only the last 2 bytes are in use
+// 0000 0000 0000 0000
+// 0000 0000 0000 0001 -> Is encrypted
+// 0000 0000 0000 0010 -> Is compressed
+// 0000 0000 0000 0100 -> Has semantic metadata
+// 0000 0000 0000 1000 -> Has blocklist
+// 0000 0000 0001 0000 -> Has encryption metadata
+
+
 
 pub struct EndOfFileMetadata {
     pub magic_bytes: [u8; 4], // Should be 0x50, 0x2A, 0x4D, 0x18
@@ -15,6 +29,37 @@ pub struct EndOfFileMetadata {
     pub encryption_start: u64,
     pub disk_hash_sha1: [u8; 32], // Everything except disk_hash_sha1 is 0
     pub extra: [u8; 380],         // CURRENTLY UNUSED IGNORED FOR hashing
+}
+
+impl EndOfFileMetadata {
+    pub fn init() -> Self {
+        Self {
+            magic_bytes: [0x50, 0x2A, 0x4D, 0x18],
+            len: 1016,
+            version: 1,
+            file_name: [0; 512],
+            file_size: 0,
+            file_hash_sha1: [0; 32],
+            file_hash_md5: [0; 16],
+            flags: 0,
+            semantic_start: 0,
+            blocklist_start: 0,
+            encryption_start: 0,
+            disk_hash_sha1: [0; 32],
+            extra: [0; 380],
+        }
+    }
+
+    pub fn update_with_file_ctx(&mut self, ctx: &FileContext) -> Result<()>{
+        if ctx.file_name.len() <= 512 {
+            self.file_name[..ctx.file_name.len()].copy_from_slice(&ctx.file_name.as_bytes());
+        } else {
+            Err(anyhow!("Filename too long"))
+        }
+
+        self.file_size = ctx.file_size;
+        Ok(())
+    }
 }
 
 impl TryFrom<&[u8; 1024]> for EndOfFileMetadata {
@@ -113,6 +158,17 @@ pub struct EncryptionMetadata {
     pub padding: Vec<u8>, // -> Multiple of 512 Bytes
 }
 
+impl EncryptionMetadata {
+    pub fn new(header_packets: Vec<EncryptionPacket>) -> Self {
+        Self {
+            magic_bytes: [0x51, 0x2A, 0x4D, 0x18],
+            len: todo!(), // (Sum of all packages len)
+            packets: vec![],
+            padding: vec![],
+        }
+    }
+}
+
 impl TryFrom<&[u8]> for EncryptionMetadata {
     type Error = anyhow::Error;
 
@@ -201,6 +257,16 @@ pub struct BlockList {
     pub blocklist: Vec<u8>,
 }
 
+impl BlockList {
+    pub fn new(blocklist: Vec<u8>) -> Self {
+        Self {
+            magic_bytes: [0x52, 0x2A, 0x4D, 0x18],
+            len: blocklist.len() as u32,
+            blocklist,
+        }
+    }
+}
+
 impl TryFrom<&[u8]> for BlockList {
     type Error = anyhow::Error;
 
@@ -242,6 +308,16 @@ pub struct SemanticMetadata {
     pub magic_bytes: [u8; 4], // Should be 0x53, 0x2A, 0x4D, 0x18
     pub len: u32,
     pub semantic: String, // JSON encoded string
+}
+
+impl SemanticMetadata {
+    pub fn new(semantic: String) -> Self {
+        Self {
+            magic_bytes: [0x53, 0x2A, 0x4D, 0x18],
+            len: semantic.len() as u32,
+            semantic,
+        }
+    }
 }
 
 impl TryFrom<&[u8]> for SemanticMetadata {

@@ -1,8 +1,10 @@
+use crate::notifications::{Message, Notifier};
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Result;
+use async_channel::{Receiver, Sender, TryRecvError};
 use bytes::BufMut;
 use bytes::Bytes;
 use bytes::BytesMut;
@@ -12,6 +14,7 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit, Payload},
     ChaCha20Poly1305,
 };
+use std::sync::Arc;
 use tracing::debug;
 use tracing::error;
 
@@ -20,57 +23,87 @@ const ENCRYPTION_BLOCK_SIZE: usize = 65_536;
 pub struct ChaCha20Enc {
     input_buf: BytesMut,
     output_buf: BytesMut,
-    add_padding: bool,
-    encryption_key: Vec<u8>,
+    notifier: Option<Arc<Notifier>>,
+    msg_receiver: Option<Receiver<Message>>,
+    idx: Option<usize>,
+    encryption_key: Option<Vec<u8>>,
     finished: bool,
 }
 
 impl ChaCha20Enc {
-    #[tracing::instrument(level = "trace", skip(add_padding, enc_key))]
+    #[tracing::instrument(level = "trace")]
     #[allow(dead_code)]
-    pub fn new(add_padding: bool, enc_key: Vec<u8>) -> Result<Self> {
+    pub fn new() -> Result<Self> {
         Ok(ChaCha20Enc {
             input_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
             output_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
-            add_padding,
+            notifier: None,
+            msg_receiver: None,
+            idx: None,
+            encryption_key: None,
             finished: false,
-            encryption_key: enc_key,
         })
+    }
+
+    fn process_messages(&mut self) -> Result<(bool, bool)> {
+        if let Some(rx) = &self.msg_receiver {
+            loop {
+                match rx.try_recv() {
+                    Ok(Message::FileContext(ctx)) => {
+                        self.encryption_key = ctx.encryption_key;
+                    }
+                    Ok(Message::ShouldFlush) => return Ok((true, false)),
+                    Ok(Message::Finished) => return Ok((false, true)),
+                    Ok(_) => {}
+                    Err(TryRecvError::Empty) => {
+                        break;
+                    }
+                    Err(TryRecvError::Closed) => {
+                        error!("Message receiver closed");
+                        return Err(anyhow!("Message receiver closed"));
+                    }
+                }
+            }
+        }
+        Ok((false, false))
     }
 }
 
 #[async_trait::async_trait]
 impl Transformer for ChaCha20Enc {
-    #[tracing::instrument(level = "trace", skip(self, buf, finished, should_flush))]
-    async fn process_bytes(
-        &mut self,
-        buf: &mut bytes::BytesMut,
-        finished: bool,
-        should_flush: bool,
-    ) -> Result<bool> {
+    #[tracing::instrument(level = "trace", skip(self))]
+    async fn initialize(&mut self, idx: usize) -> (TransformerType, Sender<Message>) {
+        self.idx = Some(idx);
+        let (sx, rx) = async_channel::bounded(10);
+        self.msg_receiver = Some(rx);
+        (TransformerType::ChaCha20Encrypt, sx)
+    }
+
+    #[tracing::instrument(level = "trace", skip(self, buf))]
+    async fn process_bytes(&mut self, buf: &mut BytesMut) -> Result<()> {
         // Only write if the buffer contains data and the current process is not finished
 
         if !buf.is_empty() {
             self.input_buf.put(buf.split());
         }
 
+        let Ok((should_flush, finished)) = self.process_messages() else {
+            return Err(anyhow!("Error processing messages"));
+        };
+
         if should_flush {
-            if self.add_padding {
-                let data = self.input_buf.split();
-                let padding =
-                    generate_padding(ENCRYPTION_BLOCK_SIZE - (data.len() % ENCRYPTION_BLOCK_SIZE))?;
-                self.output_buf
-                    .put(encrypt_chunk(&data, &padding, &self.encryption_key)?);
-            } else {
-                self.output_buf.put(encrypt_chunk(
-                    &self.input_buf.split(),
-                    b"",
-                    &self.encryption_key,
-                )?)
-            }
+            self.output_buf.put(encrypt_chunk(
+                &self.input_buf.split(),
+                b"",
+                &self
+                    .encryption_key
+                    .ok_or_else(|| anyhow!("Missing encryption key"))?,
+                true,
+
+            )?);
             buf.put(self.output_buf.split());
             debug!(?buf, "flushed");
-            return Ok(finished);
+            return Ok(());
         }
 
         if self.input_buf.len() / ENCRYPTION_BLOCK_SIZE > 0 {
@@ -78,42 +111,53 @@ impl Transformer for ChaCha20Enc {
                 self.output_buf.put(encrypt_chunk(
                     &self.input_buf.split_to(ENCRYPTION_BLOCK_SIZE),
                     b"",
-                    &self.encryption_key,
+                    &self
+                        .encryption_key
+                        .ok_or_else(|| anyhow!("Missing encryption key"))?,
+                    true,
+
                 )?)
             }
         } else if finished && !self.finished {
             if self.input_buf.is_empty() {
                 self.finished = true;
-            } else if self.add_padding {
-                self.finished = true;
-                let data = self.input_buf.split();
-                let padding =
-                    generate_padding(ENCRYPTION_BLOCK_SIZE - (data.len() % ENCRYPTION_BLOCK_SIZE))?;
-                self.output_buf
-                    .put(encrypt_chunk(&data, &padding, &self.encryption_key)?);
             } else {
                 self.finished = true;
                 self.output_buf.put(encrypt_chunk(
                     &self.input_buf.split(),
                     b"",
-                    &self.encryption_key,
+                    &self
+                        .encryption_key
+                        .ok_or_else(|| anyhow!("Missing encryption key"))?,
+                    true,
                 )?)
             }
         };
         buf.put(self.output_buf.split());
-        Ok(self.finished && self.input_buf.is_empty() && self.output_buf.is_empty())
+
+        if self.finished && self.input_buf.is_empty() && self.output_buf.is_empty() {
+            if let Some(notifier) = &self.notifier {
+                notifier.send_next(
+                    self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
+                    Message::Finished,
+                )?;
+            }
+        }
+        Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
-    fn get_type(&self) -> TransformerType {
-        TransformerType::ChaCha20Decrypt
+    #[tracing::instrument(level = "trace", skip(self, notifier))]
+    #[inline]
+    async fn set_notifier(&mut self, notifier: Arc<Notifier>) -> Result<()> {
+        self.notifier = Some(notifier);
+        Ok(())
     }
 }
 
 #[tracing::instrument(level = "trace", skip(msg, aad, enc))]
 #[inline]
-pub fn encrypt_chunk(msg: &[u8], aad: &[u8], enc: &[u8]) -> Result<Bytes> {
-    if msg.len() > ENCRYPTION_BLOCK_SIZE {
+pub fn encrypt_chunk(msg: &[u8], aad: &[u8], enc: &[u8], use_limit: bool) -> Result<Bytes> {
+    if use_limit && msg.len() > ENCRYPTION_BLOCK_SIZE {
         error!(len = msg.len(), "Message too large");
         bail!("[CHACHA_ENCRYPT] Invalid encryption block size")
     }
