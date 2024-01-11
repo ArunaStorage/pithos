@@ -1,9 +1,9 @@
-use crate::notifications::Message;
-use crate::notifications::Response;
+use crate::notifications::{Message, Notifier};
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use anyhow::Result;
+use async_channel::{Receiver, Sender, TryRecvError};
 use byteorder::BigEndian;
 use byteorder::ByteOrder;
 use bytes::BufMut;
@@ -13,6 +13,7 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit, Payload},
     ChaCha20Poly1305,
 };
+use std::sync::Arc;
 use tracing::debug;
 use tracing::error;
 use tracing::info;
@@ -24,42 +25,86 @@ const CIPHER_SEGMENT_SIZE: usize = ENCRYPTION_BLOCK_SIZE + CIPHER_DIFF;
 pub struct ChaCha20Dec {
     input_buffer: BytesMut,
     output_buffer: BytesMut,
-    hard_coded_enc: bool,
-    decryption_key: Vec<u8>,
+    notifier: Option<Arc<Notifier>>,
+    msg_receiver: Option<Receiver<Message>>,
+    idx: Option<usize>,
+    decryption_key: Option<Vec<u8>>,
     finished: bool,
     backoff_counter: usize,
     skip_me: bool,
 }
 
 impl ChaCha20Dec {
-    #[tracing::instrument(level = "trace", skip(dec_key))]
+    #[tracing::instrument(level = "trace")]
     #[allow(dead_code)]
-    pub fn new(dec_key: Option<Vec<u8>>) -> Result<Self> {
+    pub fn new() -> Result<Self> {
         Ok(ChaCha20Dec {
             input_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
             output_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
             finished: false,
-            hard_coded_enc: dec_key.is_some(),
             backoff_counter: 0,
-            decryption_key: dec_key.unwrap_or_default(),
+            decryption_key: None,
             skip_me: false,
+            notifier: None,
+            msg_receiver: None,
+            idx: None,
         })
+    }
+
+    fn process_messages(&mut self) -> Result<(bool, bool)> {
+        if let Some(rx) = &self.msg_receiver {
+            loop {
+                match rx.try_recv() {
+                    Ok(Message::FileContext(ctx)) => {
+                        self.decryption_key = ctx.encryption_key;
+                    },
+                    Ok(Message::ShouldFlush) => {
+                        return Ok((true, false))
+                    }
+                    Ok(Message::Skip) => {
+                        self.skip_me = true;
+                    }
+                    Ok(Message::Finished) => {
+                        return Ok((false, true))
+                    }
+                    Ok(_) => {}
+                    Err(TryRecvError::Empty) => {
+                        break;
+                    }
+                    Err(TryRecvError::Closed) => {
+                        error!("Message receiver closed");
+                        return Err(anyhow!("Message receiver closed"))
+                    }
+                }
+            }
+        }
+        Ok((false, false))
     }
 }
 
 #[async_trait::async_trait]
 impl Transformer for ChaCha20Dec {
-    #[tracing::instrument(level = "trace", skip(self, buf, finished, should_flush))]
+    #[tracing::instrument(level = "trace", skip(self))]
+    async fn initialize(&mut self, idx: usize) -> (TransformerType, Sender<Message>) {
+        self.idx = Some(idx);
+        let (sx, rx) = async_channel::bounded(10);
+        self.msg_receiver = Some(rx);
+        (TransformerType::ChaCha20Decrypt, sx)
+    }
+
+    #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(
         &mut self,
         buf: &mut bytes::BytesMut,
-        finished: bool,
-        should_flush: bool,
-    ) -> Result<bool> {
+    ) -> Result<()> {
         if self.skip_me {
             debug!("skipped");
-            return Ok(finished);
+            return Ok(());
         }
+
+        let Ok((should_flush, finished)) = self.process_messages() else {
+            return Err(anyhow!("Error processing messages"));
+        };
 
         if should_flush {
             self.input_buffer.put(buf.split());
@@ -67,13 +112,13 @@ impl Transformer for ChaCha20Dec {
             if !self.input_buffer.is_empty() {
                 self.output_buffer.put(decrypt_chunk(
                     &self.input_buffer.split(),
-                    &self.decryption_key,
+                    &self.decryption_key.ok_or_else(|| anyhow!("Missing decryption key"))?,
                 )?);
             }
 
             buf.put(self.output_buffer.split().freeze());
             debug!(buf_len = buf.len(), "bytes flushed");
-            return Ok(finished);
+            return Ok(());
         }
         // Only write if the buffer contains data and the current process is not finished
 
@@ -85,7 +130,7 @@ impl Transformer for ChaCha20Dec {
             while self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
                 self.output_buffer.put(decrypt_chunk(
                     &self.input_buffer.split_to(CIPHER_SEGMENT_SIZE),
-                    &self.decryption_key,
+                    &self.decryption_key.ok_or_else(|| anyhow!("Missing decryption key"))?,,
                 )?)
             }
         } else if finished && !self.finished {
@@ -95,7 +140,7 @@ impl Transformer for ChaCha20Dec {
                     if !self.input_buffer.is_empty() {
                         self.output_buffer.put(decrypt_chunk(
                             &self.input_buffer.split(),
-                            &self.decryption_key,
+                            &self.decryption_key.ok_or_else(|| anyhow!("Missing decryption key"))?,,
                         )?);
                     }
                 } else {
@@ -121,26 +166,21 @@ impl Transformer for ChaCha20Dec {
             }
         };
         buf.put(self.output_buffer.split().freeze());
-        Ok(self.finished && self.input_buffer.is_empty() && self.output_buffer.is_empty())
-    }
 
-    #[tracing::instrument(level = "trace", skip(self))]
-    fn get_type(&self) -> TransformerType {
-        TransformerType::ChaCha20Decrypt
-    }
-
-    #[tracing::instrument(level = "trace", skip(self, message))]
-    async fn notify(&mut self, message: &Message) -> Result<Response> {
-        if message.target == TransformerType::All {
-            if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
-                self.skip_me = nfile.context.encryption_key.is_none();
-                if !self.hard_coded_enc {
-                    self.decryption_key = nfile.context.encryption_key.clone().unwrap_or_default();
-                }
+        if self.finished && self.input_buffer.is_empty() && self.output_buffer.is_empty() {
+            if let Some(notifier) = &self.notifier {
+                notifier.send_next(self.idx.ok_or_else(|| anyhow!("Missing idx"))?, Message::Finished)?;
             }
         }
 
-        Ok(Response::Ok)
+        Ok(())
+    }
+
+    #[tracing::instrument(level = "trace", skip(self, notifier))]
+    #[inline]
+    async fn set_notifier(&mut self, notifier: Arc<Notifier>) -> Result<()> {
+        self.notifier = Some(notifier);
+        Ok(())
     }
 }
 

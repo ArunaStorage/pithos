@@ -57,6 +57,7 @@ impl AsyncSenderSink {
 
 #[async_trait::async_trait]
 impl Transformer for AsyncSenderSink {
+    #[tracing::instrument(level = "trace", skip(self))]
     async fn initialize(&mut self, idx: usize) -> (TransformerType, Sender<Message>) {
         self.idx = Some(idx);
         let (sx, rx) = async_channel::bounded(10);
@@ -78,7 +79,7 @@ impl Transformer for AsyncSenderSink {
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
+    #[tracing::instrument(level = "trace", skip(self, notifier))]
     #[inline]
     async fn set_notifier(&mut self, notifier: Arc<Notifier>) -> Result<()> {
         self.notifier = Some(notifier);
