@@ -2,10 +2,13 @@ use crate::notifications::Message;
 use crate::notifications::Notifier;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use async_channel::Sender;
+use async_channel::TryRecvError;
 use async_compression::tokio::write::GzipEncoder;
 use std::sync::Arc;
+use tracing::debug;
+use tracing::error;
 
 const RAW_FRAME_SIZE: usize = 5_242_880;
 
@@ -26,6 +29,26 @@ impl GzipEnc {
             notifier: None,
             size_counter: 0,
         }
+    }
+
+    #[tracing::instrument(level = "trace", skip(self))]
+    fn process_messages(&mut self) -> Result<bool> {
+        if let Some(rx) = &self.msg_receiver {
+            loop {
+                match rx.try_recv() {
+                    Ok(Message::Finished) | Ok(Message::ShouldFlush) => return Ok(true),
+                    Ok(_) => {}
+                    Err(TryRecvError::Empty) => {
+                        break;
+                    }
+                    Err(TryRecvError::Closed) => {
+                        error!("Message receiver closed");
+                        return Err(anyhow!("Message receiver closed"));
+                    }
+                }
+            }
+        }
+        Ok(false)
     }
 }
 
@@ -48,7 +71,37 @@ impl Transformer for GzipEnc {
 
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
-        todo!()
+        self.size_counter += buf.len();
+        self.internal_buf.write_all_buf(buf).await?;
+
+        let Ok(finished) = self.process_messages()? else {
+            return Err(anyhow!("GzipEnc: Error processing messages"));
+        };
+        if finished && self.size_counter != 0 {
+            debug!("finished");
+            self.internal_buf.shutdown().await?;
+            buf.put(self.internal_buf.get_ref().as_slice());
+            self.size_counter = 0;
+            if let Some(notifier) = &self.notifier {
+                notifier.send_next(
+                    self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
+                    Message::Finished,
+                )?;
+            }
+            return Ok(());
+        }
+
+        // Create a new frame if buf would increase size_counter to more than RAW_FRAME_SIZE
+        if self.size_counter > RAW_FRAME_SIZE {
+            debug!(?self.size_counter, "new_frame");
+            self.internal_buf.flush().await?;
+            debug!(buf_len = ?self.internal_buf.get_ref().len());
+            buf.put(self.internal_buf.get_ref().as_slice());
+            self.internal_buf.get_mut().clear();
+            self.size_counter = 0;
+        }
+
+        Ok(())
     }
 
     #[tracing::instrument(level = "trace", skip(self, notifier))]

@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use crate::notifications::{Message, Notifier};
 use crate::transformer::{Sink, Transformer, TransformerType};
-use anyhow::Result;
-use async_channel::Sender as AsyncSender;
+use anyhow::{anyhow, Result};
+use async_channel::{Sender as AsyncSender, TryRecvError};
 use hyper::body::Sender;
 use hyper::Body;
+use tracing::{debug, error};
 
 pub struct HyperSink {
     sender: Sender,

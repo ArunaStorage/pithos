@@ -7,7 +7,6 @@ use bytes::{Buf, BufMut, BytesMut};
 use std::sync::Arc;
 use tracing::{error, warn};
 
-
 pub enum FilterParam {
     None,
     Discard(u64),
@@ -49,7 +48,10 @@ impl Filter {
         Filter {
             counter: 0,
             has_filter: filter.is_some(),
-            param: filter.map(|mut f| f.pop().map(|e| FilterParam::Discard(*e))).flatten().unwrap_or(FilterParam::None),
+            param: filter
+                .map(|mut f| f.pop().map(|e| FilterParam::Discard(*e)))
+                .flatten()
+                .unwrap_or(FilterParam::None),
             filter: filter.unwrap_or_default(),
             captured_buf_len: 0,
             advanced_by: 0,
@@ -59,6 +61,7 @@ impl Filter {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn process_messages(&mut self) -> Result<bool> {
         if let Some(rx) = &self.msg_receiver {
             loop {
@@ -87,17 +90,17 @@ impl Filter {
         match (&self.param, next) {
             (FilterParam::Discard(_), Some(next)) => {
                 self.param = FilterParam::Keep(next);
-            },
+            }
             (FilterParam::Keep(_), Some(next)) => {
                 self.param = FilterParam::Discard(next);
-            },
+            }
             (FilterParam::None, Some(next)) => {
                 self.param = FilterParam::Discard(next);
-            },
+            }
             (_, None) => {
                 self.param = FilterParam::None;
                 self.has_filter = false;
-            },
+            }
         }
     }
 }
@@ -125,7 +128,7 @@ impl Transformer for Filter {
         if !buf.is_empty() {
             if !self.has_filter {
                 warn!("No filter set, passing through");
-                return Ok(())
+                return Ok(());
             }
 
             let mut keep_buf = BytesMut::with_capacity(buf.len());
@@ -140,7 +143,7 @@ impl Transformer for Filter {
                             buf.advance(*bytes as usize);
                             self.next_param();
                         }
-                    },
+                    }
                     FilterParam::Keep(bytes) => {
                         if buf.len() < *bytes as usize {
                             *bytes -= buf.len() as u64;
@@ -152,8 +155,8 @@ impl Transformer for Filter {
                             keep_buf.put(buf.split_to(*bytes as usize));
                             self.next_param();
                         }
-                    },
-                    FilterParam::None => { return Ok(()) }
+                    }
+                    FilterParam::None => return Ok(()),
                 }
             }
             if !keep_buf.is_empty() {
