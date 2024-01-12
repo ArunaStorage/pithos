@@ -1154,6 +1154,7 @@ dependencies = [
  "rand_core",
  "sha1",
  "tar",
+ "thiserror",
  "tokio",
  "tokio-util",
  "tracing",

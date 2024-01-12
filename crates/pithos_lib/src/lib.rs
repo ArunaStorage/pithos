@@ -7,6 +7,7 @@ pub mod streamreadwrite;
 pub mod structs;
 pub mod transformer;
 pub mod transformers;
+mod crypt4gh;
 
 #[cfg(test)]
 mod tests {

@@ -32,6 +32,7 @@ md-5 = "0.10.5"
 sha1 = "0.10.1"
 blake2 = "0.10.6"
 rand_core = "0.6.4"
+thiserror = "1.0.56"
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }
