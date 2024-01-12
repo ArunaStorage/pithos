@@ -16,6 +16,8 @@ pub enum Message {
     Hash((HashType, String)),
     Metadata((Option<Vec<u8>>, String)), // Optional different Key, JSON Metadata value
     SizeInfo(u64),
+    Compression(bool),
+    EditList(Vec<u64>),
     Blocklist(Vec<u8>),
     ShouldFlush,
     Skip,

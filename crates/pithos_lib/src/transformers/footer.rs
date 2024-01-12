@@ -1,17 +1,18 @@
-use std::sync::Arc;
 use crate::notifications::{HashType, Message, Notifier};
-use crate::transformer::{FileContext, Transformer};
+use crate::structs::{BlockList, EncryptionMetadata, EndOfFileMetadata, SemanticMetadata};
 use crate::transformer::TransformerType;
+use crate::transformer::{FileContext, Transformer};
+use crate::transformers::encrypt::encrypt_chunk;
 use anyhow::anyhow;
 use anyhow::Result;
 use async_channel::{Receiver, Sender, TryRecvError};
 use bytes::BufMut;
 use digest::{Digest, Reset, Update};
 use sha1::Sha1;
+use std::sync::Arc;
 use tracing::debug;
 use tracing::error;
-use crate::structs::{BlockList, EncryptionMetadata, EndOfFileMetadata, SemanticMetadata};
-use crate::transformers::encrypt::encrypt_chunk;
+use crate::structs::Flag::{Compressed, Encrypted, HasBlocklist, HasEncryptionMetadata, HasSemanticMetadata};
 
 pub struct FooterGenerator {
     finished: bool,
@@ -56,20 +57,31 @@ impl FooterGenerator {
                     Ok(Message::Finished) | Ok(Message::ShouldFlush) => return Ok(true),
                     Ok(Message::FileContext(ctx)) => {
                         self.filectx = Some(ctx);
-                    },
-                    Ok(Message::Blocklist(bl)) => {
-                        self.blocklist = Some(bl);
-                    },
-                    Ok(Message::Metadata(md)) => {
-                        self.metadata = Some(md);
-                    },
-                    Ok(Message::Hash((hash_type, hash))) => {
-                        match hash_type {
-                            HashType::Md5 => self.md5_hash = Some(hash),
-                            HashType::Sha1 => self.sha1_hash = Some(hash),
-                            _ => {}
+                        if ctx.encryption_key.is_some() {
+                            self.endoffile.set_flag(Encrypted);
+                            self.endoffile.set_flag(HasEncryptionMetadata);
                         }
                     }
+                    Ok(Message::Compression(is_compressed)) => {
+                        if is_compressed {
+                            self.endoffile.set_flag(Compressed);
+                        } else {
+                            self.endoffile.unset_flag(Compressed);
+                        }
+                    }
+                    Ok(Message::Blocklist(bl)) => {
+                        self.blocklist = Some(bl);
+                        self.endoffile.set_flag(HasBlocklist);
+                    }
+                    Ok(Message::Metadata(md)) => {
+                        self.metadata = Some(md);
+                        self.endoffile.set_flag(HasSemanticMetadata);
+                    }
+                    Ok(Message::Hash((hash_type, hash))) => match hash_type {
+                        HashType::Md5 => self.md5_hash = Some(hash),
+                        HashType::Sha1 => self.sha1_hash = Some(hash),
+                        _ => {}
+                    },
                     Ok(_) => {}
                     Err(TryRecvError::Empty) => {
                         break;
@@ -96,10 +108,7 @@ impl Transformer for FooterGenerator {
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
-    async fn process_bytes(
-        &mut self,
-        buf: &mut bytes::BytesMut,
-    ) -> Result<()> {
+    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
         // Update overall hash & size counter
         self.hasher.update(buf.as_ref());
         self.counter += buf.len();
@@ -109,11 +118,12 @@ impl Transformer for FooterGenerator {
                 // (optional) Metadata (optional) encrypted
                 if let Some((encryption_key, metadata)) = &self.metadata {
                     let encoded_metadata: Vec<u8> = SemanticMetadata::new(metadata.clone()).into();
-                    let metadata_bytes = if let Some(key) = encryption_key.or(file_ctx.encryption_key.clone()) {
-                        encrypt_chunk(&encoded_metadata, &[], key.as_slice(), false)?
-                    } else {
-                        encoded_metadata
-                    };
+                    let metadata_bytes =
+                        if let Some(key) = encryption_key.or(file_ctx.encryption_key.clone()) {
+                            encrypt_chunk(&encoded_metadata, &[], key.as_slice(), false)?
+                        } else {
+                            encoded_metadata
+                        };
                     self.endoffile.semantic_start = self.counter;
                     self.hasher.update(metadata_bytes.as_bytes());
                     self.counter += metadata_bytes.len();
@@ -123,7 +133,6 @@ impl Transformer for FooterGenerator {
                 // (optional) Blocklist
                 if let Some(blocklist) = &self.blocklist {
                     let encoded_blocklist: Vec<u8> = BlockList::new(blocklist.clone()).into();
-
                     self.endoffile.blocklist_start = self.counter;
                     self.hasher.update(encoded_blocklist.as_bytes());
                     self.counter += encoded_blocklist.len();
@@ -133,11 +142,11 @@ impl Transformer for FooterGenerator {
                 // (optional) Encryption
                 if let Some(key) = &file_ctx.encryption_key {
                     self.endoffile.encryption_start = self.counter;
-
-
-                    let encryption_block = EncryptionMetadata::new();
-                    buf.put(encoded_encryption);
-
+                    let mut encryption_metadata = EncryptionMetadata::new(vec![key.into()]);
+                    encryption_metadata.encrypt_all(None)?;
+                    self.hasher.update(encryption_metadata.as_bytes());
+                    self.counter += encryption_metadata.as_bytes().len();
+                    buf.put(encryption_metadata);
                 }
 
                 // Technical Metadata
@@ -150,10 +159,17 @@ impl Transformer for FooterGenerator {
                 // Reset counter & hasher
                 self.counter = 0;
                 self.hasher.reset();
-            }else{
+
+                if let Some(notifier) = &self.notifier {
+                    notifier.send_next(
+                        self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
+                        Message::Finished,
+                    )?;
+                }
+            } else {
                 return Err(anyhow!("Missing file context"));
             }
-        }else {
+        } else {
             return Err(anyhow!("Error processing messages"));
         };
 

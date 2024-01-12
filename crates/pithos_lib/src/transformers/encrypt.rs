@@ -99,7 +99,6 @@ impl Transformer for ChaCha20Enc {
                     .encryption_key
                     .ok_or_else(|| anyhow!("Missing encryption key"))?,
                 true,
-
             )?);
             buf.put(self.output_buf.split());
             debug!(?buf, "flushed");
@@ -115,7 +114,6 @@ impl Transformer for ChaCha20Enc {
                         .encryption_key
                         .ok_or_else(|| anyhow!("Missing encryption key"))?,
                     true,
-
                 )?)
             }
         } else if finished && !self.finished {

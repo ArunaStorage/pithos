@@ -3,13 +3,22 @@ use crate::notifications::{Message, Notifier};
 use crate::transformer::{Transformer, TransformerType};
 use anyhow::{anyhow, Result};
 use async_channel::{Receiver, Sender, TryRecvError};
-use bytes::Buf;
+use bytes::{Buf, BufMut, BytesMut};
 use std::sync::Arc;
-use tracing::error;
+use tracing::{error, warn};
+
+
+pub enum FilterParam {
+    None,
+    Discard(u64),
+    Keep(u64),
+}
 
 pub struct Filter {
     counter: usize,
-    filter: Range,
+    has_filter: bool,
+    param: FilterParam,
+    filter: Vec<u64>,
     captured_buf_len: usize,
     advanced_by: usize,
     notifier: Option<Arc<Notifier>>,
@@ -20,10 +29,28 @@ pub struct Filter {
 impl Filter {
     #[tracing::instrument(level = "trace", skip(filter))]
     #[allow(dead_code)]
-    pub fn new(filter: Range) -> Self {
+    pub fn new_with_range(filter: Range) -> Self {
         Filter {
             counter: 0,
-            filter,
+            has_filter: true,
+            param: FilterParam::Discard(filter.from),
+            filter: vec![filter.to],
+            captured_buf_len: 0,
+            advanced_by: 0,
+            notifier: None,
+            msg_receiver: None,
+            idx: None,
+        }
+    }
+
+    #[tracing::instrument(level = "trace", skip(filter))]
+    #[allow(dead_code)]
+    pub fn new_with_edit_list(mut filter: Option<Vec<u64>>) -> Self {
+        Filter {
+            counter: 0,
+            has_filter: filter.is_some(),
+            param: filter.map(|mut f| f.pop().map(|e| FilterParam::Discard(*e))).flatten().unwrap_or(FilterParam::None),
+            filter: filter.unwrap_or_default(),
             captured_buf_len: 0,
             advanced_by: 0,
             notifier: None,
@@ -37,6 +64,10 @@ impl Filter {
             loop {
                 match rx.try_recv() {
                     Ok(Message::Finished) => return Ok(true),
+                    Ok(Message::EditList(filter)) => {
+                        self.has_filter = filter.is_some();
+                        self.filter = filter.unwrap_or_default();
+                    }
                     Ok(_) => {}
                     Err(TryRecvError::Empty) => {
                         break;
@@ -49,6 +80,25 @@ impl Filter {
             }
         }
         Ok(false)
+    }
+
+    fn next_param(&mut self) {
+        let next = self.filter.pop();
+        match (&self.param, next) {
+            (FilterParam::Discard(_), Some(next)) => {
+                self.param = FilterParam::Keep(next);
+            },
+            (FilterParam::Keep(_), Some(next)) => {
+                self.param = FilterParam::Discard(next);
+            },
+            (FilterParam::None, Some(next)) => {
+                self.param = FilterParam::Discard(next);
+            },
+            (_, None) => {
+                self.param = FilterParam::None;
+                self.has_filter = false;
+            },
+        }
     }
 }
 
@@ -67,35 +117,52 @@ impl Transformer for Filter {
         self.captured_buf_len = buf.len();
         self.advanced_by = 0;
 
+        if !self.has_filter {
+            self.process_messages()?;
+        }
+
         // If bytes are present in the buffer
         if !buf.is_empty() {
-            // If counter + incoming bytes are larger than lower limit
-            //   -> Advance buffer to lower limit
-            if ((self.counter + self.captured_buf_len) as u64) > self.filter.from {
-                if !(self.counter > self.filter.from as usize) {
-                    self.advanced_by = self.filter.from as usize - self.counter;
-                    buf.advance(self.advanced_by);
-                }
-            } else {
-                // If counter + incoming bytes are smaller than lower limit
-                //   -> discard buffer
-                buf.clear();
+            if !self.has_filter {
+                warn!("No filter set, passing through");
+                return Ok(())
             }
 
-            if self.counter as u64 > self.filter.to {
-                // If counter is larger than upper limit
-                //   -> discard buffer
+            let mut keep_buf = BytesMut::with_capacity(buf.len());
+            loop {
+                match &mut self.param {
+                    FilterParam::Discard(bytes) => {
+                        if buf.len() < *bytes as usize {
+                            buf.clear();
+                            *bytes -= buf.len() as u64;
+                            break;
+                        } else {
+                            buf.advance(*bytes as usize);
+                            self.next_param();
+                        }
+                    },
+                    FilterParam::Keep(bytes) => {
+                        if buf.len() < *bytes as usize {
+                            *bytes -= buf.len() as u64;
+                            if !keep_buf.is_empty() {
+                                keep_buf.put(buf.split());
+                            }
+                            break;
+                        } else {
+                            keep_buf.put(buf.split_to(*bytes as usize));
+                            self.next_param();
+                        }
+                    },
+                    FilterParam::None => { return Ok(()) }
+                }
+            }
+            if !keep_buf.is_empty() {
                 buf.clear();
-            } else if self.counter as u64 + self.captured_buf_len as u64 > self.filter.to {
-                // If counter + incoming bytes is larger than upper limit
-                //   -> truncate buffer to upper limit
-                buf.truncate(self.filter.to as usize - self.advanced_by - self.counter);
+                buf.put(keep_buf);
             }
         }
 
-        self.counter += self.captured_buf_len;
-
-        if let Ok(finished) = self.process_messages() {
+        if let Ok(_) = self.process_messages() {
             if let Some(notifier) = &self.notifier {
                 notifier.send_next(
                     self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
