@@ -6,4 +6,10 @@ pub enum Crypt4GHError {
     FromBytesError(String),
     #[error("Invalid value for spec: `{0}`")]
     InvalidSpec(String),
+    #[error("Unable to decrypt: `{0}`")]
+    DecryptionError(String),
+    #[error("decryption failed")]
+    DecryptionFailed,
+    #[error("Unable to encrypt: `{0}`")]
+    EncryptionError(String),
 }

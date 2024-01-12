@@ -508,6 +508,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "crypto_kx"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704722d1d929489c8528bb1882805700f1ba20f54325704973e786352320b1ed"
+dependencies = [
+ "blake2",
+ "curve25519-dalek",
+ "rand_core",
+]
+
+[[package]]
 name = "curve25519-dalek"
 version = "4.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1145,6 +1156,7 @@ dependencies = [
  "bytes",
  "chacha20poly1305",
  "criterion",
+ "crypto_kx",
  "digest",
  "futures",
  "hex",
