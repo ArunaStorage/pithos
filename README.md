@@ -1,7 +1,15 @@
+<!--
 <div style="display: flex; align-items: center; justify-content: center;">
     <img src="./assets/pithos_logo.png" style="height: 8rem; width: 8rem;">
     <p style="serif; font-size: 6rem; margin: 2rem;">Pithos</p>
 </div>
+-->
+<p align="center">
+    <img src="./assets/pithos_logo.png" style="height: 8rem; width: 8rem;">
+</p>
+
+<h1 align="center">Pithos</h1>
+
 <p align="center">
      <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/built_with-Rust-dca282.svg" alt="Language: Rust"></a>
      <a href="https://github.com/ArunaStorage/aruna-file/blob/main/LICENSE"><img src="https://img.shields.io/badge/License-MIT-brightgreen.svg" alt="License: MIT"></a>
