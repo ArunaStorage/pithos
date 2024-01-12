@@ -2,15 +2,18 @@ use crate::notifications::{HashType, Message, Notifier};
 use crate::structs::Flag::{
     Compressed, Encrypted, HasBlocklist, HasEncryptionMetadata, HasSemanticMetadata,
 };
-use crate::structs::{BlockList, EncryptionMetadata, EndOfFileMetadata, SemanticMetadata};
+use crate::structs::{
+    BlockList, EncryptionMetadata, EncryptionPacket, EndOfFileMetadata, FileContext,
+    SemanticMetadata,
+};
+use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
-use crate::transformer::{FileContext, Transformer};
 use crate::transformers::encrypt::encrypt_chunk;
 use anyhow::anyhow;
 use anyhow::Result;
 use async_channel::{Receiver, Sender, TryRecvError};
 use bytes::BufMut;
-use digest::{Digest, Reset, Update};
+use digest::Digest;
 use sha1::Sha1;
 use std::sync::Arc;
 use tracing::debug;
@@ -114,7 +117,7 @@ impl Transformer for FooterGenerator {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
         // Update overall hash & size counter
         self.hasher.update(buf.as_ref());
-        self.counter += buf.len();
+        self.counter += buf.len() as u64;
 
         if self.process_messages().is_ok() {
             if let Some(file_ctx) = &self.filectx {
@@ -123,13 +126,13 @@ impl Transformer for FooterGenerator {
                     let encoded_metadata: Vec<u8> = SemanticMetadata::new(metadata.clone()).into();
                     let metadata_bytes =
                         if let Some(key) = encryption_key.or(file_ctx.encryption_key.clone()) {
-                            encrypt_chunk(&encoded_metadata, &[], key.as_slice(), false)?
+                            encrypt_chunk(&encoded_metadata, &[], key.as_slice(), false)?.as_ref()
                         } else {
-                            encoded_metadata
+                            encoded_metadata.as_ref()
                         };
                     self.endoffile.semantic_start = self.counter;
-                    self.hasher.update(metadata_bytes.as_bytes());
-                    self.counter += metadata_bytes.len();
+                    self.hasher.update(metadata_bytes);
+                    self.counter += metadata_bytes.len() as u64;
                     buf.put(metadata_bytes);
                 }
 
@@ -137,27 +140,34 @@ impl Transformer for FooterGenerator {
                 if let Some(blocklist) = &self.blocklist {
                     let encoded_blocklist: Vec<u8> = BlockList::new(blocklist.clone()).into();
                     self.endoffile.blocklist_start = self.counter;
-                    self.hasher.update(encoded_blocklist.as_bytes());
-                    self.counter += encoded_blocklist.len();
-                    buf.put(encoded_blocklist);
+                    self.hasher.update(encoded_blocklist.as_slice());
+                    self.counter += encoded_blocklist.len() as u64;
+                    buf.put(encoded_blocklist.as_slice());
                 }
 
                 // (optional) Encryption
                 if let Some(key) = &file_ctx.encryption_key {
-                    self.endoffile.encryption_start = self.counter;
-                    let mut encryption_metadata = EncryptionMetadata::new(vec![key.into()]);
-                    encryption_metadata.encrypt_all(None)?;
-                    self.hasher.update(encryption_metadata.as_bytes());
-                    self.counter += encryption_metadata.as_bytes().len();
-                    buf.put(encryption_metadata);
+                    if let Some(pk) = &file_ctx.owners_pubkey {
+                        self.endoffile.encryption_start = self.counter;
+                        let mut encryption_metadata =
+                            EncryptionMetadata::new(vec![EncryptionPacket::new(
+                                vec![key.as_slice().try_into()?],
+                                *pk,
+                            )]);
+                        encryption_metadata.encrypt_all(None)?;
+                        let encryption_data_bytes: Vec<u8> = encryption_metadata.try_into()?;
+                        self.hasher.update(encryption_data_bytes.as_slice());
+                        self.counter += encryption_data_bytes.len() as u64;
+                        buf.put(encryption_data_bytes.as_slice());
+                    }
                 }
 
                 // Technical Metadata
                 self.endoffile.update_with_file_ctx(file_ctx)?;
-                let encoded_technical_metadata: Vec<u8> = self.endoffile.into();
-                self.hasher.update(encoded_technical_metadata.as_bytes());
-                self.endoffile.disk_hash_sha1 = self.hasher.finalize().into();
-                buf.put(encoded_technical_metadata);
+                let encoded_technical_metadata: [u8; 1024] = self.endoffile.into();
+                self.hasher.update(encoded_technical_metadata.as_slice());
+                self.endoffile.disk_hash_sha1 = self.hasher.finalize().as_slice().try_into()?;
+                buf.put(encoded_technical_metadata.as_slice());
 
                 // Reset counter & hasher
                 self.counter = 0;

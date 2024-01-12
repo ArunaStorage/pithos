@@ -1,11 +1,54 @@
-use crate::transformer::FileContext;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use byteorder::{ByteOrder, LittleEndian};
-use chacha20poly1305::aead::generic_array::sequence::GenericSequence;
 use chacha20poly1305::aead::Aead;
-use chacha20poly1305::{ChaCha20Poly1305, Key, KeyInit, Nonce};
-use crypto_kx::{Keypair, PublicKey};
-use rand_core::OsRng;
+use chacha20poly1305::aead::OsRng;
+use chacha20poly1305::{AeadCore, Nonce};
+use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
+use crypto_kx::{Keypair, PublicKey, SecretKey};
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+pub struct FileContext {
+    // FileName
+    pub file_name: String,
+    // Input size
+    pub input_size: u64,
+    // Filesize
+    pub file_size: u64,
+    // FileSubpath without filename
+    pub file_path: Option<String>,
+    // UserId
+    pub uid: Option<u64>,
+    // GroupId
+    pub gid: Option<u64>,
+    // Octal like mode
+    pub mode: Option<u32>,
+    // Created at
+    pub mtime: Option<u64>,
+    // Should this file be skipped by decompressors
+    pub compression: bool,
+    // Encryption key
+    pub encryption_key: Option<Vec<u8>>,
+    // Owners pubkey
+    pub owners_pubkey: Option<[u8; 32]>,
+    // Is this file a directory
+    pub is_dir: bool,
+    // Is this file a symlink
+    pub is_symlink: bool,
+    // Expected SHA1 hash
+    pub expected_sha1: Option<String>,
+    // Expected MD5 hash
+    pub expected_md5: Option<String>,
+}
+
+impl FileContext {
+    #[tracing::instrument(level = "trace", skip(self))]
+    pub fn get_path(&self) -> String {
+        match &self.file_path {
+            Some(p) => p.clone() + "/" + &self.file_name,
+            None => self.file_name.clone(),
+        }
+    }
+}
 
 // Flags:
 // only the last 2 bytes are in use
@@ -16,7 +59,6 @@ use rand_core::OsRng;
 // 0000 0000 0000 1000 -> Has blocklist
 // 0000 0000 0001 0000 -> Has encryption metadata
 
-
 pub enum Flag {
     Encrypted = 0,
     Compressed = 1,
@@ -24,8 +66,6 @@ pub enum Flag {
     HasBlocklist = 3,
     HasEncryptionMetadata = 4,
 }
-
-
 
 pub struct EndOfFileMetadata {
     pub magic_bytes: [u8; 4], // Should be 0x50, 0x2A, 0x4D, 0x18
@@ -66,7 +106,7 @@ impl EndOfFileMetadata {
         if ctx.file_name.len() <= 512 {
             self.file_name[..ctx.file_name.len()].copy_from_slice(&ctx.file_name.as_bytes());
         } else {
-            Err(anyhow!("Filename too long"))
+            bail!("File name too long")
         }
 
         self.file_size = ctx.file_size;
@@ -76,11 +116,11 @@ impl EndOfFileMetadata {
     pub fn set_flag(&mut self, flag: Flag) {
         Self::set_flag_bit(&mut self.flags, flag as u8)
     }
-    
+
     pub fn unset_flag(&mut self, flag: Flag) {
         Self::unset_flag_bit(&mut self.flags, flag as u8)
     }
-    
+
     pub fn is_flag_set(&self, flag: Flag) -> bool {
         Self::is_flag_bit_set(&self.flags, flag as u8)
     }
@@ -209,34 +249,32 @@ impl EncryptionPacket {
         }
     }
 
-    pub fn encrypt(
-        &mut self,
-        writers_secret_key: Option<[u8; 32]>,
-    ) -> Result<()> {
+    pub fn encrypt(&mut self, writers_secret_key: Option<[u8; 32]>) -> Result<()> {
         match &self.keys {
             Keys::Decrypted(keys) => {
                 let keypair = match writers_secret_key {
-                    Some(key) => Keypair::from(key),
+                    Some(key) => Keypair::from(SecretKey::from(key)),
                     None => Keypair::generate(&mut OsRng),
                 };
                 let session_key = keypair
                     .session_keys_from(&PublicKey::from(keys.readers_pubkey))
                     .tx
                     .as_ref();
-                let nonce = Nonce::generate(&mut OsRng);
+                let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
 
                 let concatenated_keys = keys.keys.concat();
-                let (enc_keys, mac) = ChaCha20Poly1305::new(&Key::from(session_key))
-                    .encrypt(nonce.into(), concatenated_keys.as_slice())
+                let (enc_keys, mac) = ChaCha20Poly1305::new_from_slice(session_key)
+                    .map_err(|_| anyhow!("Invalid key length"))?
+                    .encrypt(&nonce, concatenated_keys.as_slice())
                     .map_err(|e| anyhow!("Error while encrypting keys"))?
                     .split_at(concatenated_keys.len());
 
                 self.len = (4 + 32 + 12 + enc_keys.len() + 16) as u32;
-                self.pubkey = keypair.public().into();
+                self.pubkey = *keypair.public().as_ref();
                 self.keys = Keys::Encrypted(enc_keys.to_vec());
-                self.mac = mac.into();
+                self.mac = mac.try_into()?;
             }
-            Keys::Encrypted(_) => Err(anyhow!("Keys already encrypted")),
+            Keys::Encrypted(_) => return Err(anyhow!("Keys already encrypted")),
         }
         Ok(())
     }
@@ -244,22 +282,30 @@ impl EncryptionPacket {
     pub fn decrypt(&mut self, readers_secret_key: [u8; 32]) -> Result<()> {
         match &self.keys {
             Keys::Encrypted(keys) => {
-                let keypair = Keypair::from(readers_secret_key);
+                let keypair = Keypair::from(SecretKey::from(readers_secret_key));
                 let session_key = keypair
                     .session_keys_from(&PublicKey::from(self.pubkey))
                     .rx
                     .as_ref();
                 let nonce = Nonce::from_slice(&self.nonce);
-                let dec_keys = ChaCha20Poly1305::new(&Key::from(session_key))
-                    .decrypt(nonce.into(), vec![keys, &self.mac])
+                let dec_keys = ChaCha20Poly1305::new_from_slice(session_key)?
+                    .decrypt(
+                        nonce.into(),
+                        vec![keys.as_slice(), self.mac.as_slice()]
+                            .concat()
+                            .as_slice(),
+                    )
                     .map_err(|e| anyhow!("Error while decrypting keys"))?;
 
                 self.keys = Keys::Decrypted(DecryptedKey {
-                    keys: dec_keys.chunks_exact(32).map(|x| x.try_into()).collect()?,
-                    readers_pubkey: keypair.public().into(),
+                    keys: dec_keys
+                        .chunks_exact(32)
+                        .map(|x| <[u8; 32]>::try_from(x))
+                        .collect::<Result<Vec<_>, _>>()?,
+                    readers_pubkey: *keypair.public().as_ref(),
                 });
             }
-            Keys::Decrypted(_) => Err(anyhow!("Keys already decrypted")),
+            Keys::Decrypted(_) => return Err(anyhow!("Keys already decrypted")),
         }
         Ok(())
     }
@@ -282,10 +328,7 @@ impl EncryptionMetadata {
         }
     }
 
-    pub fn encrypt_all(
-        &mut self,
-        writers_secret_key: Option<[u8; 32]>,
-    ) -> Result<()> {
+    pub fn encrypt_all(&mut self, writers_secret_key: Option<[u8; 32]>) -> Result<()> {
         for packet in &mut self.packets {
             packet.encrypt(writers_secret_key)?;
         }
@@ -348,8 +391,9 @@ impl TryFrom<&[u8]> for EncryptionMetadata {
     }
 }
 
-impl Into<Vec<u8>> for EncryptionMetadata {
-    fn into(self) -> Vec<u8> {
+impl TryInto<Vec<u8>> for EncryptionMetadata {
+    type Error = anyhow::Error;
+    fn try_into(self) -> Result<Vec<u8>> {
         let mut buffer = Vec::new();
         buffer.extend_from_slice(&self.magic_bytes);
         LittleEndian::write_u32(&mut buffer, self.len);
@@ -357,13 +401,16 @@ impl Into<Vec<u8>> for EncryptionMetadata {
             LittleEndian::write_u32(&mut buffer, packet.len);
             buffer.extend_from_slice(&packet.pubkey);
             buffer.extend_from_slice(&packet.nonce);
-            for key in packet.keys {
-                buffer.extend_from_slice(&key.0);
+            match packet.keys {
+                Keys::Encrypted(keys) => buffer.extend_from_slice(&keys),
+                Keys::Decrypted(keys) => {
+                    bail!("Encryption metadata contains unencrypted keys")
+                }
             }
             buffer.extend_from_slice(&packet.mac);
         }
         buffer.extend_from_slice(&self.padding);
-        buffer
+        Ok(buffer)
     }
 }
 

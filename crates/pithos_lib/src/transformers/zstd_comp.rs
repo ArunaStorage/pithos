@@ -1,11 +1,14 @@
-use crate::notifications::FooterData;
+use std::sync::Arc;
+
 use crate::notifications::Message;
-use crate::notifications::MessageData;
+use crate::notifications::Notifier;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::anyhow;
 use anyhow::Result;
+use async_channel::Receiver;
 use async_channel::Sender;
+use async_channel::TryRecvError;
 use async_compression::tokio::write::ZstdEncoder;
 use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
@@ -23,9 +26,10 @@ pub struct ZstdEnc {
     prev_buf: BytesMut,
     size_counter: usize,
     chunks: Vec<u8>,
-    is_last: bool,
     finished: bool,
-    sender: Option<Sender<Message>>,
+    notifier: Option<Arc<Notifier>>,
+    msg_receiver: Option<Receiver<Message>>,
+    idx: Option<usize>,
 }
 
 impl ZstdEnc {
@@ -37,22 +41,51 @@ impl ZstdEnc {
             prev_buf: BytesMut::with_capacity(RAW_FRAME_SIZE + CHUNK),
             size_counter: 0,
             chunks: Vec::new(),
-            is_last: last,
             finished: false,
-            sender: None,
+            notifier: None,
+            msg_receiver: None,
+            idx: None,
         }
+    }
+
+    #[tracing::instrument(level = "trace", skip(self))]
+    fn process_messages(&mut self) -> Result<(bool, bool)> {
+        if let Some(rx) = &self.msg_receiver {
+            loop {
+                match rx.try_recv() {
+                    Ok(Message::ShouldFlush) => return Ok((true, false)),
+                    Ok(Message::Finished) => return Ok((false, true)),
+                    Ok(_) => {}
+                    Err(TryRecvError::Empty) => {
+                        break;
+                    }
+                    Err(TryRecvError::Closed) => {
+                        error!("Message receiver closed");
+                        return Err(anyhow!("Message receiver closed"));
+                    }
+                }
+            }
+        }
+        Ok((false, false))
     }
 }
 
 #[async_trait::async_trait]
 impl Transformer for ZstdEnc {
-    #[tracing::instrument(level = "trace", skip(self, buf, finished, should_flush))]
-    async fn process_bytes(
-        &mut self,
-        buf: &mut bytes::BytesMut,
-        finished: bool,
-        should_flush: bool,
-    ) -> Result<bool> {
+    #[tracing::instrument(level = "trace", skip(self))]
+    async fn initialize(&mut self, idx: usize) -> (TransformerType, Sender<Message>) {
+        self.idx = Some(idx);
+        let (sx, rx) = async_channel::bounded(10);
+        self.msg_receiver = Some(rx);
+        (TransformerType::ZstdCompressor, sx)
+    }
+
+    #[tracing::instrument(level = "trace", skip(self, buf))]
+    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
+        let Ok((should_flush, finished)) = self.process_messages() else {
+            return Err(anyhow!("Error processing messages"));
+        };
+
         if should_flush {
             debug!("flushed zstd encoder");
             self.internal_buf.write_all_buf(buf).await?;
@@ -60,7 +93,7 @@ impl Transformer for ZstdEnc {
             self.prev_buf.extend_from_slice(self.internal_buf.get_ref());
             self.internal_buf = ZstdEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
             buf.put(self.prev_buf.split().freeze());
-            return Ok(finished);
+            return Ok(());
         }
 
         // Create a new frame if buf would increase size_counter to more than RAW_FRAME_SIZE
@@ -95,7 +128,7 @@ impl Transformer for ZstdEnc {
                 self.internal_buf.write_all_buf(&mut all_data).await?;
             }
 
-            return Ok(self.finished && self.prev_buf.is_empty());
+            return Ok(());
         }
 
         // Only write if the buffer contains data and the current process is not finished
@@ -109,36 +142,32 @@ impl Transformer for ZstdEnc {
         if !self.finished && finished && buf.is_empty() {
             self.internal_buf.shutdown().await?;
             self.prev_buf.extend_from_slice(self.internal_buf.get_ref());
-            if !self.is_last {
-                self.add_skippable().await;
-            };
+            self.add_skippable().await;
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
             buf.put(self.prev_buf.split().freeze());
-            if let Some(s) = &self.sender {
-                debug!(chunks = ?self.chunks, "sending footer");
-                s.send(Message {
-                    target: TransformerType::FooterGenerator,
-                    data: MessageData::Footer(FooterData {
-                        chunks: self.chunks.clone(),
-                    }),
-                })
-                .await?;
-            };
+            if let Some(notifier) = &self.notifier {
+                notifier.send_next(
+                    self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
+                    Message::Finished,
+                )?;
+                notifier.send_next_type(
+                    self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
+                    TransformerType::FooterGenerator,
+                    Message::Blocklist(self.chunks.clone()),
+                )?;
+            }
             self.finished = true;
-            return Ok(self.finished && self.prev_buf.is_empty());
+            return Ok(());
         }
         buf.put(self.prev_buf.split().freeze());
-        Ok(self.finished && self.prev_buf.is_empty())
+        Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip(self, s))]
-    fn add_sender(&mut self, s: Sender<Message>) {
-        self.sender = Some(s);
-    }
-
-    #[tracing::instrument(level = "trace", skip(self))]
-    fn get_type(&self) -> TransformerType {
-        TransformerType::ZstdCompressor
+    #[tracing::instrument(level = "trace", skip(self, notifier))]
+    #[inline]
+    async fn set_notifier(&mut self, notifier: Arc<Notifier>) -> Result<()> {
+        self.notifier = Some(notifier);
+        Ok(())
     }
 }
 
@@ -186,7 +215,7 @@ mod tests {
         let mut encoder = ZstdEnc::new(false);
         let mut buf = BytesMut::new();
         buf.put(b"12345".as_slice());
-        encoder.process_bytes(&mut buf, true, false).await.unwrap();
+        encoder.process_bytes(&mut buf).await.unwrap();
         // Starts with magic zstd header (little-endian)
         assert!(buf.starts_with(&hex::decode("28B52FFD").unwrap()));
         // Expect 65kb size
@@ -204,41 +233,12 @@ mod tests {
         let mut encoder = ZstdEnc::new(true);
         let mut buf = BytesMut::new();
         buf.put(b"12345".as_slice());
-        encoder.process_bytes(&mut buf, true, false).await.unwrap();
+        encoder.process_bytes(&mut buf).await.unwrap();
         // Starts with magic zstd header (little-endian)
         assert!(buf.starts_with(&hex::decode("28B52FFD").unwrap()));
         // Expect 14b size
         assert_eq!(buf.len(), 14);
         let expected = hex::decode("28b52ffd00582900003132333435").unwrap();
         assert_eq!(buf.as_ref(), &expected)
-    }
-
-    #[tokio::test]
-    async fn test_zstd_encoder_with_notify() {
-        let mut encoder = ZstdEnc::new(true);
-        let mut buf = BytesMut::new();
-
-        let (sx, rx) = async_channel::unbounded::<Message>();
-
-        encoder.add_sender(sx);
-
-        buf.put(b"12345".as_slice());
-        assert!(encoder.process_bytes(&mut buf, true, false).await.unwrap());
-
-        let taken = buf.split();
-        // Starts with magic zstd header (little-endian)
-        assert!(taken.starts_with(&hex::decode("28B52FFD").unwrap()));
-        // Expect 14b size
-        assert_eq!(taken.len(), 14);
-        let expected = hex::decode("28b52ffd00582900003132333435").unwrap();
-        assert_eq!(taken.as_ref(), &expected);
-        let received = rx.recv().await.unwrap();
-        assert_eq!(
-            received,
-            Message {
-                target: TransformerType::FooterGenerator,
-                data: MessageData::Footer(FooterData { chunks: vec![0u8] })
-            }
-        )
     }
 }

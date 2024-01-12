@@ -1,16 +1,16 @@
-use std::sync::Arc;
-
 use crate::notifications::{Message, Notifier};
 use crate::transformer::{Transformer, TransformerType};
 use anyhow::anyhow;
 use anyhow::Result;
 use async_channel::{Receiver, Sender, TryRecvError};
-use tracing::{debug, error};
+use std::sync::Arc;
+use tracing::error;
 
 pub struct SizeProbe {
     size_counter: u64,
     size_sender: Sender<u64>,
     notifier: Option<Arc<Notifier>>,
+    msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
 }
 
@@ -25,6 +25,7 @@ impl SizeProbe {
                 size_counter: 0,
                 notifier: None,
                 idx: None,
+                msg_receiver: None,
                 size_sender,
             },
             size_receiver,
@@ -32,16 +33,12 @@ impl SizeProbe {
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
-    fn process_messages(&mut self) -> Result<()> {
+    fn process_messages(&mut self) -> Result<bool> {
         if let Some(rx) = &self.msg_receiver {
             loop {
                 match rx.try_recv() {
                     Ok(Message::Finished) => {
-                        if let Some(notifier) = &self.notifier {
-                            notifier.send_read_writer(Message::Finished)?;
-                        }
-                        debug!("finished");
-                        break;
+                        return Ok(true);
                     }
                     Ok(_) => {}
                     Err(TryRecvError::Empty) => {
@@ -54,7 +51,7 @@ impl SizeProbe {
                 }
             }
         }
-        Ok(())
+        Ok(false)
     }
 }
 
@@ -83,7 +80,7 @@ impl Transformer for SizeProbe {
                     notifier.send_next(
                         self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
                         Message::Finished,
-                    )
+                    )?;
                 }
             }
             return Ok(());

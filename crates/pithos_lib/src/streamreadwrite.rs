@@ -226,10 +226,11 @@ impl<
         }
         Ok(())
     }
+
     #[tracing::instrument(level = "trace", skip(self, message))]
     async fn announce_all(&mut self, message: Message) -> Result<()> {
-        for (_, trans) in self.transformers.iter_mut() {
-            trans.notify(&message).await?;
+        if let Some(notifier) = &self.notifier {
+            notifier.send_all(message)?;
         }
         Ok(())
     }

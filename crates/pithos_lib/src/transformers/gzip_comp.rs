@@ -3,10 +3,13 @@ use crate::notifications::Notifier;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::{anyhow, Result};
+use async_channel::Receiver;
 use async_channel::Sender;
 use async_channel::TryRecvError;
 use async_compression::tokio::write::GzipEncoder;
+use bytes::BufMut;
 use std::sync::Arc;
+use tokio::io::AsyncWriteExt;
 use tracing::debug;
 use tracing::error;
 
@@ -15,6 +18,7 @@ const RAW_FRAME_SIZE: usize = 5_242_880;
 pub struct GzipEnc {
     internal_buf: GzipEncoder<Vec<u8>>,
     notifier: Option<Arc<Notifier>>,
+    msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
     size_counter: usize,
 }
@@ -26,6 +30,7 @@ impl GzipEnc {
         GzipEnc {
             internal_buf: GzipEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE)),
             idx: None,
+            msg_receiver: None,
             notifier: None,
             size_counter: 0,
         }
@@ -74,7 +79,7 @@ impl Transformer for GzipEnc {
         self.size_counter += buf.len();
         self.internal_buf.write_all_buf(buf).await?;
 
-        let Ok(finished) = self.process_messages()? else {
+        let Ok(finished) = self.process_messages() else {
             return Err(anyhow!("GzipEnc: Error processing messages"));
         };
         if finished && self.size_counter != 0 {

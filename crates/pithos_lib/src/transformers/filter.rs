@@ -49,7 +49,7 @@ impl Filter {
             counter: 0,
             has_filter: filter.is_some(),
             param: filter
-                .map(|mut f| f.pop().map(|e| FilterParam::Discard(*e)))
+                .map(|mut f| f.pop().map(|e| FilterParam::Discard(e)))
                 .flatten()
                 .unwrap_or(FilterParam::None),
             filter: filter.unwrap_or_default(),
@@ -68,8 +68,8 @@ impl Filter {
                 match rx.try_recv() {
                     Ok(Message::Finished) => return Ok(true),
                     Ok(Message::EditList(filter)) => {
-                        self.has_filter = filter.is_some();
-                        self.filter = filter.unwrap_or_default();
+                        self.has_filter = true;
+                        self.filter = filter;
                     }
                     Ok(_) => {}
                     Err(TryRecvError::Empty) => {

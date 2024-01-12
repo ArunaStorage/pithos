@@ -1,7 +1,9 @@
 use std::mem;
+use std::sync::Arc;
 
-use crate::notifications::{FileMessage, Message};
-use crate::transformer::{FileContext, ReadWriter, Sink, Transformer, TransformerType};
+use crate::notifications::{Message, Notifier};
+use crate::structs::FileContext;
+use crate::transformer::{ReadWriter, Sink, Transformer, TransformerType};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::{bail, Result};
 use async_channel::{Receiver, Sender};
@@ -11,13 +13,14 @@ use tracing::{debug, error};
 
 pub struct GenericReadWriter<'a, R: AsyncRead + Unpin> {
     reader: BufReader<R>,
-    transformers: Vec<(TransformerType, Box<dyn Transformer + Send + Sync + 'a>)>,
+    notifier: Option<Arc<Notifier>>,
+    transformers: Vec<Box<dyn Transformer + Send + Sync + 'a>>,
     sink: Box<dyn Transformer + Send + Sync + 'a>,
     receiver: Receiver<Message>,
     sender: Sender<Message>,
     size_counter: usize,
     current_file_context: Option<(FileContext, bool)>,
-    file_ctx_rx: Option<Receiver<(FileContext, bool)>>,
+    external_receiver: Option<Receiver<Message>>,
 }
 
 impl<'a, R: AsyncRead + Unpin> GenericReadWriter<'a, R> {
@@ -29,13 +32,14 @@ impl<'a, R: AsyncRead + Unpin> GenericReadWriter<'a, R> {
         let (sx, rx) = async_channel::unbounded();
         GenericReadWriter {
             reader: BufReader::new(reader),
+            notifier: None,
             sink: Box::new(WriterSink::new(BufWriter::new(writer))),
             transformers: Vec::new(),
             sender: sx,
             receiver: rx,
             size_counter: 0,
             current_file_context: None,
-            file_ctx_rx: None,
+            external_receiver: None,
         }
     }
 
@@ -48,13 +52,14 @@ impl<'a, R: AsyncRead + Unpin> GenericReadWriter<'a, R> {
 
         GenericReadWriter {
             reader: BufReader::new(reader),
+            notifier: None,
             sink: Box::new(transformer),
             transformers: Vec::new(),
             sender: sx,
             receiver: rx,
             size_counter: 0,
             current_file_context: None,
-            file_ctx_rx: None,
+            external_receiver: None,
         }
     }
 
@@ -63,11 +68,13 @@ impl<'a, R: AsyncRead + Unpin> GenericReadWriter<'a, R> {
         mut self,
         mut transformer: T,
     ) -> Self {
-        transformer.add_sender(self.sender.clone());
-
-        self.transformers
-            .push((transformer.get_type(), Box::new(transformer)));
+        self.transformers.push(Box::new(transformer));
         self
+    }
+
+    #[tracing::instrument(level = "trace", skip(self, file_ctx))]
+    pub fn set_file_ctx(&mut self, file_ctx: FileContext) {
+        self.current_file_context = Some((file_ctx, false));
     }
 }
 
@@ -174,18 +181,17 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for GenericReadWriter<'a
     }
 
     #[tracing::instrument(level = "trace", skip(self, message))]
-    async fn announce_all(&mut self, mut message: Message) -> Result<()> {
-        message.target = TransformerType::All;
-        for (_, trans) in self.transformers.iter_mut() {
-            trans.notify(&message).await?;
+    async fn announce_all(&mut self, message: Message) -> Result<()> {
+        if let Some(notifier) = &self.notifier {
+            notifier.send_all(message)?;
         }
         Ok(())
     }
 
     #[tracing::instrument(level = "trace", skip(self, rx))]
-    async fn add_file_context_receiver(&mut self, rx: Receiver<(FileContext, bool)>) -> Result<()> {
-        if self.file_ctx_rx.is_none() {
-            self.file_ctx_rx = Some(rx);
+    async fn add_message_receiver(&mut self, rx: Receiver<Message>) -> Result<()> {
+        if self.external_receiver.is_none() {
+            self.external_receiver = Some(rx);
             Ok(())
         } else {
             error!("Overwriting existing receivers is not allowed!");

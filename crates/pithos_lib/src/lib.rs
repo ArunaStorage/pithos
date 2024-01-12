@@ -14,7 +14,7 @@ mod tests {
     use crate::helpers::footer_parser::{FooterParser, Range};
     use crate::readwrite::GenericReadWriter;
     use crate::streamreadwrite::GenericStreamReadWriter;
-    use crate::transformer::{FileContext, ReadWriter};
+    use crate::transformer::ReadWriter;
     use crate::transformers::decrypt::ChaCha20Dec;
     use crate::transformers::encrypt::ChaCha20Enc;
     use crate::transformers::filter::Filter;

@@ -1,17 +1,17 @@
-use std::sync::Arc;
-
-use crate::notifications::{Message, Notifier};
+use crate::notifications::{HashType, Message, Notifier};
 use crate::transformer::{Transformer, TransformerType};
 use anyhow::anyhow;
 use anyhow::Result;
-use async_channel::{Sender, TryRecvError};
+use async_channel::{Receiver, Sender, TryRecvError};
 use digest::{Digest, FixedOutputReset};
+use std::sync::Arc;
 use tracing::error;
 
 pub struct HashingTransformer<T: Digest + Send + FixedOutputReset> {
     hasher: T,
     hasher_type: String,
     idx: Option<usize>,
+    msg_receiver: Option<Receiver<Message>>,
     notifier: Option<Arc<Notifier>>,
 }
 
@@ -26,6 +26,7 @@ where
             hasher,
             hasher_type,
             idx: None,
+            msg_receiver: None,
             notifier: None,
         }
     }
@@ -76,18 +77,20 @@ where
             if finished {
                 if let Some(notifier) = &self.notifier {
                     let finished_hash = hex::encode(self.hasher.finalize_reset()).to_string();
+                    let hashertype = match self.hasher_type.as_str() {
+                        "sha1" => HashType::Sha1,
+                        "md5" => HashType::Md5,
+                        a => HashType::Other(a.to_string()),
+                    };
                     notifier.send_all_type(
                         TransformerType::FooterGenerator,
-                        Message::Hash((self.hasher_type.to_string(), finished_hash)),
+                        Message::Hash((hashertype, finished_hash)),
                     )?;
-                    notifier.send_read_writer(Message::Hash((
-                        self.hasher_type.to_string(),
-                        finished_hash,
-                    )))?;
+                    notifier.send_read_writer(Message::Hash((hashertype, finished_hash)))?;
                     notifier.send_next(
                         self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
                         Message::Finished,
-                    )
+                    )?;
                 }
             }
             return Ok(());

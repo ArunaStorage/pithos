@@ -4,7 +4,8 @@ use futures::Stream;
 
 use crate::{
     notifications::Message,
-    transformer::{FileContext, Sink, Transformer, TransformerType},
+    structs::FileContext,
+    transformer::{Sink, Transformer, TransformerType},
 };
 
 pub struct PithosReader<

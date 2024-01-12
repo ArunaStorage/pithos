@@ -1,15 +1,9 @@
 use crate::streamreadwrite::GenericStreamReadWriter;
-use crate::transformer::{FileContext, Sink, Transformer};
-use crate::transformers::encrypt::ChaCha20Enc;
-use crate::transformers::footer::FooterGenerator;
-use crate::transformers::hashing_transformer::HashingTransformer;
-use crate::transformers::zstd_comp::ZstdEnc;
+use crate::structs::FileContext;
+use crate::transformer::{Sink, Transformer};
 use anyhow::Result;
 use bytes::Bytes;
-use digest::Digest;
 use futures::Stream;
-use md5::Md5;
-use sha1::Sha1;
 
 pub struct PithosWriter<
     'a,
@@ -38,27 +32,28 @@ impl<
         file_context: FileContext,
         metadata: Option<String>,
     ) -> Result<Self> {
-        let mut stream_read_writer = GenericStreamReadWriter::new_with_sink(input_stream, sink);
+        todo!();
+        // let mut stream_read_writer = GenericStreamReadWriter::new_with_sink(input_stream, sink);
 
-        // Hashes
-        let (md5_transformer, md5_receiver) = HashingTransformer::new(Md5::new());
-        let (sha1_transformer, sha1_receiver) = HashingTransformer::new(Sha1::new());
-        stream_read_writer = stream_read_writer.add_transformer(md5_transformer);
-        stream_read_writer = stream_read_writer.add_transformer(sha1_transformer);
+        // // Hashes
+        // let (md5_transformer, md5_receiver) = HashingTransformer::new(Md5::new());
+        // let (sha1_transformer, sha1_receiver) = HashingTransformer::new(Sha1::new());
+        // stream_read_writer = stream_read_writer.add_transformer(md5_transformer);
+        // stream_read_writer = stream_read_writer.add_transformer(sha1_transformer);
 
-        if file_context.compression {
-            stream_read_writer = stream_read_writer.add_transformer(ZstdEnc::new(false));
-        }
-        if let Some(encryption_key) = &file_context.encryption_key {
-            stream_read_writer = stream_read_writer
-                .add_transformer(ChaCha20Enc::new(false, encryption_key.clone())?);
-        }
-        stream_read_writer = stream_read_writer.add_transformer(FooterGenerator::new(None));
+        // if file_context.compression {
+        //     stream_read_writer = stream_read_writer.add_transformer(ZstdEnc::new(false));
+        // }
+        // if let Some(encryption_key) = &file_context.encryption_key {
+        //     stream_read_writer = stream_read_writer
+        //         .add_transformer(ChaCha20Enc::new(false, encryption_key.clone())?);
+        // }
+        // stream_read_writer = stream_read_writer.add_transformer(FooterGenerator::new(None));
 
-        Ok(PithosWriter {
-            stream_read_writer,
-            file_context,
-            metadata,
-        })
+        // Ok(PithosWriter {
+        //     stream_read_writer,
+        //     file_context,
+        //     metadata,
+        // })
     }
 }

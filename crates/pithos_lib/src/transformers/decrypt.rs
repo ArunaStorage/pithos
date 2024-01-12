@@ -51,6 +51,7 @@ impl ChaCha20Dec {
         })
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn process_messages(&mut self) -> Result<(bool, bool)> {
         if let Some(rx) = &self.msg_receiver {
             loop {

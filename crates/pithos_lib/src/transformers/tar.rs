@@ -1,11 +1,12 @@
 use crate::notifications::Message;
 use crate::notifications::Notifier;
-use crate::transformer::FileContext;
+use crate::structs::FileContext;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Result;
+use async_channel::Receiver;
 use async_channel::Sender;
 use async_channel::TryRecvError;
 use bytes::BufMut;
@@ -18,6 +19,7 @@ use tracing::error;
 pub struct TarEnc {
     header: Option<Header>,
     notifier: Option<Arc<Notifier>>,
+    msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
     padding: usize,
     finished: bool,
@@ -57,6 +59,7 @@ impl TarEnc {
         TarEnc {
             header: None,
             notifier: None,
+            msg_receiver: None,
             idx: None,
             padding: 0,
             finished: false,
@@ -127,7 +130,7 @@ impl Transformer for TarEnc {
                 buf.put(vec![0u8; self.padding].as_ref());
             }
             self.padding = 0;
-            return Ok(finished);
+            return Ok(());
         }
         if let Some(header) = &self.header {
             let temp = buf.split();

@@ -1,13 +1,19 @@
+use std::sync::Arc;
+
 use crate::notifications::Message;
-use crate::notifications::Response;
+use crate::notifications::Notifier;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use async_channel::Receiver;
+use async_channel::Sender;
+use async_channel::TryRecvError;
 use async_compression::tokio::write::ZstdDecoder;
 use bytes::BufMut;
 use bytes::BytesMut;
 use tokio::io::AsyncWriteExt;
 use tracing::debug;
+use tracing::error;
 
 const RAW_FRAME_SIZE: usize = 5_242_880;
 const CHUNK: usize = 65_536;
@@ -15,8 +21,11 @@ const CHUNK: usize = 65_536;
 pub struct ZstdDec {
     internal_buf: ZstdDecoder<Vec<u8>>,
     prev_buf: BytesMut,
-    finished: bool,
     skip_me: bool,
+    finished: bool,
+    notifier: Option<Arc<Notifier>>,
+    msg_receiver: Option<Receiver<Message>>,
+    idx: Option<usize>,
 }
 
 impl ZstdDec {
@@ -26,9 +35,36 @@ impl ZstdDec {
         ZstdDec {
             internal_buf: ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK)),
             prev_buf: BytesMut::with_capacity(RAW_FRAME_SIZE + CHUNK),
-            finished: false,
             skip_me: false,
+            finished: false,
+            notifier: None,
+            msg_receiver: None,
+            idx: None,
         }
+    }
+
+    #[tracing::instrument(level = "trace", skip(self))]
+    fn process_messages(&mut self) -> Result<(bool, bool)> {
+        if let Some(rx) = &self.msg_receiver {
+            loop {
+                match rx.try_recv() {
+                    Ok(Message::ShouldFlush) => return Ok((true, false)),
+                    Ok(Message::Finished) => return Ok((false, true)),
+                    Ok(Message::Skip) => {
+                        self.skip_me = true;
+                    }
+                    Ok(_) => {}
+                    Err(TryRecvError::Empty) => {
+                        break;
+                    }
+                    Err(TryRecvError::Closed) => {
+                        error!("Message receiver closed");
+                        return Err(anyhow!("Message receiver closed"));
+                    }
+                }
+            }
+        }
+        Ok((false, false))
     }
 }
 
@@ -41,16 +77,23 @@ impl Default for ZstdDec {
 
 #[async_trait::async_trait]
 impl Transformer for ZstdDec {
-    #[tracing::instrument(level = "trace", skip(self, buf, finished, should_flush))]
-    async fn process_bytes(
-        &mut self,
-        buf: &mut bytes::BytesMut,
-        finished: bool,
-        should_flush: bool,
-    ) -> Result<bool> {
+    #[tracing::instrument(level = "trace", skip(self))]
+    async fn initialize(&mut self, idx: usize) -> (TransformerType, Sender<Message>) {
+        self.idx = Some(idx);
+        let (sx, rx) = async_channel::bounded(10);
+        self.msg_receiver = Some(rx);
+        (TransformerType::ZstdDecompressor, sx)
+    }
+
+    #[tracing::instrument(level = "trace", skip(self, buf))]
+    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
+        let Ok((should_flush, finished)) = self.process_messages() else {
+            return Err(anyhow!("Error processing messages"));
+        };
+
         if self.skip_me {
             debug!("skipped zstd decoder");
-            return Ok(finished);
+            return Ok(());
         }
         if should_flush {
             debug!("flushed zstd decoder");
@@ -59,7 +102,7 @@ impl Transformer for ZstdDec {
             self.prev_buf.put(self.internal_buf.get_ref().as_slice());
             self.internal_buf = ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
             buf.put(self.prev_buf.split().freeze());
-            return Ok(finished);
+            return Ok(());
         }
 
         // Only write if the buffer contains data and the current process is not finished
@@ -77,26 +120,24 @@ impl Transformer for ZstdDec {
             debug!("finish zstd decoder");
             self.internal_buf.shutdown().await?;
             self.prev_buf.put(self.internal_buf.get_ref().as_slice());
+            if let Some(notifier) = &self.notifier {
+                notifier.send_next(
+                    self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
+                    Message::Finished,
+                )?;
+            }
             self.finished = true;
         }
 
         buf.put(self.prev_buf.split().freeze());
-        Ok(self.finished && self.prev_buf.is_empty())
+        Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
+    #[tracing::instrument(level = "trace", skip(self, notifier))]
     #[inline]
-    fn get_type(&self) -> TransformerType {
-        TransformerType::ZstdDecompressor
-    }
-    #[tracing::instrument(level = "trace", skip(self, message))]
-    async fn notify(&mut self, message: &Message) -> Result<Response> {
-        if message.target == TransformerType::All {
-            if let crate::notifications::MessageData::NextFile(nfile) = &message.data {
-                self.skip_me = nfile.context.compression
-            }
-        }
-        Ok(Response::Ok)
+    async fn set_notifier(&mut self, notifier: Arc<Notifier>) -> Result<()> {
+        self.notifier = Some(notifier);
+        Ok(())
     }
 }
 
@@ -115,7 +156,7 @@ mod tests {
         ))
         .unwrap();
         buf.put(expected.as_slice());
-        decoder.process_bytes(&mut buf, true, false).await.unwrap();
+        decoder.process_bytes(&mut buf).await.unwrap();
         // Expect 65kb size
         assert_eq!(buf.len(), 5);
         assert_eq!(buf, b"12345".as_slice());
@@ -127,7 +168,7 @@ mod tests {
         let mut buf = BytesMut::new();
         let expected = hex::decode("28b52ffd00582900003132333435").unwrap();
         buf.put(expected.as_slice());
-        decoder.process_bytes(&mut buf, true, true).await.unwrap();
+        decoder.process_bytes(&mut buf).await.unwrap();
         // Expect 65kb size
         assert_eq!(buf.len(), 5);
         assert_eq!(buf, b"12345".as_slice());

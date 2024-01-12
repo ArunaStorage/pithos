@@ -1,16 +1,16 @@
-use std::sync::Arc;
-
 use crate::notifications::{Message, Notifier};
 use crate::transformer::{Sink, Transformer, TransformerType};
 use anyhow::{anyhow, Result};
-use async_channel::{Sender as AsyncSender, TryRecvError};
+use async_channel::{Receiver, Sender as AsyncSender, TryRecvError};
 use hyper::body::Sender;
 use hyper::Body;
+use std::sync::Arc;
 use tracing::{debug, error};
 
 pub struct HyperSink {
     sender: Sender,
     notifier: Option<Arc<Notifier>>,
+    msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
 }
 
@@ -24,6 +24,7 @@ impl HyperSink {
             Self {
                 sender,
                 notifier: None,
+                msg_receiver: None,
                 idx: None,
             },
             body,

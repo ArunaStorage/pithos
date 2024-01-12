@@ -1,4 +1,4 @@
-use crate::transformer::{FileContext, TransformerType};
+use crate::{structs::FileContext, transformer::TransformerType};
 use async_channel::Sender;
 
 #[non_exhaustive]
@@ -58,8 +58,15 @@ impl Notifier {
     ) -> anyhow::Result<()> {
         for (trans, sender) in self.notifiers.iter() {
             if trans == &trans_type {
-                sender.try_send(message.clone())?;
+                sender.try_send(message)?;
             }
+        }
+        Ok(())
+    }
+
+    pub fn send_all(&self, message: Message) -> anyhow::Result<()> {
+        for (trans, sender) in self.notifiers.iter() {
+            sender.try_send(message)?;
         }
         Ok(())
     }

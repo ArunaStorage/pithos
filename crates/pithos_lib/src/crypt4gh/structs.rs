@@ -1,12 +1,11 @@
 use crate::crypt4gh::error::Crypt4GHError;
 use byteorder::{LittleEndian, ReadBytesExt};
-use chacha20poly1305::aead::generic_array::sequence::GenericSequence;
-use chacha20poly1305::aead::{Aead, Key};
-use chacha20poly1305::{ChaCha20Poly1305, KeyInit, Nonce};
+use chacha20poly1305::aead::Aead;
+use chacha20poly1305::aead::OsRng;
+use chacha20poly1305::{AeadCore, Nonce};
+use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
 use crypto_kx::{Keypair, PublicKey, SecretKey};
-use rand_core::OsRng;
 use std::io::{Cursor, Read};
-use tokio::io::AsyncReadExt;
 
 const CRYPT4GH_HEADER_MAGIC: [u8; 8] = [0x63, 0x72, 0x79, 0x70, 0x74, 0x34, 0x67, 0x68]; // "crypt4gh"
 const CRYPT4GH_HEADER_VERSION: u32 = 1;
@@ -32,6 +31,28 @@ struct HeaderPacket {
 pub enum PacketData {
     Encrypted(Vec<u8>),
     Decrypted(Vec<Packet>),
+}
+
+impl PacketData {
+    pub fn get_len(&self) -> usize {
+        match self {
+            Self::Encrypted(enc_data) => enc_data.len(),
+            Self::Decrypted(dec_data) => {
+                let mut len = 0;
+                for packet in dec_data {
+                    match packet {
+                        Packet::Encryption(_) => {
+                            len += 4 + 4 + 32;
+                        }
+                        Packet::EditList(edit_packet) => {
+                            len += 4 + 4 + 8 * edit_packet.num_length as usize;
+                        }
+                    }
+                }
+                len
+            }
+        }
+    }
 }
 
 pub enum Packet {
@@ -88,7 +109,7 @@ impl TryFrom<&[u8]> for Crypt4GHHeader {
                 .map_err(|_| Crypt4GHError::FromBytesError("packet data".to_string()))?;
             header
                 .header_packets
-                .push(HeaderPacket::from_buf(&mut buf, len as usize)?);
+                .push(HeaderPacket::from_buf(buf, len as usize)?);
         }
         Ok(header)
     }
@@ -132,7 +153,8 @@ impl HeaderPacket {
         }
     }
 
-    pub fn from_buf(bytes: &mut [u8], len: usize) -> Result<Self, Crypt4GHError> {
+    pub fn from_buf(bytes: Vec<u8>, len: usize) -> Result<Self, Crypt4GHError> {
+        let mut bytes = Cursor::new(bytes);
         let encryption_method = bytes
             .read_u32::<LittleEndian>()
             .map_err(|_| Crypt4GHError::FromBytesError("encryption method".to_string()))?;
@@ -144,12 +166,17 @@ impl HeaderPacket {
         bytes
             .read_exact(&mut nonce)
             .map_err(|_| Crypt4GHError::FromBytesError("nonce".to_string()))?;
-        let encrypted_packet_data =
-            PacketData::Encrypted(bytes[4 + 32 + 12..bytes.len() - 16].to_vec());
-        let mac = bytes[bytes.len() - 16..];
+
+        let mut packet_data = Vec::new();
+        bytes
+            .read_to_end(&mut packet_data)
+            .map_err(|_| Crypt4GHError::FromBytesError("packet data and mac".to_string()))?;
+        let (enc, mac) = packet_data.split_at(packet_data.len() - 16);
+        let encrypted_packet_data = PacketData::Encrypted(enc.to_vec());
 
         Ok(HeaderPacket {
-            length: len.into(),
+            length: u32::try_from(len)
+                .map_err(|_| Crypt4GHError::FromBytesError("header packet length".to_string()))?,
             encryption_method,
             writers_pubkey,
             nonce,
@@ -181,11 +208,13 @@ impl HeaderPacket {
             None => Keypair::generate(&mut OsRng),
         };
         let session_key = keypair.session_keys_from(&readers_pubkey).tx.as_ref();
-        let nonce = Nonce::generate(&mut OsRng);
-        self.mac = self.packet_data.encrypt(session_key.into(), nonce.into())?;
-        self.writers_pubkey = keypair.public().into();
+        let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
+        self.mac = self.packet_data.encrypt(session_key.into(), &nonce)?;
+        self.writers_pubkey = *keypair.public().as_ref();
         self.nonce = nonce.into();
-        self.length = (4 + 4 + 32 + 12 + self.packet_data.len() + 16).into();
+        self.length = (4 + 4 + 32 + 12 + self.packet_data.get_len() + 16)
+            .try_into()
+            .map_err(|_| Crypt4GHError::EncryptionError("header packet length".to_string()))?;
         Ok(())
     }
 }
@@ -202,10 +231,15 @@ impl PacketData {
                 .map_err(|e| {
                     Crypt4GHError::DecryptionError(format!("initialize decryptor: {}", e))
                 })?
-                .decrypt(nonce.into(), vec![enc_data, mac])
+                .decrypt(
+                    nonce.into(),
+                    vec![enc_data.as_slice(), mac.as_slice()]
+                        .concat()
+                        .as_slice(),
+                )
                 .map_err(|e| Crypt4GHError::DecryptionFailed)?;
 
-            self = &mut Self::Decrypted(Self::packet_from_bytes(&decrypted_bytes)?);
+            *self = Self::Decrypted(Self::packet_from_bytes(&decrypted_bytes)?);
         } else {
             return Err(Crypt4GHError::DecryptionError(
                 "packet data is not encrypted".to_string(),
@@ -217,7 +251,7 @@ impl PacketData {
     pub fn encrypt(
         &mut self,
         session_key: &[u8; 32],
-        nonce: &[u8; 12],
+        nonce: &Nonce,
     ) -> Result<[u8; 16], Crypt4GHError> {
         return if let Self::Decrypted(dec_data) = &self {
             let mut enc_data = Vec::new();
@@ -237,10 +271,11 @@ impl PacketData {
                     }
                 }
             }
-            ChaCha20Poly1305::new(&Key::from(session_key))
+            ChaCha20Poly1305::new_from_slice(session_key)
+                .map_err(|_| Crypt4GHError::EncryptionError("initialize encryptor".to_string()))?
                 .encrypt(nonce.into(), enc_data.as_slice())
                 .map_err(|e| Crypt4GHError::EncryptionError("encrypt chunk".to_string()))?;
-            *self = &mut Self::Encrypted(enc_data[..enc_data.len() - 16].to_vec());
+            *self = Self::Encrypted(enc_data[..enc_data.len() - 16].to_vec());
             Ok(enc_data[enc_data.len() - 16..]
                 .try_into()
                 .map_err(|_| Crypt4GHError::EncryptionError("packet mac".to_string()))?)
