@@ -29,6 +29,7 @@ impl AsyncSenderSink {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn process_messages(&mut self) -> Result<()> {
         if let Some(rx) = &self.msg_receiver {
             loop {

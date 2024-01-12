@@ -1,15 +1,18 @@
+use crate::notifications::Message;
+use crate::notifications::Notifier;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::Result;
+use async_channel::Sender;
 use async_compression::tokio::write::GzipEncoder;
-use bytes::BufMut;
-use tokio::io::AsyncWriteExt;
-use tracing::debug;
+use std::sync::Arc;
 
 const RAW_FRAME_SIZE: usize = 5_242_880;
 
 pub struct GzipEnc {
     internal_buf: GzipEncoder<Vec<u8>>,
+    notifier: Option<Arc<Notifier>>,
+    idx: Option<usize>,
     size_counter: usize,
 }
 
@@ -19,6 +22,8 @@ impl GzipEnc {
     pub fn new() -> Self {
         GzipEnc {
             internal_buf: GzipEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE)),
+            idx: None,
+            notifier: None,
             size_counter: 0,
         }
     }
@@ -33,42 +38,23 @@ impl Default for GzipEnc {
 
 #[async_trait::async_trait]
 impl Transformer for GzipEnc {
-    #[tracing::instrument(level = "trace", skip(self, buf, finished))]
-    async fn process_bytes(
-        &mut self,
-        buf: &mut bytes::BytesMut,
-        finished: bool,
-        _: bool,
-    ) -> Result<bool> {
-        self.size_counter += buf.len();
-        self.internal_buf.write_all_buf(buf).await?;
-
-        if finished && self.size_counter != 0 {
-            debug!("finished");
-            self.internal_buf.shutdown().await?;
-            buf.put(self.internal_buf.get_ref().as_slice());
-            self.size_counter = 0;
-
-            return Ok(true);
-        }
-
-        // Create a new frame if buf would increase size_counter to more than RAW_FRAME_SIZE
-        if self.size_counter > RAW_FRAME_SIZE {
-            debug!(?self.size_counter, "new_frame");
-
-            self.internal_buf.flush().await?;
-            debug!(buf_len = ?self.internal_buf.get_ref().len());
-
-            buf.put(self.internal_buf.get_ref().as_slice());
-            self.internal_buf.get_mut().clear();
-            self.size_counter = 0;
-        }
-
-        Ok(finished)
+    #[tracing::instrument(level = "trace", skip(self))]
+    async fn initialize(&mut self, idx: usize) -> (TransformerType, Sender<Message>) {
+        self.idx = Some(idx);
+        let (sx, rx) = async_channel::bounded(10);
+        self.msg_receiver = Some(rx);
+        (TransformerType::GzipCompressor, sx)
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
-    fn get_type(&self) -> TransformerType {
-        TransformerType::GzipCompressor
+    #[tracing::instrument(level = "trace", skip(self, buf))]
+    async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
+        todo!()
+    }
+
+    #[tracing::instrument(level = "trace", skip(self, notifier))]
+    #[inline]
+    async fn set_notifier(&mut self, notifier: Arc<Notifier>) -> Result<()> {
+        self.notifier = Some(notifier);
+        Ok(())
     }
 }

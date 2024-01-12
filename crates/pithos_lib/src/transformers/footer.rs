@@ -1,4 +1,7 @@
 use crate::notifications::{HashType, Message, Notifier};
+use crate::structs::Flag::{
+    Compressed, Encrypted, HasBlocklist, HasEncryptionMetadata, HasSemanticMetadata,
+};
 use crate::structs::{BlockList, EncryptionMetadata, EndOfFileMetadata, SemanticMetadata};
 use crate::transformer::TransformerType;
 use crate::transformer::{FileContext, Transformer};
@@ -12,7 +15,6 @@ use sha1::Sha1;
 use std::sync::Arc;
 use tracing::debug;
 use tracing::error;
-use crate::structs::Flag::{Compressed, Encrypted, HasBlocklist, HasEncryptionMetadata, HasSemanticMetadata};
 
 pub struct FooterGenerator {
     finished: bool,
@@ -50,6 +52,7 @@ impl FooterGenerator {
         }
     }
 
+    #[tracing::instrument(level = "trace", skip(self))]
     fn process_messages(&mut self) -> Result<bool> {
         if let Some(rx) = &self.msg_receiver {
             loop {

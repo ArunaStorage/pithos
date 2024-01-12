@@ -240,7 +240,7 @@ impl PacketData {
             ChaCha20Poly1305::new(&Key::from(session_key))
                 .encrypt(nonce.into(), enc_data.as_slice())
                 .map_err(|e| Crypt4GHError::EncryptionError("encrypt chunk".to_string()))?;
-            self = &mut Self::Encrypted(enc_data[..enc_data.len() - 16].to_vec());
+            *self = &mut Self::Encrypted(enc_data[..enc_data.len() - 16].to_vec());
             Ok(enc_data[enc_data.len() - 16..]
                 .try_into()
                 .map_err(|_| Crypt4GHError::EncryptionError("packet mac".to_string()))?)

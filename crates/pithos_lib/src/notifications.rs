@@ -36,7 +36,31 @@ impl Notifier {
         }
         Ok(())
     }
-    pub fn send_type(&self, trans_type: TransformerType) -> anyhow::Result<()> {
+    pub fn send_next_type(
+        &self,
+        idx: usize,
+        trans_type: TransformerType,
+        message: Message,
+    ) -> anyhow::Result<()> {
+        for (trans, sender) in self.notifiers[idx..].iter().chain(self.notifiers.iter()) {
+            if trans == &trans_type {
+                sender.try_send(message)?;
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn send_all_type(
+        &self,
+        trans_type: TransformerType,
+        message: Message,
+    ) -> anyhow::Result<()> {
+        for (trans, sender) in self.notifiers.iter() {
+            if trans == &trans_type {
+                sender.try_send(message.clone())?;
+            }
+        }
         Ok(())
     }
 
