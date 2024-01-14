@@ -67,6 +67,7 @@ pub enum Flag {
     HasEncryptionMetadata = 4,
 }
 
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct EndOfFileMetadata {
     pub magic_bytes: [u8; 4], // Should be 0x50, 0x2A, 0x4D, 0x18
     pub len: u32,
@@ -258,16 +259,15 @@ impl EncryptionPacket {
                 };
                 let session_key = keypair
                     .session_keys_from(&PublicKey::from(keys.readers_pubkey))
-                    .tx
-                    .as_ref();
+                    .tx;
                 let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
 
                 let concatenated_keys = keys.keys.concat();
-                let (enc_keys, mac) = ChaCha20Poly1305::new_from_slice(session_key)
+                let data = ChaCha20Poly1305::new_from_slice(session_key.as_ref())
                     .map_err(|_| anyhow!("Invalid key length"))?
                     .encrypt(&nonce, concatenated_keys.as_slice())
-                    .map_err(|e| anyhow!("Error while encrypting keys"))?
-                    .split_at(concatenated_keys.len());
+                    .map_err(|_| anyhow!("Error while encrypting keys"))?;
+                let (enc_keys, mac) = data.split_at(concatenated_keys.len());
 
                 self.len = (4 + 32 + 12 + enc_keys.len() + 16) as u32;
                 self.pubkey = *keypair.public().as_ref();
@@ -283,19 +283,16 @@ impl EncryptionPacket {
         match &self.keys {
             Keys::Encrypted(keys) => {
                 let keypair = Keypair::from(SecretKey::from(readers_secret_key));
-                let session_key = keypair
-                    .session_keys_from(&PublicKey::from(self.pubkey))
-                    .rx
-                    .as_ref();
+                let session_key = keypair.session_keys_from(&PublicKey::from(self.pubkey)).rx;
                 let nonce = Nonce::from_slice(&self.nonce);
-                let dec_keys = ChaCha20Poly1305::new_from_slice(session_key)?
+                let dec_keys = ChaCha20Poly1305::new_from_slice(session_key.as_ref())?
                     .decrypt(
                         nonce.into(),
                         vec![keys.as_slice(), self.mac.as_slice()]
                             .concat()
                             .as_slice(),
                     )
-                    .map_err(|e| anyhow!("Error while decrypting keys"))?;
+                    .map_err(|_| anyhow!("Error while decrypting keys"))?;
 
                 self.keys = Keys::Decrypted(DecryptedKey {
                     keys: dec_keys
@@ -319,7 +316,7 @@ pub struct EncryptionMetadata {
 }
 
 impl EncryptionMetadata {
-    pub fn new(header_packets: Vec<EncryptionPacket>) -> Self {
+    pub fn new(_header_packets: Vec<EncryptionPacket>) -> Self {
         Self {
             magic_bytes: [0x51, 0x2A, 0x4D, 0x18],
             len: 0, // (Sum of all packages len)
@@ -364,7 +361,7 @@ impl TryFrom<&[u8]> for EncryptionMetadata {
             pubkey.copy_from_slice(&value[offset + 4..offset + 36]);
             let mut nonce = [0; 12];
             nonce.copy_from_slice(&value[offset + 36..offset + 48]);
-            let mut key_offset = offset + 48;
+            let key_offset = offset + 48;
             let mut keys = vec![];
             keys.copy_from_slice(&value[key_offset..key_offset + packet_len as usize - 16]);
             let mut mac = [0; 16];
@@ -403,7 +400,7 @@ impl TryInto<Vec<u8>> for EncryptionMetadata {
             buffer.extend_from_slice(&packet.nonce);
             match packet.keys {
                 Keys::Encrypted(keys) => buffer.extend_from_slice(&keys),
-                Keys::Decrypted(keys) => {
+                Keys::Decrypted(_) => {
                     bail!("Encryption metadata contains unencrypted keys")
                 }
             }

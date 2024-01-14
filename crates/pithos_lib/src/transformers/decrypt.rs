@@ -108,6 +108,7 @@ impl Transformer for ChaCha20Dec {
                     &self.input_buffer.split(),
                     &self
                         .decryption_key
+                        .as_ref()
                         .ok_or_else(|| anyhow!("Missing decryption key"))?,
                 )?);
             }
@@ -128,6 +129,7 @@ impl Transformer for ChaCha20Dec {
                     &self.input_buffer.split_to(CIPHER_SEGMENT_SIZE),
                     &self
                         .decryption_key
+                        .as_ref()
                         .ok_or_else(|| anyhow!("Missing decryption key"))?,
                 )?)
             }
@@ -140,6 +142,7 @@ impl Transformer for ChaCha20Dec {
                             &self.input_buffer.split(),
                             &self
                                 .decryption_key
+                                .as_ref()
                                 .ok_or_else(|| anyhow!("Missing decryption key"))?,
                         )?);
                     }

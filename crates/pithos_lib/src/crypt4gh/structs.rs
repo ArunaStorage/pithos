@@ -131,7 +131,7 @@ impl TryInto<Vec<u8>> for Crypt4GHHeader {
                 PacketData::Encrypted(enc_data) => {
                     bytes.extend_from_slice(&enc_data);
                 }
-                PacketData::Decrypted(dec_data) => {
+                PacketData::Decrypted(_) => {
                     Crypt4GHError::InvalidSpec("packet data is not encrypted".to_string());
                 }
             }
@@ -191,10 +191,9 @@ impl HeaderPacket {
         let writers_pub_key = PublicKey::from(self.writers_pubkey);
         let session_key = Keypair::from(readers_private_key)
             .session_keys_from(&writers_pub_key)
-            .rx
-            .as_ref();
+            .rx;
         self.packet_data
-            .decrypt(session_key.into(), &self.nonce, &self.mac)?;
+            .decrypt(session_key.as_ref().into(), &self.nonce, &self.mac)?;
         Ok(())
     }
 
@@ -207,9 +206,11 @@ impl HeaderPacket {
             Some(key) => Keypair::from(key),
             None => Keypair::generate(&mut OsRng),
         };
-        let session_key = keypair.session_keys_from(&readers_pubkey).tx.as_ref();
+        let session_key = keypair.session_keys_from(&readers_pubkey).tx;
         let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
-        self.mac = self.packet_data.encrypt(session_key.into(), &nonce)?;
+        self.mac = self
+            .packet_data
+            .encrypt(session_key.as_ref().into(), &nonce)?;
         self.writers_pubkey = *keypair.public().as_ref();
         self.nonce = nonce.into();
         self.length = (4 + 4 + 32 + 12 + self.packet_data.get_len() + 16)
@@ -237,7 +238,7 @@ impl PacketData {
                         .concat()
                         .as_slice(),
                 )
-                .map_err(|e| Crypt4GHError::DecryptionFailed)?;
+                .map_err(|_| Crypt4GHError::DecryptionFailed)?;
 
             *self = Self::Decrypted(Self::packet_from_bytes(&decrypted_bytes)?);
         } else {
@@ -274,7 +275,7 @@ impl PacketData {
             ChaCha20Poly1305::new_from_slice(session_key)
                 .map_err(|_| Crypt4GHError::EncryptionError("initialize encryptor".to_string()))?
                 .encrypt(nonce.into(), enc_data.as_slice())
-                .map_err(|e| Crypt4GHError::EncryptionError("encrypt chunk".to_string()))?;
+                .map_err(|_| Crypt4GHError::EncryptionError("encrypt chunk".to_string()))?;
             *self = Self::Encrypted(enc_data[..enc_data.len() - 16].to_vec());
             Ok(enc_data[enc_data.len() - 16..]
                 .try_into()

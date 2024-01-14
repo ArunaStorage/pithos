@@ -1,13 +1,15 @@
-use crate::notifications::{FileMessage, Message};
-use crate::transformer::{FileContext, ReadWriter, Sink, Transformer, TransformerType};
+use crate::notifications::{Message, Notifier};
+use crate::structs::FileContext;
+use crate::transformer::{ReadWriter, Sink, Transformer};
 use crate::transformers::writer_sink::WriterSink;
-use anyhow::{bail, Result};
-use async_channel::{Receiver, Sender};
+use anyhow::{anyhow, bail, Result};
+use async_channel::{Receiver, Sender, TryRecvError};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{Stream, StreamExt};
 use std::mem;
+use std::sync::Arc;
 use tokio::io::{AsyncWrite, BufWriter};
-use tracing::{debug, error};
+use tracing::error;
 
 pub struct GenericStreamReadWriter<
     'a,
@@ -17,13 +19,13 @@ pub struct GenericStreamReadWriter<
         + Sync,
 > {
     input_stream: R,
-    transformers: Vec<(TransformerType, Box<dyn Transformer + Send + Sync + 'a>)>,
-    sink: Box<dyn Sink + Send + Sync + 'a>,
+    notifier: Option<Arc<Notifier>>,
+    transformers: Vec<Box<dyn Transformer + Send + Sync + 'a>>,
+    sink: Option<Box<dyn Sink + Send + Sync + 'a>>,
     receiver: Receiver<Message>,
     sender: Sender<Message>,
     size_counter: usize,
-    current_file_context: Option<(FileContext, bool)>,
-    file_ctx_rx: Option<Receiver<(FileContext, bool)>>,
+    external_receiver: Option<Receiver<Message>>,
 }
 
 impl<
@@ -42,13 +44,13 @@ impl<
         let (sx, rx) = async_channel::unbounded();
         GenericStreamReadWriter {
             input_stream: input_stream,
-            sink: Box::new(transformer),
+            notifier: None,
+            sink: Some(Box::new(transformer)),
             transformers: Vec::new(),
             sender: sx,
             receiver: rx,
             size_counter: 0,
-            current_file_context: None,
-            file_ctx_rx: None,
+            external_receiver: None,
         }
     }
 
@@ -57,25 +59,58 @@ impl<
         let (sx, rx) = async_channel::unbounded();
         GenericStreamReadWriter {
             input_stream: input_stream,
-            sink: Box::new(WriterSink::new(BufWriter::new(Box::pin(writer)))),
+            notifier: None,
+            sink: Some(Box::new(WriterSink::new(BufWriter::new(Box::pin(writer))))),
             transformers: Vec::new(),
             sender: sx,
             receiver: rx,
             size_counter: 0,
-            current_file_context: None,
-            file_ctx_rx: None,
+            external_receiver: None,
         }
     }
 
     #[tracing::instrument(level = "trace", skip(self, transformer))]
-    pub fn add_transformer<T: Transformer + Send + Sync + 'a>(
-        mut self,
-        mut transformer: T,
-    ) -> GenericStreamReadWriter<'a, R> {
-        transformer.add_sender(self.sender.clone());
-        self.transformers
-            .push((transformer.get_type(), Box::new(transformer)));
+    pub fn add_transformer<T: Transformer + Send + Sync + 'a>(mut self, transformer: T) -> Self {
+        self.transformers.push(Box::new(transformer));
         self
+    }
+
+    #[tracing::instrument(level = "trace", skip(self, file_ctx))]
+    pub async fn set_file_ctx(&mut self, file_ctx: FileContext) -> Result<()> {
+        Ok(self.sender.send(Message::FileContext(file_ctx)).await?)
+    }
+
+    #[tracing::instrument(level = "trace", skip(self))]
+    pub fn process_messages(
+        &self,
+        file_ctx: &mut Option<FileContext>,
+        next_ctx: &mut Option<FileContext>,
+    ) -> Result<bool> {
+        loop {
+            match self.receiver.try_recv() {
+                Err(TryRecvError::Empty) => break,
+                Ok(ref msg) => match &msg {
+                    &Message::FileContext(context) => {
+                        if file_ctx.is_some() {
+                            if let None = next_ctx {
+                                *next_ctx = Some(context.clone());
+                            } else {
+                                bail!("File contexts already set!")
+                            }
+                        } else {
+                            *file_ctx = Some(context.clone());
+                        }
+                    }
+                    Message::Completed => {
+                        return Ok(true);
+                    }
+                    _ => {}
+                },
+                Err(TryRecvError::Closed) => bail!("Channel closed!"),
+            }
+        }
+
+        Ok(false)
     }
 }
 
@@ -93,51 +128,42 @@ impl<
         // The buffer that accumulates the "actual" data
         let mut read_buf = BytesMut::with_capacity(65_536 * 2);
         let mut hold_buffer = BytesMut::with_capacity(65536);
-        let mut finished;
-        let mut maybe_msg: Vec<Message> = vec![];
         let mut data;
         let mut read_bytes: usize = 0;
-        let mut next_file = false;
-        let mut context_zero_file = false;
+        let mut next_file_ctx: Option<FileContext> = None;
+        let mut file_ctx: Option<FileContext> = None;
+        self.transformers
+            .push(self.sink.take().ok_or_else(|| anyhow!("No sink!"))?);
 
-        if let Some(rx) = &self.file_ctx_rx {
-            let (context, is_last) = rx.try_recv()?;
-            if context.is_dir || context.is_symlink {
-                context_zero_file = true;
-            }
-            debug!(?context, ?is_last, "received file context");
-            self.current_file_context = Some((context.clone(), is_last));
-            self.announce_all(Message {
-                target: TransformerType::All,
-                data: crate::notifications::MessageData::NextFile(FileMessage { context, is_last }),
-            })
-            .await?;
+        let notifier = Arc::new(Notifier::new(self.sender.clone()));
+        for (idx, t) in self.transformers.iter_mut().enumerate() {
+            notifier.add_transformer(t.initialize(idx).await);
+            t.set_notifier(notifier.clone()).await?;
         }
 
         loop {
-            if !context_zero_file {
-                if hold_buffer.is_empty() {
-                    if read_buf.is_empty() {
-                        data = self
-                            .input_stream
-                            .next()
-                            .await
-                            .unwrap_or_else(|| Ok(Bytes::new()))
-                            .unwrap_or_default();
-                        read_bytes = data.len();
-                        read_buf.put(data);
-                    }
-                } else if read_buf.is_empty() {
-                    mem::swap(&mut hold_buffer, &mut read_buf);
-                }
+            if hold_buffer.is_empty() {
+                data = self
+                    .input_stream
+                    .next()
+                    .await
+                    .unwrap_or_else(|| Ok(Bytes::new()))
+                    .unwrap_or_default();
+                read_bytes = data.len();
+                read_buf.put(data);
+            } else if read_buf.is_empty() {
+                mem::swap(&mut hold_buffer, &mut read_buf);
             }
 
-            if let Some((context, is_last)) = &self.current_file_context {
+            if file_ctx.is_none() && read_buf.is_empty() && hold_buffer.is_empty() {
+                notifier.send_first(Message::Finished)?;
+            }
+
+            let completed = self.process_messages(&mut file_ctx, &mut next_file_ctx)?;
+
+            if let Some(context) = &file_ctx {
                 self.size_counter += read_bytes;
-                if self.size_counter > context.input_size as usize
-                    && !context.is_dir
-                    && !context.is_symlink
-                {
+                if self.size_counter > context.input_size as usize {
                     let mut diff = read_bytes - (self.size_counter - context.input_size as usize);
                     if diff >= context.input_size as usize {
                         diff = context.input_size as usize
@@ -145,81 +171,16 @@ impl<
                     hold_buffer = read_buf.split_to(diff);
                     mem::swap(&mut read_buf, &mut hold_buffer);
                     self.size_counter -= context.input_size as usize;
-                    next_file = !is_last;
-                }
-                if context.is_dir || context.is_symlink {
-                    next_file = !is_last;
-                }
-                finished = read_buf.is_empty() && read_bytes == 0 && *is_last;
-            } else {
-                finished = read_buf.is_empty() && read_bytes == 0;
-            }
-
-            for (ttype, trans) in self.transformers.iter_mut() {
-                if !maybe_msg.is_empty() {
-                    for msg in &maybe_msg {
-                        if msg.target == *ttype {
-                            trans.notify(msg).await?;
-                        }
-                    }
-                }
-                if let Ok(msg) = self.receiver.try_recv() {
-                    maybe_msg.push(msg);
-                }
-                match trans.process_bytes(&mut read_buf, finished, false).await? {
-                    true => {}
-                    false => finished = false,
-                };
-            }
-            match self
-                .sink
-                .process_bytes(&mut read_buf, finished, false)
-                .await?
-            {
-                true => {}
-                false => finished = false,
-            };
-
-            // Announce next file
-            if next_file {
-                if let Some(rx) = &self.file_ctx_rx {
-                    // Perform a flush through all transformers!
-                    assert!(read_buf.is_empty());
-                    for (_, trans) in self.transformers.iter_mut() {
-                        trans.process_bytes(&mut read_buf, finished, true).await?;
-                    }
-                    self.sink
-                        .process_bytes(&mut read_buf, finished, true)
-                        .await?;
-                    let (context, is_last) = rx.recv().await?;
-
-                    // Empty message queue
-                    maybe_msg.clear();
-
-                    // Fetch next file context
-                    context_zero_file = context.is_dir || context.is_symlink;
-                    self.current_file_context = Some((context.clone(), is_last));
-                    self.announce_all(Message {
-                        target: TransformerType::All,
-                        data: crate::notifications::MessageData::NextFile(FileMessage {
-                            context,
-                            is_last,
-                        }),
-                    })
-                    .await?;
-                    for (_, trans) in self.transformers.iter_mut() {
-                        trans.process_bytes(&mut read_buf, finished, false).await?;
-                    }
-                    self.sink
-                        .process_bytes(&mut read_buf, finished, true)
-                        .await?;
-                }
-                if !context_zero_file {
-                    next_file = false;
+                    file_ctx = next_file_ctx;
+                    next_file_ctx = None;
                 }
             }
 
-            if read_buf.is_empty() & finished {
+            for t in self.transformers.iter_mut() {
+                t.process_bytes(&mut read_buf).await?;
+            }
+
+            if read_buf.is_empty() && completed {
                 break;
             }
             read_bytes = 0;
@@ -236,9 +197,9 @@ impl<
     }
 
     #[tracing::instrument(level = "trace", skip(self, rx))]
-    async fn add_file_context_receiver(&mut self, rx: Receiver<(FileContext, bool)>) -> Result<()> {
-        if self.file_ctx_rx.is_none() {
-            self.file_ctx_rx = Some(rx);
+    async fn add_message_receiver(&mut self, rx: Receiver<Message>) -> Result<()> {
+        if self.external_receiver.is_none() {
+            self.external_receiver = Some(rx);
             Ok(())
         } else {
             error!("Overwriting existing receivers is not allowed!");

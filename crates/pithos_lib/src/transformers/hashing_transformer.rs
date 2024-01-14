@@ -84,7 +84,7 @@ where
                     };
                     notifier.send_all_type(
                         TransformerType::FooterGenerator,
-                        Message::Hash((hashertype, finished_hash)),
+                        Message::Hash((hashertype.clone(), finished_hash.clone())),
                     )?;
                     notifier.send_read_writer(Message::Hash((hashertype, finished_hash)))?;
                     notifier.send_next(

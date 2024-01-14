@@ -15,14 +15,14 @@ pub struct PithosReader<
         + Send
         + Sync,
 > {
-    input_stream: R,
-    transformers: Vec<(TransformerType, Box<dyn Transformer + Send + Sync + 'a>)>,
-    sink: Box<dyn Sink + Send + Sync + 'a>,
-    receiver: Receiver<Message>,
-    sender: Sender<Message>,
-    size_counter: usize,
-    current_file_context: Option<(FileContext, bool)>,
-    file_ctx_rx: Option<Receiver<(FileContext, bool)>>,
+    _input_stream: R,
+    _transformers: Vec<(TransformerType, Box<dyn Transformer + Send + Sync + 'a>)>,
+    _sink: Box<dyn Sink + Send + Sync + 'a>,
+    _receiver: Receiver<Message>,
+    _sender: Sender<Message>,
+    _size_counter: usize,
+    _current_file_context: Option<(FileContext, bool)>,
+    _file_ctx_rx: Option<Receiver<(FileContext, bool)>>,
 }
 
 impl<
@@ -33,10 +33,10 @@ impl<
             + Sync,
     > PithosReader<'a, R>
 {
-    #[tracing::instrument(level = "trace", skip(input_stream, sink))]
+    #[tracing::instrument(level = "trace", skip(_input_stream, _sink))]
     pub fn new<T: Transformer + Sink + Send + Sync + 'a>(
-        input_stream: R,
-        sink: T,
+        _input_stream: R,
+        _sink: T,
         filecontext: FileContext,
         metadata: Option<String>,
     ) -> Self {

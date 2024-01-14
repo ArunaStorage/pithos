@@ -33,9 +33,9 @@ pub struct ZstdEnc {
 }
 
 impl ZstdEnc {
-    #[tracing::instrument(level = "trace", skip(last))]
+    #[tracing::instrument(level = "trace")]
     #[allow(dead_code)]
-    pub fn new(last: bool) -> Self {
+    pub fn new() -> Self {
         ZstdEnc {
             internal_buf: ZstdEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK)),
             prev_buf: BytesMut::with_capacity(RAW_FRAME_SIZE + CHUNK),
@@ -212,7 +212,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_zstd_encoder_with_skip() {
-        let mut encoder = ZstdEnc::new(false);
+        let mut encoder = ZstdEnc::new();
         let mut buf = BytesMut::new();
         buf.put(b"12345".as_slice());
         encoder.process_bytes(&mut buf).await.unwrap();
@@ -230,7 +230,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_zstd_encoder_without_skip() {
-        let mut encoder = ZstdEnc::new(true);
+        let mut encoder = ZstdEnc::new();
         let mut buf = BytesMut::new();
         buf.put(b"12345".as_slice());
         encoder.process_bytes(&mut buf).await.unwrap();

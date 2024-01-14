@@ -14,7 +14,6 @@ pub enum FilterParam {
 }
 
 pub struct Filter {
-    counter: usize,
     has_filter: bool,
     param: FilterParam,
     filter: Vec<u64>,
@@ -30,7 +29,6 @@ impl Filter {
     #[allow(dead_code)]
     pub fn new_with_range(filter: Range) -> Self {
         Filter {
-            counter: 0,
             has_filter: true,
             param: FilterParam::Discard(filter.from),
             filter: vec![filter.to],
@@ -46,10 +44,10 @@ impl Filter {
     #[allow(dead_code)]
     pub fn new_with_edit_list(mut filter: Option<Vec<u64>>) -> Self {
         Filter {
-            counter: 0,
             has_filter: filter.is_some(),
             param: filter
-                .map(|mut f| f.pop().map(|e| FilterParam::Discard(e)))
+                .as_mut()
+                .map(|f| f.pop().map(|e| FilterParam::Discard(e)))
                 .flatten()
                 .unwrap_or(FilterParam::None),
             filter: filter.unwrap_or_default(),

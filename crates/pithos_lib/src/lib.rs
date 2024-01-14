@@ -38,7 +38,7 @@ mod tests {
 
         // Create a new GenericReadWriter
         GenericReadWriter::new_with_writer(file, file2)
-            .add_transformer(ZstdEnc::new(false))
+            .add_transformer(ZstdEnc::new())
             .add_transformer(ZstdDec::new())
             .process()
             .await
@@ -61,7 +61,7 @@ mod tests {
         // Create a new GenericReadWriter
         GenericReadWriter::new_with_writer(file.as_ref(), &mut file2)
             .add_transformer(
-                ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Enc::new(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
             .add_transformer(
                 ChaCha20Dec::new(Some(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),

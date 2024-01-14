@@ -12,7 +12,7 @@ use crate::transformers::encrypt::encrypt_chunk;
 use anyhow::anyhow;
 use anyhow::Result;
 use async_channel::{Receiver, Sender, TryRecvError};
-use bytes::BufMut;
+use bytes::{BufMut, Bytes};
 use digest::Digest;
 use sha1::Sha1;
 use std::sync::Arc;
@@ -20,7 +20,6 @@ use tracing::debug;
 use tracing::error;
 
 pub struct FooterGenerator {
-    finished: bool,
     hasher: Sha1,
     counter: u64,
     endoffile: EndOfFileMetadata,
@@ -40,7 +39,6 @@ impl FooterGenerator {
     pub fn new() -> FooterGenerator {
         debug!("new FooterGenerator");
         FooterGenerator {
-            finished: false,
             hasher: Sha1::new(),
             counter: 0,
             endoffile: EndOfFileMetadata::init(),
@@ -62,11 +60,11 @@ impl FooterGenerator {
                 match rx.try_recv() {
                     Ok(Message::Finished) | Ok(Message::ShouldFlush) => return Ok(true),
                     Ok(Message::FileContext(ctx)) => {
-                        self.filectx = Some(ctx);
                         if ctx.encryption_key.is_some() {
                             self.endoffile.set_flag(Encrypted);
                             self.endoffile.set_flag(HasEncryptionMetadata);
                         }
+                        self.filectx = Some(ctx);
                     }
                     Ok(Message::Compression(is_compressed)) => {
                         if is_compressed {
@@ -124,14 +122,15 @@ impl Transformer for FooterGenerator {
                 // (optional) Metadata (optional) encrypted
                 if let Some((encryption_key, metadata)) = &self.metadata {
                     let encoded_metadata: Vec<u8> = SemanticMetadata::new(metadata.clone()).into();
-                    let metadata_bytes =
-                        if let Some(key) = encryption_key.or(file_ctx.encryption_key.clone()) {
-                            encrypt_chunk(&encoded_metadata, &[], key.as_slice(), false)?.as_ref()
-                        } else {
-                            encoded_metadata.as_ref()
-                        };
+                    let metadata_bytes = if let Some(key) =
+                        encryption_key.clone().or(file_ctx.encryption_key.clone())
+                    {
+                        encrypt_chunk(&encoded_metadata, &[], key.as_slice(), false)?
+                    } else {
+                        Bytes::from(encoded_metadata)
+                    };
                     self.endoffile.semantic_start = self.counter;
-                    self.hasher.update(metadata_bytes);
+                    self.hasher.update(&metadata_bytes);
                     self.counter += metadata_bytes.len() as u64;
                     buf.put(metadata_bytes);
                 }
@@ -164,9 +163,10 @@ impl Transformer for FooterGenerator {
 
                 // Technical Metadata
                 self.endoffile.update_with_file_ctx(file_ctx)?;
-                let encoded_technical_metadata: [u8; 1024] = self.endoffile.into();
+                let encoded_technical_metadata: [u8; 1024] = self.endoffile.clone().into();
                 self.hasher.update(encoded_technical_metadata.as_slice());
-                self.endoffile.disk_hash_sha1 = self.hasher.finalize().as_slice().try_into()?;
+                self.endoffile.disk_hash_sha1 =
+                    self.hasher.finalize_reset().as_slice().try_into()?;
                 buf.put(encoded_technical_metadata.as_slice());
 
                 // Reset counter & hasher

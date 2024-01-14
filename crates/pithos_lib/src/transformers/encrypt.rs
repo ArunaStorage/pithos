@@ -98,6 +98,7 @@ impl Transformer for ChaCha20Enc {
                 b"",
                 &self
                     .encryption_key
+                    .as_ref()
                     .ok_or_else(|| anyhow!("Missing encryption key"))?,
                 true,
             )?);
@@ -113,6 +114,7 @@ impl Transformer for ChaCha20Enc {
                     b"",
                     &self
                         .encryption_key
+                        .as_ref()
                         .ok_or_else(|| anyhow!("Missing encryption key"))?,
                     true,
                 )?)
@@ -127,6 +129,7 @@ impl Transformer for ChaCha20Enc {
                     b"",
                     &self
                         .encryption_key
+                        .as_ref()
                         .ok_or_else(|| anyhow!("Missing encryption key"))?,
                     true,
                 )?)

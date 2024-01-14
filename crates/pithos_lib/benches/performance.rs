@@ -17,20 +17,12 @@ async fn read_writer_with_file() {
 
     // Create a new GenericReadWriter
     GenericReadWriter::new_with_writer(file, file2)
-        .add_transformer(ZstdEnc::new(false))
-        .add_transformer(ZstdEnc::new(false))
-        .add_transformer(
-            ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
-        )
-        .add_transformer(
-            ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
-        )
-        .add_transformer(
-            ChaCha20Dec::new(Some(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
-        )
-        .add_transformer(
-            ChaCha20Dec::new(Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
-        )
+        .add_transformer(ZstdEnc::new())
+        .add_transformer(ZstdEnc::new())
+        .add_transformer(ChaCha20Enc::new().unwrap())
+        .add_transformer(ChaCha20Enc::new().unwrap())
+        .add_transformer(ChaCha20Dec::new().unwrap())
+        .add_transformer(ChaCha20Dec::new().unwrap())
         .add_transformer(ZstdDec::new())
         .add_transformer(ZstdDec::new())
         .process()
@@ -45,20 +37,12 @@ async fn read_writer_with_vec() {
 
     // Create a new GenericReadWriter
     GenericReadWriter::new_with_writer(file.as_ref(), &mut file2)
-        .add_transformer(ZstdEnc::new(false))
-        .add_transformer(ZstdEnc::new(false))
-        .add_transformer(
-            ChaCha20Enc::new(false, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
-        )
-        .add_transformer(
-            ChaCha20Enc::new(false, b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
-        )
-        .add_transformer(
-            ChaCha20Dec::new(Some(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
-        )
-        .add_transformer(
-            ChaCha20Dec::new(Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec())).unwrap(),
-        )
+        .add_transformer(ZstdEnc::new())
+        .add_transformer(ZstdEnc::new())
+        .add_transformer(ChaCha20Enc::new().unwrap())
+        .add_transformer(ChaCha20Enc::new().unwrap())
+        .add_transformer(ChaCha20Dec::new().unwrap())
+        .add_transformer(ChaCha20Dec::new().unwrap())
         .add_transformer(ZstdDec::new())
         .add_transformer(ZstdDec::new())
         .process()

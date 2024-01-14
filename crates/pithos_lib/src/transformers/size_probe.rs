@@ -75,6 +75,7 @@ impl Transformer for SizeProbe {
             };
 
             if finished {
+                self.size_sender.send(self.size_counter).await?;
                 if let Some(notifier) = &self.notifier {
                     notifier.send_read_writer(Message::SizeInfo(self.size_counter))?;
                     notifier.send_next(

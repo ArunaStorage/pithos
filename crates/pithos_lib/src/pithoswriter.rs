@@ -12,9 +12,9 @@ pub struct PithosWriter<
         + Send
         + Sync,
 > {
-    stream_read_writer: GenericStreamReadWriter<'a, R>,
-    file_context: FileContext,
-    metadata: Option<String>, // Validated JSON
+    _stream_read_writer: GenericStreamReadWriter<'a, R>,
+    _file_context: FileContext,
+    _metadata: Option<String>, // Validated JSON
 }
 
 impl<
@@ -25,10 +25,10 @@ impl<
             + Sync,
     > PithosWriter<'a, R>
 {
-    #[tracing::instrument(level = "trace", skip(input_stream, sink))]
+    #[tracing::instrument(level = "trace", skip(_input_stream, _sink))]
     pub fn new<T: Transformer + Sink + Send + Sync + 'a>(
-        input_stream: R,
-        sink: T,
+        _input_stream: R,
+        _sink: T,
         file_context: FileContext,
         metadata: Option<String>,
     ) -> Result<Self> {
