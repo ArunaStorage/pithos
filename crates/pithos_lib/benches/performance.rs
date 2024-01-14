@@ -19,10 +19,18 @@ async fn read_writer_with_file() {
     GenericReadWriter::new_with_writer(file, file2)
         .add_transformer(ZstdEnc::new())
         .add_transformer(ZstdEnc::new())
-        .add_transformer(ChaCha20Enc::new().unwrap())
-        .add_transformer(ChaCha20Enc::new().unwrap())
-        .add_transformer(ChaCha20Dec::new().unwrap())
-        .add_transformer(ChaCha20Dec::new().unwrap())
+        .add_transformer(
+            ChaCha20Enc::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+        )
+        .add_transformer(
+            ChaCha20Enc::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+        )
+        .add_transformer(
+            ChaCha20Dec::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+        )
+        .add_transformer(
+            ChaCha20Dec::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+        )
         .add_transformer(ZstdDec::new())
         .add_transformer(ZstdDec::new())
         .process()
@@ -39,10 +47,18 @@ async fn read_writer_with_vec() {
     GenericReadWriter::new_with_writer(file.as_ref(), &mut file2)
         .add_transformer(ZstdEnc::new())
         .add_transformer(ZstdEnc::new())
-        .add_transformer(ChaCha20Enc::new().unwrap())
-        .add_transformer(ChaCha20Enc::new().unwrap())
-        .add_transformer(ChaCha20Dec::new().unwrap())
-        .add_transformer(ChaCha20Dec::new().unwrap())
+        .add_transformer(
+            ChaCha20Enc::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+        )
+        .add_transformer(
+            ChaCha20Enc::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+        )
+        .add_transformer(
+            ChaCha20Dec::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+        )
+        .add_transformer(
+            ChaCha20Dec::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+        )
         .add_transformer(ZstdDec::new())
         .add_transformer(ZstdDec::new())
         .process()

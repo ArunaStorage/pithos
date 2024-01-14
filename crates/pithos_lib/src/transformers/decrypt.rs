@@ -51,6 +51,22 @@ impl ChaCha20Dec {
         })
     }
 
+    #[tracing::instrument(level = "trace")]
+    #[allow(dead_code)]
+    pub fn new_with_fixed(key: Vec<u8>) -> Result<Self> {
+        Ok(ChaCha20Dec {
+            input_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
+            output_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
+            finished: false,
+            backoff_counter: 0,
+            decryption_key: Some(key),
+            skip_me: false,
+            notifier: None,
+            msg_receiver: None,
+            idx: None,
+        })
+    }
+
     #[tracing::instrument(level = "trace", skip(self))]
     fn process_messages(&mut self) -> Result<(bool, bool)> {
         if let Some(rx) = &self.msg_receiver {

@@ -45,6 +45,20 @@ impl ChaCha20Enc {
         })
     }
 
+    #[tracing::instrument(level = "trace")]
+    #[allow(dead_code)]
+    pub fn new_with_fixed(key: Vec<u8>) -> Result<Self> {
+        Ok(ChaCha20Enc {
+            input_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
+            output_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
+            notifier: None,
+            msg_receiver: None,
+            idx: None,
+            encryption_key: Some(key),
+            finished: false,
+        })
+    }
+
     #[tracing::instrument(level = "trace", skip(self))]
     fn process_messages(&mut self) -> Result<(bool, bool)> {
         if let Some(rx) = &self.msg_receiver {
