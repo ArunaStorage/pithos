@@ -21,7 +21,7 @@ pub struct GenericStreamReadWriter<
     input_stream: R,
     notifier: Option<Arc<Notifier>>,
     transformers: Vec<Box<dyn Transformer + Send + Sync + 'a>>,
-    sink: Option<Box<dyn Sink + Send + Sync + 'a>>,
+    sink: Option<Box<dyn Transformer + Send + Sync + 'a>>,
     receiver: Receiver<Message>,
     sender: Sender<Message>,
     size_counter: usize,
