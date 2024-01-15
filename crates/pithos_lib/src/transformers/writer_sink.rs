@@ -35,13 +35,14 @@ impl<W: AsyncWrite + Unpin> WriterSink<W> {
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
-    fn process_messages(&mut self) -> Result<()> {
+    async fn process_messages(&mut self) -> Result<()> {
         if let Some(rx) = &self.msg_receiver {
             loop {
                 match rx.try_recv() {
                     Ok(Message::Finished) => {
                         if let Some(notifier) = &self.notifier {
-                            notifier.send_read_writer(Message::Finished)?;
+                            self.writer.shutdown().await?;
+                            notifier.send_read_writer(Message::Completed)?;
                         }
                         debug!("finished");
                         break;
@@ -78,7 +79,8 @@ impl<W: AsyncWrite + Unpin + Send> Transformer for WriterSink<W> {
                 self.writer.write_buf(buf).await?;
             }
         } else {
-            self.process_messages()?;
+            self.writer.flush().await?;
+            self.process_messages().await?;
         }
         Ok(())
     }
