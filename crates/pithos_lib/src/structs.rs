@@ -72,45 +72,51 @@ pub struct EndOfFileMetadata {
     pub magic_bytes: [u8; 4], // Should be 0x50, 0x2A, 0x4D, 0x18
     pub len: u32,
     pub version: u32,
-    pub file_name: [u8; 512],
-    pub file_size: u64,
-    pub file_hash_sha1: [u8; 32],
+    pub file_name_length: u16,
+    pub file_name: String, // UTF-8 encoded bytes
+    pub raw_file_size: u64,
+    pub file_hash_sha256: [u8; 32],
     pub file_hash_md5: [u8; 16],
     pub flags: u64,
-    pub semantic_start: u64,
-    pub blocklist_start: u64,
-    pub encryption_start: u64,
-    pub disk_hash_sha1: [u8; 32], // Everything except disk_hash_sha1 is 0
-    pub extra: [u8; 380],         // CURRENTLY UNUSED IGNORED FOR hashing
+    pub disk_file_size: u64,
+    pub disk_hash_sha256: [u8; 32], // Everything except disk_hash_sha1 is expected to be 0
+    // Optional
+    pub semantic_len: Option<u64>,
+    pub blocklist_len: Option<u64>,
+    pub encryption_len: Option<u64>,
+    // Required
+    pub eof_metadata_len: u64,
 }
 
 impl EndOfFileMetadata {
     pub fn init() -> Self {
         Self {
             magic_bytes: [0x50, 0x2A, 0x4D, 0x18],
-            len: 1016,
+            len: 0, // Required for zstd skippable frame 
             version: 1,
-            file_name: [0; 512],
-            file_size: 0,
-            file_hash_sha1: [0; 32],
+            file_name_length: 0,
+            file_name: String::new(),
+            raw_file_size: 0,
+            file_hash_sha256: [0; 32],
             file_hash_md5: [0; 16],
             flags: 0,
-            semantic_start: 0,
-            blocklist_start: 0,
-            encryption_start: 0,
-            disk_hash_sha1: [0; 32],
-            extra: [0; 380],
+            disk_file_size: 0,
+            disk_hash_sha256: [0; 32], 
+            semantic_len: None,
+            blocklist_len: None,
+            encryption_len: None,
+            eof_metadata_len: 0,
         }
     }
 
     pub fn update_with_file_ctx(&mut self, ctx: &FileContext) -> Result<()> {
-        if ctx.file_name.len() <= 512 {
-            self.file_name[..ctx.file_name.len()].copy_from_slice(&ctx.file_name.as_bytes());
-        } else {
-            bail!("File name too long")
+        
+        if ctx.file_name.len() > 512 {
+            bail!("Filename too long");
         }
 
-        self.file_size = ctx.file_size;
+        self.file_name = ctx.file_name.clone();
+        self.file_name_length = ctx.file_name.len() as u16;
         Ok(())
     }
 
@@ -126,6 +132,10 @@ impl EndOfFileMetadata {
         Self::is_flag_bit_set(&self.flags, flag as u8)
     }
 
+    pub fn is_flag_set_u64(val: u64, flag: Flag) -> bool {
+        Self::is_flag_bit_set(&val, flag as u8)
+    }
+
     fn set_flag_bit(target: &mut u64, flag_id: u8) {
         *target |= 1 << flag_id
     }
@@ -139,10 +149,10 @@ impl EndOfFileMetadata {
     }
 }
 
-impl TryFrom<&[u8; 1024]> for EndOfFileMetadata {
+impl TryFrom<&[u8]> for EndOfFileMetadata {
     type Error = anyhow::Error;
 
-    fn try_from(value: &[u8; 1024]) -> Result<Self, Self::Error> {
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
         let mut magic_bytes = [0; 4];
 
         magic_bytes.copy_from_slice(&value[0..4]);
@@ -153,67 +163,118 @@ impl TryFrom<&[u8; 1024]> for EndOfFileMetadata {
 
         let len = LittleEndian::read_u32(&value[4..8]);
 
-        if len as usize != 1016 {
-            return Err(anyhow!("Invalid EOFMetadata length"));
-        }
-
         let version = LittleEndian::read_u32(&value[8..12]);
 
-        let mut file_name = [0; 512];
-        file_name.copy_from_slice(&value[12..524]);
+        if version != 1 {
+            return Err(anyhow!("Unsupported version"));
+        }
 
-        let file_size = LittleEndian::read_u64(&value[524..532]);
-        let mut file_hash_sha1 = [0; 32];
-        file_hash_sha1.copy_from_slice(&value[532..564]);
+        let file_name_length = LittleEndian::read_u16(&value[12..14]);
 
+        let mut file_name = String::new();
+        file_name.push_str(
+            std::str::from_utf8(&value[14..14 + file_name_length as usize])
+                .map_err(|_| anyhow!("Invalid filename"))?,
+        );
+        let mut offset = 14 + file_name_length as usize; 
+        let raw_file_size = LittleEndian::read_u64(&value[offset..8 + offset]);
+        offset += 8;
+        let mut file_hash_sha256 = [0; 32];
+        file_hash_sha256.copy_from_slice(&value[offset..32 + offset]);
+        offset += 32;
         let mut file_hash_md5 = [0; 16];
-        file_hash_md5.copy_from_slice(&value[564..580]);
+        file_hash_md5.copy_from_slice(&value[offset..16 + offset]);
+        offset += 16;
 
-        let flags = LittleEndian::read_u64(&value[580..588]);
-        let semantic_start = LittleEndian::read_u64(&value[588..596]);
-        let blocklist_start = LittleEndian::read_u64(&value[596..604]);
-        let encryption_start = LittleEndian::read_u64(&value[604..612]);
+        let flags = LittleEndian::read_u64(&value[offset..8 + offset]);
+        offset += 8;
+        let semantic_start = LittleEndian::read_u64(&value[offset..8 + offset]);
+        offset += 8;
+        let blocklist_start = LittleEndian::read_u64(&value[offset..8 + offset]);
+        offset += 8;
+        let encryption_start = LittleEndian::read_u64(&value[offset..8 + offset]);
+        offset += 8;
+        let disk_file_size = LittleEndian::read_u64(&value[offset..8 + offset]);
+        offset += 8;
+        let mut disk_hash_sha256 = [0; 32];
+        disk_hash_sha256.copy_from_slice(&value[offset..32 + offset]);
+        offset += 32;
+        let semantic_len = if Self::is_flag_set_u64(flags, Flag::HasSemanticMetadata) {
+            let semantic_len = LittleEndian::read_u64(&value[offset..8 + offset]);
+            offset += 8;
+            Some(semantic_len)
+        }else{
+            None
+        };
+        let blocklist_len = if Self::is_flag_set_u64(flags, Flag::HasBlocklist) {
+            let blocklist_len = LittleEndian::read_u64(&value[offset..8 + offset]);
+            offset += 8;
+            Some(blocklist_len)
+        }else{
+            None
+        };
+        let encryption_len = if Self::is_flag_set_u64(flags, Flag::HasEncryptionMetadata) {
+            let encryption_len = LittleEndian::read_u64(&value[offset..8 + offset]);
+            offset += 8;
+            Some(encryption_len)
+        }else{
+            None
+        };
 
-        let mut disk_hash_sha1 = [0; 32];
-        disk_hash_sha1.copy_from_slice(&value[612..644]);
-
-        let mut extra = [0; 380];
-        extra.copy_from_slice(&value[644..1024]);
+        let eof_metadata_len = LittleEndian::read_u64(&value[offset..8 + offset]);
+        if eof_metadata_len != (offset + 8) as u64 || eof_metadata_len != value.len() as u64{
+            return Err(anyhow!("Invalid EOF metadata length"));
+        }
 
         Ok(Self {
             magic_bytes,
             len,
             version,
+            file_name_length,
             file_name,
-            file_size,
-            file_hash_sha1,
+            raw_file_size,
+            file_hash_sha256,
             file_hash_md5,
             flags,
-            semantic_start,
-            blocklist_start,
-            encryption_start,
-            disk_hash_sha1,
-            extra,
+            disk_file_size,
+            disk_hash_sha256,
+            semantic_len,
+            blocklist_len,
+            encryption_len,
+            eof_metadata_len,
         })
     }
 }
 
-impl Into<[u8; 1024]> for EndOfFileMetadata {
-    fn into(self) -> [u8; 1024] {
-        let mut buffer = [0; 1024];
+impl Into<Vec<u8>> for EndOfFileMetadata {
+    fn into(self) -> Vec<u8> {
+        let mut buffer = Vec::with_capacity(self.eof_metadata_len as usize);
         buffer[0..4].copy_from_slice(&self.magic_bytes);
         LittleEndian::write_u32(&mut buffer[4..8], self.len);
         LittleEndian::write_u32(&mut buffer[8..12], self.version);
-        buffer[12..524].copy_from_slice(&self.file_name);
-        LittleEndian::write_u64(&mut buffer[524..532], self.file_size);
-        buffer[532..564].copy_from_slice(&self.file_hash_sha1);
-        buffer[564..580].copy_from_slice(&self.file_hash_md5);
-        LittleEndian::write_u64(&mut buffer[580..588], self.flags);
-        LittleEndian::write_u64(&mut buffer[588..596], self.semantic_start);
-        LittleEndian::write_u64(&mut buffer[596..604], self.blocklist_start);
-        LittleEndian::write_u64(&mut buffer[604..612], self.encryption_start);
-        buffer[612..644].copy_from_slice(&self.disk_hash_sha1);
-        buffer[644..1024].copy_from_slice(&self.extra);
+        LittleEndian::write_u16(&mut buffer[12..14], self.file_name_length);
+        buffer[14..14 + self.file_name_length as usize].copy_from_slice(&self.file_name.as_bytes());
+        let mut offset = 14 + self.file_name_length as usize; 
+        LittleEndian::write_u64(&mut buffer[offset..offset + 8], self.raw_file_size);
+        offset += 8;
+        buffer[offset..8 + offset].copy_from_slice(&self.file_hash_sha256);
+        offset += 32;
+        buffer[offset..16 + offset].copy_from_slice(&self.file_hash_md5);
+        offset += 16;
+        LittleEndian::write_u64(&mut buffer[offset..8 + offset], self.flags);
+        if let Some(semantic_len) = self.semantic_len {
+            LittleEndian::write_u64(&mut buffer[offset..8 + offset], semantic_len);
+            offset += 8;
+        }
+        if let Some(blocklist_len) = self.blocklist_len {
+            LittleEndian::write_u64(&mut buffer[offset..8 + offset], blocklist_len);
+            offset += 8;
+        }
+        if let Some(encryption_len) = self.encryption_len {
+            LittleEndian::write_u64(&mut buffer[offset..8 + offset], encryption_len);
+            offset += 8;
+        }
+        LittleEndian::write_u64(&mut buffer[offset..8 + offset], self.eof_metadata_len);
         buffer
     }
 }

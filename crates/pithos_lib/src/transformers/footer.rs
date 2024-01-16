@@ -131,7 +131,7 @@ impl Transformer for FooterGenerator {
                         } else {
                             Bytes::from(encoded_metadata)
                         };
-                        self.endoffile.semantic_start = self.counter;
+                        self.endoffile.semantic_len = Some(metadata_bytes.len() as u64);
                         self.hasher.update(&metadata_bytes);
                         self.counter += metadata_bytes.len() as u64;
                         buf.put(metadata_bytes);
@@ -140,7 +140,7 @@ impl Transformer for FooterGenerator {
                     // (optional) Blocklist
                     if let Some(blocklist) = &self.blocklist {
                         let encoded_blocklist: Vec<u8> = BlockList::new(blocklist.clone()).into();
-                        self.endoffile.blocklist_start = self.counter;
+                        self.endoffile.blocklist_len = Some(encoded_blocklist.len() as u64);
                         self.hasher.update(encoded_blocklist.as_slice());
                         self.counter += encoded_blocklist.len() as u64;
                         buf.put(encoded_blocklist.as_slice());
@@ -149,7 +149,6 @@ impl Transformer for FooterGenerator {
                     // (optional) Encryption
                     if let Some(key) = &file_ctx.encryption_key {
                         if let Some(pk) = &file_ctx.owners_pubkey {
-                            self.endoffile.encryption_start = self.counter;
                             let mut encryption_metadata =
                                 EncryptionMetadata::new(vec![EncryptionPacket::new(
                                     vec![key.as_slice().try_into()?],
@@ -158,6 +157,7 @@ impl Transformer for FooterGenerator {
                             encryption_metadata.encrypt_all(None)?;
                             let encryption_data_bytes: Vec<u8> = encryption_metadata.try_into()?;
                             self.hasher.update(encryption_data_bytes.as_slice());
+                            self.endoffile.encryption_len = Some(encryption_data_bytes.len() as u64);
                             self.counter += encryption_data_bytes.len() as u64;
                             buf.put(encryption_data_bytes.as_slice());
                         }
@@ -165,9 +165,9 @@ impl Transformer for FooterGenerator {
 
                     // Technical Metadata
                     self.endoffile.update_with_file_ctx(file_ctx)?;
-                    let encoded_technical_metadata: [u8; 1024] = self.endoffile.clone().into();
+                    let encoded_technical_metadata: Vec<u8> = self.endoffile.clone().into();
                     self.hasher.update(encoded_technical_metadata.as_slice());
-                    self.endoffile.disk_hash_sha1 =
+                    self.endoffile.disk_hash_sha256 =
                         self.hasher.finalize_reset().as_slice().try_into()?;
                     buf.put(encoded_technical_metadata.as_slice());
 
