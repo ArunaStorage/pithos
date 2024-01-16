@@ -107,7 +107,6 @@ impl Transformer for ChaCha20Dec {
 
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
-
         if self.skip_me {
             debug!("skipped");
             return Ok(());

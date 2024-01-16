@@ -166,22 +166,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_with_file_footer() {
+    async fn test_with_file_footer_ctx() {
         let file = File::open("test.txt").await.unwrap();
+        let size = file.metadata().await.unwrap().len();
         let file2 = File::create("test.txt.out.5").await.unwrap();
-        GenericReadWriter::new_with_writer(file, file2)
+        let mut read_writer = GenericReadWriter::new_with_writer(file, file2)
             .add_transformer(ZstdEnc::new())
-            .add_transformer(
-                ChaCha20Enc::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
-            )
-            .add_transformer(
-                ChaCha20Dec::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
-            )
+            .add_transformer(ChaCha20Enc::new().unwrap())
+            .add_transformer(ChaCha20Dec::new().unwrap())
             .add_transformer(FooterGenerator::new())
-            .add_transformer(ZstdDec::new())
-            .process()
+            .add_transformer(ZstdDec::new());
+
+        read_writer
+            .set_file_ctx(FileContext {
+                file_name: "test.txt".to_string(),
+                input_size: size,
+                file_size: 0,
+                encryption_key: Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+                ..Default::default()
+            })
             .await
             .unwrap();
+
+        read_writer.process().await.unwrap();
 
         let mut file = File::open("test.txt").await.unwrap();
         let mut file2 = File::open("test.txt.out.5").await.unwrap();
@@ -595,8 +602,10 @@ mod tests {
         let mut file2 = Vec::new();
 
         let (probe, rx) = SizeProbe::new();
-        let md5_trans =
-            crate::transformers::hashing_transformer::HashingTransformer::new(Md5::new(), "md5".to_string());
+        let md5_trans = crate::transformers::hashing_transformer::HashingTransformer::new(
+            Md5::new(),
+            "md5".to_string(),
+        );
 
         // Create a new GenericReadWriter
         GenericReadWriter::new_with_writer(file.as_ref(), &mut file2)

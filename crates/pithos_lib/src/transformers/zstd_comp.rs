@@ -54,7 +54,9 @@ impl ZstdEnc {
             loop {
                 match rx.try_recv() {
                     Ok(Message::ShouldFlush) => return Ok((true, false)),
-                    Ok(Message::Finished) => return Ok((false, true)),
+                    Ok(Message::Finished) => {
+                        return Ok((false, true));
+                    }
                     Ok(_) => {}
                     Err(TryRecvError::Empty) => {
                         break;

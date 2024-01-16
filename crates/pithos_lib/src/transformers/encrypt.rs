@@ -133,7 +133,8 @@ impl Transformer for ChaCha20Enc {
                     true,
                 )?)
             }
-        } else if finished && !self.finished {
+        }
+        if finished && !self.finished {
             if self.input_buf.is_empty() {
                 self.finished = true;
             } else {

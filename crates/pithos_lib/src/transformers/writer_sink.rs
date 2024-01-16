@@ -40,6 +40,7 @@ impl<W: AsyncWrite + Unpin> WriterSink<W> {
             loop {
                 match rx.try_recv() {
                     Ok(Message::Finished) => {
+                        dbg!("Finished");
                         if let Some(notifier) = &self.notifier {
                             self.writer.shutdown().await?;
                             notifier.send_read_writer(Message::Completed)?;

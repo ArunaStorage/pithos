@@ -123,6 +123,12 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for GenericReadWriter<'a
             t.set_notifier(notifier.clone()).await?;
         }
 
+        let _ = self.process_messages(&mut file_ctx, &mut next_file_ctx)?;
+
+        if let Some(ctx) = &file_ctx {
+            notifier.send_all(Message::FileContext(ctx.clone()))?;
+        }
+
         loop {
             if hold_buffer.is_empty() {
                 read_bytes = self.reader.read_buf(&mut read_buf).await?;
@@ -149,6 +155,9 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for GenericReadWriter<'a
                     hold_buffer = read_buf.split_to(diff);
                     mem::swap(&mut read_buf, &mut hold_buffer);
                     self.size_counter -= context.input_size as usize;
+                    file_ctx = next_file_ctx;
+                    next_file_ctx = None;
+                }else if self.size_counter == context.input_size as usize && hold_buffer.is_empty(){
                     file_ctx = next_file_ctx;
                     next_file_ctx = None;
                 }
