@@ -2,7 +2,7 @@ use crate::notifications::{Message, Notifier};
 use crate::transformer::{Transformer, TransformerType};
 use anyhow::anyhow;
 use anyhow::Result;
-use async_channel::{Receiver, Sender, TryRecvError};
+use async_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use std::sync::Arc;
 use tracing::error;
 
@@ -67,6 +67,7 @@ impl Transformer for SizeProbe {
 
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
+        dbg!(buf.len());
         self.size_counter += buf.len() as u64;
 
         if buf.is_empty() {
@@ -75,7 +76,14 @@ impl Transformer for SizeProbe {
             };
 
             if finished {
-                self.size_sender.send(self.size_counter).await?;
+                match self.size_sender.try_send(self.size_counter) {
+                    Ok(_) => {}
+                    Err(TrySendError::Full(_)) => {}
+                    Err(TrySendError::Closed(_)) => {
+                        error!("Size sender closed");
+                        return Err(anyhow!("Size sender closed"));
+                    }
+                }
                 if let Some(notifier) = &self.notifier {
                     notifier.send_read_writer(Message::SizeInfo(self.size_counter))?;
                     notifier.send_next(

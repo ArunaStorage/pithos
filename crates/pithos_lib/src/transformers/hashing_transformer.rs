@@ -75,6 +75,7 @@ where
             };
 
             if finished {
+                dbg!(finished);
                 if let Some(notifier) = &self.notifier {
                     let finished_hash = hex::encode(self.hasher.finalize_reset()).to_string();
                     let hashertype = match self.hasher_type.as_str() {

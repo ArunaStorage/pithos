@@ -159,12 +159,11 @@ impl<
                 read_bytes = data.len();
                 if read_bytes == 0 {
                     if let Some(counter) = &mut empty_counter {
-                        dbg!("empty counter");
                         *counter += 1;
                         if *counter > 5 {
                             notifier.send_first(Message::Finished)?;
+                            empty_counter = None;
                         }
-                        empty_counter = None;
                     }
                 }
                 read_buf.put(data);
@@ -198,6 +197,7 @@ impl<
             }
 
             for t in self.transformers.iter_mut() {
+                dbg!("Processed transformer");
                 t.process_bytes(&mut read_buf).await?;
             }
 
@@ -205,6 +205,7 @@ impl<
                 break;
             }
             read_bytes = 0;
+            dbg!("Next iter");
         }
         Ok(())
     }

@@ -144,7 +144,6 @@ impl Transformer for ZstdEnc {
         if !self.finished && finished && buf.is_empty() {
             self.internal_buf.shutdown().await?;
             self.prev_buf.extend_from_slice(self.internal_buf.get_ref());
-            self.add_skippable().await;
             self.chunks.push(u8::try_from(self.prev_buf.len() / CHUNK)?);
             buf.put(self.prev_buf.split().freeze());
             if let Some(notifier) = &self.notifier {

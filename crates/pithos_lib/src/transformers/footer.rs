@@ -174,6 +174,7 @@ impl Transformer for FooterGenerator {
                         self.hasher.finalize_reset().as_slice().try_into()?;
 
                     let final_data: Vec<u8> = self.endoffile.clone().try_into()?;
+                    dbg!(final_data.len());
                     buf.put(final_data.as_slice());
 
                     // Reset counter & hasher

@@ -7,21 +7,23 @@ use bytes::{Buf, BufMut, BytesMut};
 use std::sync::Arc;
 use tracing::{error, warn};
 
+#[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
 pub enum FilterParam {
-    None,
     Discard(u64),
     Keep(u64),
+    DiscardAll,
+    KeepAll,
 }
 
 pub struct Filter {
-    has_filter: bool,
     param: FilterParam,
-    filter: Vec<u64>,
+    filter: Vec<FilterParam>,
     captured_buf_len: usize,
     advanced_by: usize,
     notifier: Option<Arc<Notifier>>,
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
+    previous_finished: bool,
 }
 
 impl Filter {
@@ -29,45 +31,68 @@ impl Filter {
     #[allow(dead_code)]
     pub fn new_with_range(filter: Range) -> Self {
         Filter {
-            has_filter: true,
             param: FilterParam::Discard(filter.from),
-            filter: vec![filter.to],
+            filter: vec![FilterParam::DiscardAll, FilterParam::Keep(filter.to)],
             captured_buf_len: 0,
             advanced_by: 0,
             notifier: None,
             msg_receiver: None,
             idx: None,
+            previous_finished: false,
         }
+    }
+
+    #[tracing::instrument(level = "trace", skip(edit_list))]
+    #[allow(dead_code)]
+    pub fn from_edit_list(edit_list: Vec<u64>) -> Vec<FilterParam> {
+        let mut filter: Vec<_> = edit_list
+            .iter()
+            .enumerate()
+            .map(|(i, e)| {
+                if i % 2 == 0 {
+                    FilterParam::Discard(*e)
+                } else {
+                    FilterParam::Keep(*e)
+                }
+            })
+            .collect();
+        filter.push(FilterParam::DiscardAll);
+        filter.reverse();
+        filter
     }
 
     #[tracing::instrument(level = "trace", skip(filter))]
     #[allow(dead_code)]
-    pub fn new_with_edit_list(mut filter: Option<Vec<u64>>) -> Self {
+    pub fn new_with_edit_list(filter: Option<Vec<u64>>) -> Self {
+        let mut list = Self::from_edit_list(filter.unwrap_or_default());
         Filter {
-            has_filter: filter.is_some(),
-            param: filter
-                .as_mut()
-                .map(|f| f.pop().map(|e| FilterParam::Discard(e)))
-                .flatten()
-                .unwrap_or(FilterParam::None),
-            filter: filter.unwrap_or_default(),
+            param: list.pop().unwrap_or_else(|| FilterParam::KeepAll),
+            filter: list,
             captured_buf_len: 0,
             advanced_by: 0,
             notifier: None,
             msg_receiver: None,
             idx: None,
+            previous_finished: false,
         }
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
-    fn process_messages(&mut self) -> Result<bool> {
+    fn process_messages(&mut self) -> Result<()> {
         if let Some(rx) = &self.msg_receiver {
             loop {
                 match rx.try_recv() {
-                    Ok(Message::Finished) | Ok(Message::ShouldFlush) => return Ok(true),
+                    Ok(Message::Finished) | Ok(Message::ShouldFlush) => {
+                        self.previous_finished = true;
+                        return Ok(());
+                    }
                     Ok(Message::EditList(filter)) => {
-                        self.has_filter = true;
-                        self.filter = filter;
+                        if self.filter.is_empty() {
+                            self.filter = Self::from_edit_list(filter);
+                        } else {
+                            error!("Edit list received, but filter already set");
+                            return Err(anyhow!("Edit list received, but filter already set"));
+                        }
                     }
                     Ok(_) => {}
                     Err(TryRecvError::Empty) => {
@@ -80,26 +105,12 @@ impl Filter {
                 }
             }
         }
-        Ok(false)
+        Ok(())
     }
 
     fn next_param(&mut self) {
         let next = self.filter.pop();
-        match (&self.param, next) {
-            (FilterParam::Discard(_), Some(next)) => {
-                self.param = FilterParam::Keep(next);
-            }
-            (FilterParam::Keep(_), Some(next)) => {
-                self.param = FilterParam::Discard(next);
-            }
-            (FilterParam::None, Some(next)) => {
-                self.param = FilterParam::Discard(next);
-            }
-            (_, None) => {
-                self.param = FilterParam::None;
-                self.has_filter = false;
-            }
-        }
+        self.param = next.unwrap_or_else(|| FilterParam::DiscardAll);
     }
 }
 
@@ -118,17 +129,10 @@ impl Transformer for Filter {
         self.captured_buf_len = buf.len();
         self.advanced_by = 0;
 
-        if !self.has_filter {
-            self.process_messages()?;
-        }
+        self.process_messages()?;
 
         // If bytes are present in the buffer
         if !buf.is_empty() {
-            if !self.has_filter {
-                warn!("No filter set, passing through");
-                return Ok(());
-            }
-
             let mut keep_buf = BytesMut::with_capacity(buf.len());
             loop {
                 match &mut self.param {
@@ -154,17 +158,23 @@ impl Transformer for Filter {
                             self.next_param();
                         }
                     }
-                    FilterParam::None => return Ok(()),
+                    FilterParam::DiscardAll => {
+                        buf.clear();
+                        break;
+                    }
+                    FilterParam::KeepAll => {
+                        break;
+                    }
                 }
             }
             if !keep_buf.is_empty() {
                 buf.clear();
                 buf.put(keep_buf);
             }
-        }
-
-        if let Ok(finished) = self.process_messages() {
-            if finished {
+        } else {
+            if self.previous_finished
+                && [FilterParam::DiscardAll, FilterParam::KeepAll].contains(&self.param)
+            {
                 if let Some(notifier) = &self.notifier {
                     notifier.send_next(
                         self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
@@ -172,8 +182,6 @@ impl Transformer for Filter {
                     )?;
                 }
             }
-        } else {
-            return Err(anyhow!("Error processing messages"));
         }
 
         Ok(())

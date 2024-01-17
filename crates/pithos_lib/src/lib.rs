@@ -415,7 +415,7 @@ mod tests {
             .await
             .unwrap();
 
-        println!("{:?}", file2);
+        dbg!(format!("{:?}", std::str::from_utf8(&file2)));
         assert_eq!(file2, b"Thi".to_vec());
     }
 
