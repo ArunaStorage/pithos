@@ -87,7 +87,6 @@ impl Transformer for ZstdDec {
 
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
-        dbg!(buf.len());
         let Ok((should_flush, finished)) = self.process_messages() else {
             return Err(anyhow!("Error processing messages"));
         };

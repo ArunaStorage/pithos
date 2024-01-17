@@ -1,3 +1,5 @@
+use std::io::Write;
+
 use anyhow::{anyhow, bail, Result};
 use byteorder::{ByteOrder, LittleEndian};
 use chacha20poly1305::aead::Aead;
@@ -147,6 +149,21 @@ impl EndOfFileMetadata {
     fn is_flag_bit_set(target: &u64, flag_id: u8) -> bool {
         target >> flag_id & 1 == 1 // 11011101 >> 4 = 1101 & 0001 = 0001 == 0001 -> true
     }
+
+    pub fn finalize(&mut self) {
+        let mut full_size = 4 + 4 + 4 + 2 + self.file_name_length as usize + 8 + 32 + 16 + 8 + 8 + 32 + 8;
+        if self.semantic_len.is_some() {
+            full_size += 8;
+        }
+        if self.blocklist_len.is_some() {
+            full_size += 8;
+        }
+        if self.encryption_len.is_some() {
+            full_size += 8;
+        }
+        self.len = full_size as u32 - 8;
+        self.eof_metadata_len = full_size as u64;
+    }
 }
 
 impl TryFrom<&[u8]> for EndOfFileMetadata {
@@ -246,36 +263,30 @@ impl TryFrom<&[u8]> for EndOfFileMetadata {
     }
 }
 
-impl Into<Vec<u8>> for EndOfFileMetadata {
-    fn into(self) -> Vec<u8> {
+impl TryInto<Vec<u8>> for EndOfFileMetadata {
+    type Error = anyhow::Error;
+    fn try_into(self) -> Result<Vec<u8>, Self::Error> {
         let mut buffer = Vec::with_capacity(self.eof_metadata_len as usize);
-        buffer[0..4].copy_from_slice(&self.magic_bytes);
-        LittleEndian::write_u32(&mut buffer[4..8], self.len);
-        LittleEndian::write_u32(&mut buffer[8..12], self.version);
-        LittleEndian::write_u16(&mut buffer[12..14], self.file_name_length);
-        buffer[14..14 + self.file_name_length as usize].copy_from_slice(&self.file_name.as_bytes());
-        let mut offset = 14 + self.file_name_length as usize; 
-        LittleEndian::write_u64(&mut buffer[offset..offset + 8], self.raw_file_size);
-        offset += 8;
-        buffer[offset..8 + offset].copy_from_slice(&self.file_hash_sha256);
-        offset += 32;
-        buffer[offset..16 + offset].copy_from_slice(&self.file_hash_md5);
-        offset += 16;
-        LittleEndian::write_u64(&mut buffer[offset..8 + offset], self.flags);
+        buffer.write(&self.magic_bytes)?;
+        LittleEndian::write_u32(&mut buffer, self.len);
+        LittleEndian::write_u32(&mut buffer, self.version);
+        LittleEndian::write_u16(&mut buffer, self.file_name_length);
+        buffer.write(self.file_name.as_bytes())?;
+        LittleEndian::write_u64(&mut buffer, self.raw_file_size);
+        buffer.write(&self.file_hash_sha256)?;
+        buffer.write(&self.file_hash_md5)?;
+        LittleEndian::write_u64(&mut buffer, self.flags);
         if let Some(semantic_len) = self.semantic_len {
-            LittleEndian::write_u64(&mut buffer[offset..8 + offset], semantic_len);
-            offset += 8;
+            LittleEndian::write_u64(&mut buffer, semantic_len);
         }
         if let Some(blocklist_len) = self.blocklist_len {
-            LittleEndian::write_u64(&mut buffer[offset..8 + offset], blocklist_len);
-            offset += 8;
+            LittleEndian::write_u64(&mut buffer, blocklist_len);
         }
         if let Some(encryption_len) = self.encryption_len {
-            LittleEndian::write_u64(&mut buffer[offset..8 + offset], encryption_len);
-            offset += 8;
+            LittleEndian::write_u64(&mut buffer, encryption_len);
         }
-        LittleEndian::write_u64(&mut buffer[offset..8 + offset], self.eof_metadata_len);
-        buffer
+        LittleEndian::write_u64(&mut buffer, self.eof_metadata_len);
+        Ok(buffer)
     }
 }
 

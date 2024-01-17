@@ -99,6 +99,10 @@ impl FooterGenerator {
         }
         Ok(false)
     }
+
+    pub fn finalize_size(&mut self) {
+
+    }
 }
 
 #[async_trait::async_trait]
@@ -165,10 +169,11 @@ impl Transformer for FooterGenerator {
 
                     // Technical Metadata
                     self.endoffile.update_with_file_ctx(file_ctx)?;
-                    let encoded_technical_metadata: Vec<u8> = self.endoffile.clone().into();
+                    let encoded_technical_metadata: Vec<u8> = self.endoffile.clone().try_into()?;
                     self.hasher.update(encoded_technical_metadata.as_slice());
                     self.endoffile.disk_hash_sha256 =
                         self.hasher.finalize_reset().as_slice().try_into()?;
+                    self.endoffile.finalize();
                     buf.put(encoded_technical_metadata.as_slice());
 
                     // Reset counter & hasher
