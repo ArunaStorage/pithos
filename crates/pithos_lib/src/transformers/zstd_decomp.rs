@@ -90,7 +90,6 @@ impl Transformer for ZstdDec {
         let Ok((should_flush, finished)) = self.process_messages() else {
             return Err(anyhow!("Error processing messages"));
         };
-
         if self.skip_me {
             debug!("skipped zstd decoder");
             return Ok(());

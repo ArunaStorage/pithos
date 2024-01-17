@@ -1,7 +1,8 @@
-use std::io::Write;
+use std::io::{Read, Write};
 
 use anyhow::{anyhow, bail, Result};
 use byteorder::{ByteOrder, LittleEndian};
+use byteorder::{ReadBytesExt, WriteBytesExt};
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::aead::OsRng;
 use chacha20poly1305::{AeadCore, Nonce};
@@ -64,9 +65,12 @@ impl FileContext {
 pub enum Flag {
     Encrypted = 0,
     Compressed = 1,
-    HasSemanticMetadata = 2,
-    HasBlocklist = 3,
-    HasEncryptionMetadata = 4,
+    HasEncryptionMetadata = 2,
+    HasBlockList = 3,
+    HasRangeTable = 4,
+    RangeTableEncrypted = 5,
+    HasSemanticMetadata = 6,
+    SemanticMetadataEncrypted = 7,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -94,7 +98,7 @@ impl EndOfFileMetadata {
     pub fn init() -> Self {
         Self {
             magic_bytes: [0x50, 0x2A, 0x4D, 0x18],
-            len: 0, // Required for zstd skippable frame 
+            len: 0, // Required for zstd skippable frame
             version: 1,
             file_name_length: 0,
             file_name: String::new(),
@@ -103,7 +107,7 @@ impl EndOfFileMetadata {
             file_hash_md5: [0; 16],
             flags: 0,
             disk_file_size: 0,
-            disk_hash_sha256: [0; 32], 
+            disk_hash_sha256: [0; 32],
             semantic_len: None,
             blocklist_len: None,
             encryption_len: None,
@@ -112,7 +116,6 @@ impl EndOfFileMetadata {
     }
 
     pub fn update_with_file_ctx(&mut self, ctx: &FileContext) -> Result<()> {
-        
         if ctx.file_name.len() > 512 {
             bail!("Filename too long");
         }
@@ -151,7 +154,8 @@ impl EndOfFileMetadata {
     }
 
     pub fn finalize(&mut self) {
-        let mut full_size = 4 + 4 + 4 + 2 + self.file_name_length as usize + 8 + 32 + 16 + 8 + 8 + 32 + 8;
+        let mut full_size =
+            4 + 4 + 4 + 2 + self.file_name_length as usize + 8 + 32 + 16 + 8 + 8 + 32 + 8;
         if self.semantic_len.is_some() {
             full_size += 8;
         }
@@ -169,77 +173,47 @@ impl EndOfFileMetadata {
 impl TryFrom<&[u8]> for EndOfFileMetadata {
     type Error = anyhow::Error;
 
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+    fn try_from(mut value: &[u8]) -> Result<Self, Self::Error> {
         let mut magic_bytes = [0; 4];
-
-        magic_bytes.copy_from_slice(&value[0..4]);
-
+        value.read_exact(&mut magic_bytes)?;
         if magic_bytes != [0x50, 0x2A, 0x4D, 0x18] {
             return Err(anyhow!("Received invalid message"));
         }
-
-        let len = LittleEndian::read_u32(&value[4..8]);
-
-        let version = LittleEndian::read_u32(&value[8..12]);
-
+        let len = value.read_u32::<LittleEndian>()?;
+        let version = value.read_u32::<LittleEndian>()?;
         if version != 1 {
             return Err(anyhow!("Unsupported version"));
         }
-
-        let file_name_length = LittleEndian::read_u16(&value[12..14]);
-
-        let mut file_name = String::new();
-        file_name.push_str(
-            std::str::from_utf8(&value[14..14 + file_name_length as usize])
-                .map_err(|_| anyhow!("Invalid filename"))?,
-        );
-        let mut offset = 14 + file_name_length as usize; 
-        let raw_file_size = LittleEndian::read_u64(&value[offset..8 + offset]);
-        offset += 8;
+        let file_name_length = value.read_u16::<LittleEndian>()?;
+        let mut file_name_buf = vec![0u8; file_name_length as usize];
+        value.read_exact(&mut file_name_buf)?;
+        let raw_file_size = value.read_u64::<LittleEndian>()?;
         let mut file_hash_sha256 = [0; 32];
-        file_hash_sha256.copy_from_slice(&value[offset..32 + offset]);
-        offset += 32;
+        value.read_exact(&mut file_hash_sha256)?;
         let mut file_hash_md5 = [0; 16];
-        file_hash_md5.copy_from_slice(&value[offset..16 + offset]);
-        offset += 16;
-
-        let flags = LittleEndian::read_u64(&value[offset..8 + offset]);
-        offset += 8;
-        let semantic_start = LittleEndian::read_u64(&value[offset..8 + offset]);
-        offset += 8;
-        let blocklist_start = LittleEndian::read_u64(&value[offset..8 + offset]);
-        offset += 8;
-        let encryption_start = LittleEndian::read_u64(&value[offset..8 + offset]);
-        offset += 8;
-        let disk_file_size = LittleEndian::read_u64(&value[offset..8 + offset]);
-        offset += 8;
+        value.read_exact(&mut file_hash_md5)?;
+        let flags = value.read_u64::<LittleEndian>()?;
+        let disk_file_size = value.read_u64::<LittleEndian>()?;
         let mut disk_hash_sha256 = [0; 32];
-        disk_hash_sha256.copy_from_slice(&value[offset..32 + offset]);
-        offset += 32;
+        value.read_exact(&mut disk_hash_sha256)?;
         let semantic_len = if Self::is_flag_set_u64(flags, Flag::HasSemanticMetadata) {
-            let semantic_len = LittleEndian::read_u64(&value[offset..8 + offset]);
-            offset += 8;
-            Some(semantic_len)
-        }else{
+            Some(value.read_u64::<LittleEndian>()?)
+        } else {
             None
         };
-        let blocklist_len = if Self::is_flag_set_u64(flags, Flag::HasBlocklist) {
-            let blocklist_len = LittleEndian::read_u64(&value[offset..8 + offset]);
-            offset += 8;
-            Some(blocklist_len)
-        }else{
+        let blocklist_len = if Self::is_flag_set_u64(flags, Flag::HasBlockList) {
+            Some(value.read_u64::<LittleEndian>()?)
+        } else {
             None
         };
         let encryption_len = if Self::is_flag_set_u64(flags, Flag::HasEncryptionMetadata) {
-            let encryption_len = LittleEndian::read_u64(&value[offset..8 + offset]);
-            offset += 8;
-            Some(encryption_len)
-        }else{
+            Some(value.read_u64::<LittleEndian>()?)
+        } else {
             None
         };
 
-        let eof_metadata_len = LittleEndian::read_u64(&value[offset..8 + offset]);
-        if eof_metadata_len != (offset + 8) as u64 || eof_metadata_len != value.len() as u64{
+        let eof_metadata_len = value.read_u64::<LittleEndian>()?;
+        if eof_metadata_len != value.len() as u64 {
             return Err(anyhow!("Invalid EOF metadata length"));
         }
 
@@ -248,7 +222,7 @@ impl TryFrom<&[u8]> for EndOfFileMetadata {
             len,
             version,
             file_name_length,
-            file_name,
+            file_name: std::str::from_utf8(&file_name_buf)?.to_string(),
             raw_file_size,
             file_hash_sha256,
             file_hash_md5,
@@ -267,25 +241,27 @@ impl TryInto<Vec<u8>> for EndOfFileMetadata {
     type Error = anyhow::Error;
     fn try_into(self) -> Result<Vec<u8>, Self::Error> {
         let mut buffer = Vec::with_capacity(self.eof_metadata_len as usize);
-        buffer.write(&self.magic_bytes)?;
-        LittleEndian::write_u32(&mut buffer, self.len);
-        LittleEndian::write_u32(&mut buffer, self.version);
-        LittleEndian::write_u16(&mut buffer, self.file_name_length);
-        buffer.write(self.file_name.as_bytes())?;
-        LittleEndian::write_u64(&mut buffer, self.raw_file_size);
-        buffer.write(&self.file_hash_sha256)?;
-        buffer.write(&self.file_hash_md5)?;
-        LittleEndian::write_u64(&mut buffer, self.flags);
+        buffer.write_all(&self.magic_bytes)?;
+        buffer.write_u32::<LittleEndian>(self.len)?;
+        buffer.write_u32::<LittleEndian>(self.version)?;
+        buffer.write_u16::<LittleEndian>(self.file_name_length)?;
+        buffer.write_all(self.file_name.as_bytes())?;
+        buffer.write_u64::<LittleEndian>(self.raw_file_size)?;
+        buffer.write_all(&self.file_hash_sha256)?;
+        buffer.write_all(&self.file_hash_md5)?;
+        buffer.write_u64::<LittleEndian>(self.flags)?;
+        buffer.write_u64::<LittleEndian>(self.disk_file_size)?;
+        buffer.write_all(&self.disk_hash_sha256)?;
         if let Some(semantic_len) = self.semantic_len {
-            LittleEndian::write_u64(&mut buffer, semantic_len);
+            buffer.write_u64::<LittleEndian>(semantic_len)?;
         }
         if let Some(blocklist_len) = self.blocklist_len {
-            LittleEndian::write_u64(&mut buffer, blocklist_len);
+            buffer.write_u64::<LittleEndian>(blocklist_len)?;
         }
         if let Some(encryption_len) = self.encryption_len {
-            LittleEndian::write_u64(&mut buffer, encryption_len);
+            buffer.write_u64::<LittleEndian>(encryption_len)?;
         }
-        LittleEndian::write_u64(&mut buffer, self.eof_metadata_len);
+        buffer.write_u64::<LittleEndian>(self.eof_metadata_len)?;
         Ok(buffer)
     }
 }
@@ -300,9 +276,16 @@ pub enum Keys {
     Decrypted(DecryptedKey),
 }
 
+pub enum PacketKeyFlags {
+    ContainsExclusiveRangeTableKey = 0,
+    ContainsExclusiveSemanticMetadataKey = 1,
+    ContainsExclusiveRangeAndMetadataKey = 2,
+}
+
 pub struct EncryptionPacket {
     pub len: u32,
     pub pubkey: [u8; 32],
+    pub flags: u8,
     pub nonce: [u8; 12],
     pub keys: Keys,
     pub mac: [u8; 16],
@@ -314,6 +297,7 @@ impl EncryptionPacket {
             len: 0,
             pubkey: [0; 32],
             nonce: [0; 12],
+            flags: 0,
             keys: Keys::Decrypted(DecryptedKey {
                 keys: unencrypted_keys,
                 readers_pubkey,
@@ -384,7 +368,6 @@ pub struct EncryptionMetadata {
     pub magic_bytes: [u8; 4], // Should be 0x51, 0x2A, 0x4D, 0x18
     pub len: u32,
     pub packets: Vec<EncryptionPacket>,
-    pub padding: Vec<u8>, // -> Multiple of 512 Bytes
 }
 
 impl EncryptionMetadata {
@@ -393,7 +376,6 @@ impl EncryptionMetadata {
             magic_bytes: [0x51, 0x2A, 0x4D, 0x18],
             len: 0, // (Sum of all packages len)
             packets: vec![],
-            padding: vec![],
         }
     }
 
@@ -408,54 +390,43 @@ impl EncryptionMetadata {
 impl TryFrom<&[u8]> for EncryptionMetadata {
     type Error = anyhow::Error;
 
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
-        if value.len() % 512 != 0 {
-            return Err(anyhow!("Invalid encryption metadata len"));
-        }
+    fn try_from(mut value: &[u8]) -> Result<Self, Self::Error> {
         let mut magic_bytes = [0; 4];
-        magic_bytes.copy_from_slice(&value[0..4]);
-
+        value.read_exact(&mut magic_bytes)?;
         if magic_bytes != [0x51, 0x2A, 0x4D, 0x18] {
             return Err(anyhow!("Received invalid message"));
         }
-
-        let len = LittleEndian::read_u32(&value[4..8]);
-
+        let len = value.read_u32::<LittleEndian>()?;
         if len as usize != value[8..].len() {
             return Err(anyhow!("Invalid blocklist length"));
         }
-
         let mut packets = Vec::new();
         let mut offset = 8;
         while offset < len as usize {
-            let packet_len = LittleEndian::read_u32(&value[offset..offset + 4]);
+            let packet_len = value.read_u32::<LittleEndian>()?;
             let mut pubkey = [0; 32];
-            pubkey.copy_from_slice(&value[offset + 4..offset + 36]);
+            value.read_exact(&mut pubkey)?;
+            let flags = value.read_u8()?;
             let mut nonce = [0; 12];
-            nonce.copy_from_slice(&value[offset + 36..offset + 48]);
-            let key_offset = offset + 48;
-            let mut keys = vec![];
-            keys.copy_from_slice(&value[key_offset..key_offset + packet_len as usize - 16]);
+            value.read_exact(&mut nonce)?;
+            let mut keys = vec![0u8; packet_len as usize - 48];
+            value.read_exact(&mut keys)?;
             let mut mac = [0; 16];
-            mac.copy_from_slice(
-                &value[offset + packet_len as usize - 16..offset + packet_len as usize],
-            );
+            value.read_exact(&mut mac)?;
             packets.push(EncryptionPacket {
                 len: packet_len,
                 pubkey,
+                flags,
                 nonce,
                 keys: Keys::Encrypted(keys),
                 mac,
             });
             offset += packet_len as usize;
         }
-        let mut padding = Vec::new();
-        padding.copy_from_slice(&value[offset..]);
         Ok(Self {
             magic_bytes,
             len,
             packets,
-            padding,
         })
     }
 }
@@ -464,21 +435,20 @@ impl TryInto<Vec<u8>> for EncryptionMetadata {
     type Error = anyhow::Error;
     fn try_into(self) -> Result<Vec<u8>> {
         let mut buffer = Vec::new();
-        buffer.extend_from_slice(&self.magic_bytes);
-        LittleEndian::write_u32(&mut buffer, self.len);
+        buffer.write_all(&self.magic_bytes)?;
+        buffer.write_u32::<LittleEndian>(self.len)?;
         for packet in self.packets {
-            LittleEndian::write_u32(&mut buffer, packet.len);
-            buffer.extend_from_slice(&packet.pubkey);
-            buffer.extend_from_slice(&packet.nonce);
+            buffer.write_u32::<LittleEndian>(packet.len)?;
+            buffer.write_all(&packet.pubkey)?;
+            buffer.write_all(&packet.nonce)?;
             match packet.keys {
-                Keys::Encrypted(keys) => buffer.extend_from_slice(&keys),
+                Keys::Encrypted(keys) => buffer.write_all(&keys)?,
                 Keys::Decrypted(_) => {
                     bail!("Encryption metadata contains unencrypted keys")
                 }
             }
-            buffer.extend_from_slice(&packet.mac);
+            buffer.write_all(&packet.mac)?;
         }
-        buffer.extend_from_slice(&self.padding);
         Ok(buffer)
     }
 }
@@ -502,22 +472,19 @@ impl BlockList {
 impl TryFrom<&[u8]> for BlockList {
     type Error = anyhow::Error;
 
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+    fn try_from(mut value: &[u8]) -> Result<Self, Self::Error> {
         let mut magic_bytes: [u8; 4] = [0; 4];
-        magic_bytes.copy_from_slice(&value[0..4]);
-
+        value.read_exact(&mut magic_bytes)?;
         if magic_bytes != [0x52, 0x2A, 0x4D, 0x18] {
             return Err(anyhow!("Received invalid message"));
         }
-
-        let len = LittleEndian::read_u32(&value[4..8]);
+        let len = value.read_u32::<LittleEndian>()?;
 
         if len as usize != value[8..].len() {
             return Err(anyhow!("Invalid blocklist length"));
         }
-
         let mut blocklist = Vec::new();
-        blocklist.copy_from_slice(&value[8..]);
+        value.read_to_end(&mut blocklist)?;
         Ok(Self {
             magic_bytes,
             len,
@@ -526,18 +493,32 @@ impl TryFrom<&[u8]> for BlockList {
     }
 }
 
-impl Into<Vec<u8>> for BlockList {
-    fn into(self) -> Vec<u8> {
-        let mut buffer = Vec::new();
-        buffer.extend_from_slice(&self.magic_bytes);
-        LittleEndian::write_u32(&mut buffer, self.len);
-        buffer.extend_from_slice(&self.blocklist);
-        buffer
+impl TryInto<Vec<u8>> for BlockList {
+    type Error = anyhow::Error;
+    fn try_into(self) -> Result<Vec<u8>, Self::Error> {
+        let mut buffer = Vec::with_capacity(8 + self.len as usize);
+        buffer.write_all(&self.magic_bytes)?;
+        buffer.write_u32::<LittleEndian>(self.len)?;
+        buffer.write_all(&self.blocklist)?;
+        Ok(buffer)
     }
 }
 
-pub struct SemanticMetadata {
+pub struct RangeTable {
     pub magic_bytes: [u8; 4], // Should be 0x53, 0x2A, 0x4D, 0x18
+    pub len: u32,
+    pub sections: Vec<RangeTableEntry>,
+}
+
+pub struct RangeTableEntry {
+    pub tag_len: u8, // Max 255 bytes
+    pub tag: String,
+    pub start: u64,
+    pub end: u64,
+}
+
+pub struct SemanticMetadata {
+    pub magic_bytes: [u8; 4], // Should be 0x54, 0x2A, 0x4D, 0x18
     pub len: u32,
     pub semantic: String, // JSON encoded string
 }
@@ -545,7 +526,7 @@ pub struct SemanticMetadata {
 impl SemanticMetadata {
     pub fn new(semantic: String) -> Self {
         Self {
-            magic_bytes: [0x53, 0x2A, 0x4D, 0x18],
+            magic_bytes: [0x54, 0x2A, 0x4D, 0x18],
             len: semantic.len() as u32,
             semantic,
         }
@@ -555,15 +536,14 @@ impl SemanticMetadata {
 impl TryFrom<&[u8]> for SemanticMetadata {
     type Error = anyhow::Error;
 
-    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+    fn try_from(mut value: &[u8]) -> Result<Self, Self::Error> {
         let mut magic_bytes: [u8; 4] = [0; 4];
-        magic_bytes.copy_from_slice(&value[0..4]);
-
+        value.read_exact(&mut magic_bytes)?;
         if magic_bytes != [0x53, 0x2A, 0x4D, 0x18] {
             return Err(anyhow!("Received invalid message"));
         }
 
-        let len = LittleEndian::read_u32(&value[4..8]);
+        let len = value.read_u32::<LittleEndian>()?;
 
         if len as usize != value[8..].len() {
             return Err(anyhow!("Invalid semantic length"));
@@ -579,12 +559,13 @@ impl TryFrom<&[u8]> for SemanticMetadata {
     }
 }
 
-impl Into<Vec<u8>> for SemanticMetadata {
-    fn into(self) -> Vec<u8> {
+impl TryInto<Vec<u8>> for SemanticMetadata {
+    type Error = anyhow::Error;
+    fn try_into(self) -> Result<Vec<u8>, Self::Error> {
         let mut buffer = Vec::new();
-        buffer.extend_from_slice(&self.magic_bytes);
-        LittleEndian::write_u32(&mut buffer, self.len);
-        buffer.extend_from_slice(self.semantic.as_bytes());
-        buffer
+        buffer.write_all(&self.magic_bytes)?;
+        buffer.write_u32::<LittleEndian>(self.len)?;
+        buffer.write_all(self.semantic.as_bytes())?;
+        Ok(buffer)
     }
 }

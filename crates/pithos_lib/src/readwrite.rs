@@ -157,7 +157,8 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for GenericReadWriter<'a
                     self.size_counter -= context.input_size as usize;
                     file_ctx = next_file_ctx;
                     next_file_ctx = None;
-                }else if self.size_counter == context.input_size as usize && hold_buffer.is_empty(){
+                } else if self.size_counter == context.input_size as usize && hold_buffer.is_empty()
+                {
                     file_ctx = next_file_ctx;
                     next_file_ctx = None;
                 }

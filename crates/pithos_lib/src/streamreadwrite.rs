@@ -132,6 +132,7 @@ impl<
         let mut read_bytes: usize = 0;
         let mut next_file_ctx: Option<FileContext> = None;
         let mut file_ctx: Option<FileContext> = None;
+        let mut empty_counter: Option<u8> = Some(0);
         self.transformers
             .push(self.sink.take().ok_or_else(|| anyhow!("No sink!"))?);
 
@@ -156,6 +157,16 @@ impl<
                     .unwrap_or_else(|| Ok(Bytes::new()))
                     .unwrap_or_default();
                 read_bytes = data.len();
+                if read_bytes == 0 {
+                    if let Some(counter) = &mut empty_counter {
+                        dbg!("empty counter");
+                        *counter += 1;
+                        if *counter > 5 {
+                            notifier.send_first(Message::Finished)?;
+                        }
+                        empty_counter = None;
+                    }
+                }
                 read_buf.put(data);
             } else if read_buf.is_empty() {
                 mem::swap(&mut hold_buffer, &mut read_buf);
@@ -179,7 +190,8 @@ impl<
                     self.size_counter -= context.input_size as usize;
                     file_ctx = next_file_ctx;
                     next_file_ctx = None;
-                }else if self.size_counter == context.input_size as usize && hold_buffer.is_empty(){
+                } else if self.size_counter == context.input_size as usize && hold_buffer.is_empty()
+                {
                     file_ctx = next_file_ctx;
                     next_file_ctx = None;
                 }

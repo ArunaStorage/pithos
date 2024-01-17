@@ -1,6 +1,6 @@
 use crate::notifications::{HashType, Message, Notifier};
 use crate::structs::Flag::{
-    Compressed, Encrypted, HasBlocklist, HasEncryptionMetadata, HasSemanticMetadata,
+    Compressed, Encrypted, HasBlockList, HasEncryptionMetadata, HasSemanticMetadata,
 };
 use crate::structs::{
     BlockList, EncryptionMetadata, EncryptionPacket, EndOfFileMetadata, FileContext,
@@ -75,7 +75,7 @@ impl FooterGenerator {
                     }
                     Ok(Message::Blocklist(bl)) => {
                         self.blocklist = Some(bl);
-                        self.endoffile.set_flag(HasBlocklist);
+                        self.endoffile.set_flag(HasBlockList);
                     }
                     Ok(Message::Metadata(md)) => {
                         self.metadata = Some(md);
@@ -98,10 +98,6 @@ impl FooterGenerator {
             }
         }
         Ok(false)
-    }
-
-    pub fn finalize_size(&mut self) {
-
     }
 }
 
@@ -127,7 +123,7 @@ impl Transformer for FooterGenerator {
                     // (optional) Metadata (optional) encrypted
                     if let Some((encryption_key, metadata)) = &self.metadata {
                         let encoded_metadata: Vec<u8> =
-                            SemanticMetadata::new(metadata.clone()).into();
+                            SemanticMetadata::new(metadata.clone()).try_into()?;
                         let metadata_bytes = if let Some(key) =
                             encryption_key.clone().or(file_ctx.encryption_key.clone())
                         {
@@ -143,7 +139,8 @@ impl Transformer for FooterGenerator {
 
                     // (optional) Blocklist
                     if let Some(blocklist) = &self.blocklist {
-                        let encoded_blocklist: Vec<u8> = BlockList::new(blocklist.clone()).into();
+                        let encoded_blocklist: Vec<u8> =
+                            BlockList::new(blocklist.clone()).try_into()?;
                         self.endoffile.blocklist_len = Some(encoded_blocklist.len() as u64);
                         self.hasher.update(encoded_blocklist.as_slice());
                         self.counter += encoded_blocklist.len() as u64;
@@ -161,7 +158,8 @@ impl Transformer for FooterGenerator {
                             encryption_metadata.encrypt_all(None)?;
                             let encryption_data_bytes: Vec<u8> = encryption_metadata.try_into()?;
                             self.hasher.update(encryption_data_bytes.as_slice());
-                            self.endoffile.encryption_len = Some(encryption_data_bytes.len() as u64);
+                            self.endoffile.encryption_len =
+                                Some(encryption_data_bytes.len() as u64);
                             self.counter += encryption_data_bytes.len() as u64;
                             buf.put(encryption_data_bytes.as_slice());
                         }
@@ -169,12 +167,14 @@ impl Transformer for FooterGenerator {
 
                     // Technical Metadata
                     self.endoffile.update_with_file_ctx(file_ctx)?;
+                    self.endoffile.finalize();
                     let encoded_technical_metadata: Vec<u8> = self.endoffile.clone().try_into()?;
                     self.hasher.update(encoded_technical_metadata.as_slice());
                     self.endoffile.disk_hash_sha256 =
                         self.hasher.finalize_reset().as_slice().try_into()?;
-                    self.endoffile.finalize();
-                    buf.put(encoded_technical_metadata.as_slice());
+
+                    let final_data: Vec<u8> = self.endoffile.clone().try_into()?;
+                    buf.put(final_data.as_slice());
 
                     // Reset counter & hasher
                     self.counter = 0;

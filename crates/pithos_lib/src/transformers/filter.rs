@@ -64,7 +64,7 @@ impl Filter {
         if let Some(rx) = &self.msg_receiver {
             loop {
                 match rx.try_recv() {
-                    Ok(Message::Finished) => return Ok(true),
+                    Ok(Message::Finished) | Ok(Message::ShouldFlush) => return Ok(true),
                     Ok(Message::EditList(filter)) => {
                         self.has_filter = true;
                         self.filter = filter;
@@ -163,12 +163,14 @@ impl Transformer for Filter {
             }
         }
 
-        if let Ok(_) = self.process_messages() {
-            if let Some(notifier) = &self.notifier {
-                notifier.send_next(
-                    self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
-                    Message::Finished,
-                )?;
+        if let Ok(finished) = self.process_messages() {
+            if finished {
+                if let Some(notifier) = &self.notifier {
+                    notifier.send_next(
+                        self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
+                        Message::Finished,
+                    )?;
+                }
             }
         } else {
             return Err(anyhow!("Error processing messages"));

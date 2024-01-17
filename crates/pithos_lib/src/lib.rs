@@ -427,7 +427,7 @@ mod tests {
 
         let combined = Vec::from_iter(file1.clone().into_iter().chain(file2.clone()));
 
-        let (sx, rx) = async_channel::bounded(10);
+        let (sx, _rx) = async_channel::bounded(10);
         sx.send((
             FileContext {
                 file_name: "file1.txt".to_string(),
