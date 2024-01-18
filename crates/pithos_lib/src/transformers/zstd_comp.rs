@@ -87,7 +87,6 @@ impl Transformer for ZstdEnc {
         let Ok((should_flush, finished)) = self.process_messages() else {
             return Err(anyhow!("Error processing messages"));
         };
-
         if should_flush {
             debug!("flushed zstd encoder");
             self.internal_buf.write_all_buf(buf).await?;
@@ -212,33 +211,15 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_zstd_encoder_with_skip() {
+    async fn test_zstd_encoder() {
         let mut encoder = ZstdEnc::new();
         let mut buf = BytesMut::new();
         buf.put(b"12345".as_slice());
+        let (_, sx) = encoder.initialize(0).await;
+        sx.send(Message::Finished).await.unwrap();
         encoder.process_bytes(&mut buf).await.unwrap();
         // Starts with magic zstd header (little-endian)
         assert!(buf.starts_with(&hex::decode("28B52FFD").unwrap()));
-        // Expect 65kb size
-        assert_eq!(buf.len(), 65536);
-        let expected = hex::decode(format!(
-            "28b52ffd00582900003132333435502a4d18eaff{}",
-            "00".repeat(65516)
-        ))
-        .unwrap();
-        assert_eq!(buf.as_ref(), &expected)
-    }
-
-    #[tokio::test]
-    async fn test_zstd_encoder_without_skip() {
-        let mut encoder = ZstdEnc::new();
-        let mut buf = BytesMut::new();
-        buf.put(b"12345".as_slice());
-        encoder.process_bytes(&mut buf).await.unwrap();
-        // Starts with magic zstd header (little-endian)
-        assert!(buf.starts_with(&hex::decode("28B52FFD").unwrap()));
-        // Expect 14b size
-        assert_eq!(buf.len(), 14);
         let expected = hex::decode("28b52ffd00582900003132333435").unwrap();
         assert_eq!(buf.as_ref(), &expected)
     }

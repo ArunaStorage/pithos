@@ -58,7 +58,9 @@ impl FooterGenerator {
         if let Some(rx) = &self.msg_receiver {
             loop {
                 match rx.try_recv() {
-                    Ok(Message::Finished) | Ok(Message::ShouldFlush) => return Ok(true),
+                    Ok(Message::Finished) | Ok(Message::ShouldFlush) => {
+                        return Ok(true)
+                    },
                     Ok(Message::FileContext(ctx)) => {
                         if ctx.encryption_key.is_some() {
                             self.endoffile.set_flag(Encrypted);
@@ -116,7 +118,6 @@ impl Transformer for FooterGenerator {
         // Update overall hash & size counter
         self.hasher.update(buf.as_ref());
         self.counter += buf.len() as u64;
-
         if let Ok(finished) = self.process_messages() {
             if finished {
                 if let Some(file_ctx) = &self.filectx {
@@ -174,7 +175,6 @@ impl Transformer for FooterGenerator {
                         self.hasher.finalize_reset().as_slice().try_into()?;
 
                     let final_data: Vec<u8> = self.endoffile.clone().try_into()?;
-                    dbg!(final_data.len());
                     buf.put(final_data.as_slice());
 
                     // Reset counter & hasher
@@ -187,8 +187,7 @@ impl Transformer for FooterGenerator {
                             Message::Finished,
                         )?;
                     }
-                } else {
-                    return Err(anyhow!("Missing file context"));
+                    self.filectx = None;
                 }
             }
         } else {

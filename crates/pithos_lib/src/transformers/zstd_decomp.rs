@@ -162,13 +162,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_zstd_encoder_without_skip() {
+    async fn test_zstd_decoder_without_skip() {
         let mut decoder = ZstdDec::new();
         let mut buf = BytesMut::new();
         let expected = hex::decode("28b52ffd00582900003132333435").unwrap();
+        let (_, sx) = decoder.initialize(0).await;
+        sx.send(Message::Finished).await.unwrap();
         buf.put(expected.as_slice());
         decoder.process_bytes(&mut buf).await.unwrap();
-        // Expect 65kb size
         assert_eq!(buf.len(), 5);
         assert_eq!(buf, b"12345".as_slice());
     }

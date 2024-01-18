@@ -74,7 +74,6 @@ impl<W: AsyncWrite + Unpin + Send> Transformer for WriterSink<W> {
 
     #[tracing::instrument(level = "trace", skip(self))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
-        dbg!(buf.len());
         if !buf.is_empty() {
             while !buf.is_empty() {
                 self.writer.write_buf(buf).await?;
