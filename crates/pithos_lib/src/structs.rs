@@ -9,6 +9,8 @@ use chacha20poly1305::{AeadCore, Nonce};
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
 use crypto_kx::{Keypair, PublicKey, SecretKey};
 
+use crate::helpers::flag_helpers;
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 pub struct FileContext {
     // FileName
@@ -126,31 +128,19 @@ impl EndOfFileMetadata {
     }
 
     pub fn set_flag(&mut self, flag: Flag) {
-        Self::set_flag_bit(&mut self.flags, flag as u8)
+        flag_helpers::set_flag_bit(&mut self.flags, flag as u8)
     }
 
     pub fn unset_flag(&mut self, flag: Flag) {
-        Self::unset_flag_bit(&mut self.flags, flag as u8)
+        flag_helpers::unset_flag_bit(&mut self.flags, flag as u8)
     }
 
     pub fn is_flag_set(&self, flag: Flag) -> bool {
-        Self::is_flag_bit_set(&self.flags, flag as u8)
+        flag_helpers::is_flag_bit_set(&self.flags, flag as u8)
     }
 
     pub fn is_flag_set_u64(val: u64, flag: Flag) -> bool {
-        Self::is_flag_bit_set(&val, flag as u8)
-    }
-
-    fn set_flag_bit(target: &mut u64, flag_id: u8) {
-        *target |= 1 << flag_id
-    }
-
-    fn unset_flag_bit(target: &mut u64, flag_id: u8) {
-        *target &= !(1 << flag_id) // 1101 & 1111 = 1101
-    }
-
-    fn is_flag_bit_set(target: &u64, flag_id: u8) -> bool {
-        target >> flag_id & 1 == 1 // 11011101 >> 4 = 1101 & 0001 = 0001 == 0001 -> true
+        flag_helpers::is_flag_bit_set(&val, flag as u8)
     }
 
     pub fn finalize(&mut self) {
@@ -276,10 +266,11 @@ pub enum Keys {
     Decrypted(DecryptedKey),
 }
 
+#[repr(u8)]
 pub enum PacketKeyFlags {
-    ContainsExclusiveRangeTableKey = 0,
-    ContainsExclusiveSemanticMetadataKey = 1,
-    ContainsExclusiveRangeAndMetadataKey = 2,
+    ContainsExclusiveRangeTableKey = 0, // Index 0 is reserved for range table key
+    ContainsExclusiveSemanticMetadataKey = 1, // Index 0 or 1 is reserved for semantic metadata key
+    ContainsExclusiveRangeAndMetadataKey = 2, // Index 0 is reserved for a combined range table and semantic metadata key
 }
 
 pub struct EncryptionPacket {
@@ -362,6 +353,79 @@ impl EncryptionPacket {
         }
         Ok(())
     }
+
+    pub fn set_flag(&mut self, flag: PacketKeyFlags) {
+        flag_helpers::set_flag_bit_u8(&mut self.flags, flag as u8)
+    }
+
+    pub fn unset_flag(&mut self, flag: PacketKeyFlags) {
+        flag_helpers::unset_flag_bit_u8(&mut self.flags, flag as u8)
+    }
+
+    pub fn is_flag_set(&self, flag: PacketKeyFlags) -> bool {
+        flag_helpers::is_flag_bit_set_u8(&self.flags, flag as u8)
+    }
+
+    pub fn extract_keys_with_flags(
+        &self,
+    ) -> Result<(Option<[u8; 32]>, Option<[u8; 32]>, Vec<[u8; 32]>)> {
+        match (
+            self.is_flag_set(PacketKeyFlags::ContainsExclusiveRangeTableKey),
+            self.is_flag_set(PacketKeyFlags::ContainsExclusiveSemanticMetadataKey),
+            self.is_flag_set(PacketKeyFlags::ContainsExclusiveRangeAndMetadataKey),
+            &self.keys,
+        ) {
+            (true, true, false, Keys::Decrypted(keys)) => {
+                if keys.keys.len() < 2 {
+                    Err(anyhow!("Invalid key count < 2"))
+                } else {
+                    Ok((
+                        keys.keys.get(0).copied(),
+                        keys.keys.get(1).copied(),
+                        keys.keys.get(2..).unwrap_or_default().to_vec(),
+                    ))
+                }
+            }
+            (true, false, false, Keys::Decrypted(keys)) => {
+                if keys.keys.len() < 1 {
+                    Err(anyhow!("Invalid key count"))
+                } else {
+                    Ok((
+                        keys.keys.get(0).copied(),
+                        None,
+                        keys.keys.get(1..).unwrap_or_default().to_vec(),
+                    ))
+                }
+            }
+            (false, true, false, Keys::Decrypted(keys)) => {
+                if keys.keys.len() == 0 {
+                    Err(anyhow!("Invalid key count == 0"))
+                } else {
+                    Ok((
+                        None,
+                        keys.keys.get(0).copied(),
+                        keys.keys.get(1..).unwrap_or_default().to_vec(),
+                    ))
+                }
+            }
+            (false, false, true, Keys::Decrypted(keys)) => {
+                if keys.keys.len() == 0 {
+                    Err(anyhow!("Invalid key count == 0"))
+                } else {
+                    Ok((
+                        keys.keys.get(0).copied(),
+                        keys.keys.get(0).copied(),
+                        keys.keys.get(1..).unwrap_or_default().to_vec(),
+                    ))
+                }
+            }
+            (false, false, false, Keys::Decrypted(keys)) => Ok((None, None, vec![])),
+            (_, _, _, Keys::Decrypted(_)) => {
+                Err(anyhow!("Invalid flag combination cant combine and with or"))
+            }
+            (_, _, _, Keys::Encrypted(_)) => Err(anyhow!("Keys are encrypted")),
+        }
+    }
 }
 
 pub struct EncryptionMetadata {
@@ -382,6 +446,13 @@ impl EncryptionMetadata {
     pub fn encrypt_all(&mut self, writers_secret_key: Option<[u8; 32]>) -> Result<()> {
         for packet in &mut self.packets {
             packet.encrypt(writers_secret_key)?;
+        }
+        Ok(())
+    }
+
+    pub fn decrypt(&mut self, readers_secret_key: [u8; 32]) -> Result<()> {
+        for packet in &mut self.packets {
+            let _ = packet.decrypt(readers_secret_key); // Try to decrypt as many as possible
         }
         Ok(())
     }

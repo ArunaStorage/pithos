@@ -60,9 +60,7 @@ impl FooterGenerator {
         if let Some(rx) = &self.msg_receiver {
             loop {
                 match rx.try_recv() {
-                    Ok(Message::Finished) | Ok(Message::ShouldFlush) => {
-                        return Ok(true)
-                    },
+                    Ok(Message::Finished) | Ok(Message::ShouldFlush) => return Ok(true),
                     Ok(Message::FileContext(ctx)) => {
                         self.send_context = false;
                         if ctx.encryption_key.is_some() {
@@ -192,7 +190,7 @@ impl Transformer for FooterGenerator {
                         )?;
                     }
                     self.filectx = None;
-                }else if !self.send_context {
+                } else if !self.send_context {
                     return Err(anyhow!("Missing file context"));
                 }
             }

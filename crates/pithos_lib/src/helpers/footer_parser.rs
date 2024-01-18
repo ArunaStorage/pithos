@@ -1,20 +1,116 @@
+use crate::structs::BlockList;
+use crate::structs::EncryptionMetadata;
+use crate::structs::EndOfFileMetadata;
+use crate::structs::Flag;
+use crate::structs::RangeTable;
+use crate::structs::SemanticMetadata;
+use crate::structs::Keys as EncryptionKeys;
 use anyhow::anyhow;
 use anyhow::Result;
+use byteorder::ByteOrder;
 use byteorder::LittleEndian;
-use byteorder::ReadBytesExt;
 use bytes::Bytes;
 use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305,
 };
-use tracing::debug;
 use tracing::error;
 
+pub enum FooterParserState {
+    Empty,
+    Raw(Vec<u8>),
+    Decoded(Footer),
+}
+
 pub struct FooterParser {
-    footer: [u8; 65536 * 2],
-    blocklist: Vec<u8>,
-    total: u32,
-    is_encrypted: bool,
+    state: FooterParserState,
+    keys: Option<Keys>,
+}
+
+pub enum EncryptionKeySet {
+    None,
+    Single([u8; 32]),
+    Multiple(Vec<[u8; 32]>),
+}
+
+pub struct Keys {
+    data_keys: EncryptionKeySet,
+    recepient_keys: EncryptionKeySet,
+    range_table_key: EncryptionKeySet,
+    semantic_metadata: EncryptionKeySet,
+}
+
+impl Keys {
+    pub fn add_data_keys(&mut self, mut keys: Vec<[u8; 32]>) {
+        match (&mut self.data_keys, keys.len()){
+            (EncryptionKeySet::None, 1) => {
+                self.data_keys = EncryptionKeySet::Single(keys[0]);
+            },
+            (EncryptionKeySet::None, _) => {
+                self.data_keys = EncryptionKeySet::Multiple(keys);
+            },
+            (EncryptionKeySet::Single(key), _) => {
+                keys.push(*key);
+                self.data_keys = EncryptionKeySet::Multiple(keys);
+            },
+            (EncryptionKeySet::Multiple(current_keys), _) => {
+                current_keys.extend(keys);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn add_range_table_key(&mut self, key: [u8; 32]) -> Result<()>{
+        match &self.range_table_key {
+            EncryptionKeySet::None => {
+                self.range_table_key = EncryptionKeySet::Single(key);
+            },
+            EncryptionKeySet::Single(_) => {
+                return Err(anyhow!("Range table key already set"));
+            },
+            EncryptionKeySet::Multiple(_) => {
+                return Err(anyhow!("Range table key already set"));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn add_semantic_metadata_key(&mut self, key: [u8; 32]) -> Result<()>{
+        match &self.semantic_metadata {
+            EncryptionKeySet::None => {
+                self.semantic_metadata = EncryptionKeySet::Single(key);
+            },
+            EncryptionKeySet::Single(_) => {
+                return Err(anyhow!("Semantic metadata key already set"));
+            },
+            EncryptionKeySet::Multiple(_) => {
+                return Err(anyhow!("Semantic metadata key already set"));
+            }
+        }
+        Ok(())
+    }
+
+    pub fn add_recepient(&mut self, key: [u8; 32]) {
+        match &mut self.recepient_keys {
+            EncryptionKeySet::None => {
+                self.recepient_keys = EncryptionKeySet::Single(key);
+            },
+            EncryptionKeySet::Single(_) => {
+                self.recepient_keys = EncryptionKeySet::Multiple(vec![key]);
+            },
+            EncryptionKeySet::Multiple(keys) => {
+                keys.push(key);
+            }
+        }
+    }
+}
+
+pub struct Footer {
+    pub eof_metadata: EndOfFileMetadata,
+    pub encryption_metadata: Option<EncryptionMetadata>,
+    pub blocklist: Option<BlockList>,
+    pub range_table: Option<RangeTable>,
+    pub semantic_metadata: Option<SemanticMetadata>,
 }
 
 #[derive(Eq, PartialEq, PartialOrd, Ord, Clone, Copy, Debug)]
@@ -24,163 +120,195 @@ pub struct Range {
 }
 
 impl FooterParser {
-    #[tracing::instrument(level = "trace", skip(footer))]
-    pub fn new(footer: &[u8; 65536 * 2]) -> Self {
+    #[tracing::instrument(level = "trace", skip(bytes))]
+    pub fn new(bytes: Vec<u8>) -> Self {
         FooterParser {
-            footer: *footer,
-            blocklist: Vec::new(),
-            total: 0,
-            is_encrypted: false,
+            state: FooterParserState::Raw(bytes),
+            keys: None,
         }
     }
 
-    #[tracing::instrument(level = "trace", skip(encrypted_footer, decryption_key))]
-    pub fn from_encrypted(
-        encrypted_footer: &[u8; (65536 + 28) * 2],
-        decryption_key: &[u8],
-    ) -> Result<Self> {
-        Ok(FooterParser {
-            footer: decrypt_chunks(encrypted_footer, decryption_key)?
-                .iter()
-                .as_slice()
-                .try_into()?,
-            blocklist: Vec::new(),
-            total: 0,
-            is_encrypted: true,
-        })
+    #[tracing::instrument(level = "trace", skip(self, keys))]
+    pub fn add_keys(&mut self, keys: Vec<[u8; 32]>) {
+        if let Some(current_keys) = self.keys.as_mut() {
+            current_keys.add_data_keys(keys);
+        }else{
+            self.keys = Some(Keys{
+                data_keys: EncryptionKeySet::Multiple(keys),
+                recepient_keys: EncryptionKeySet::None,
+                range_table_key: EncryptionKeySet::None,
+                semantic_metadata: EncryptionKeySet::None,
+            });
+        }
+    }
+
+    #[tracing::instrument(level = "trace", skip(self, key))]
+    pub fn add_recepient_key(&mut self, key: [u8; 32]) {
+        if let Some(current_keys) = self.keys.as_mut() {
+            current_keys.add_recepient(key);
+        }else{
+            self.keys = Some(Keys{
+                data_keys: EncryptionKeySet::None,
+                recepient_keys: EncryptionKeySet::Single(key),
+                range_table_key: EncryptionKeySet::None,
+                semantic_metadata: EncryptionKeySet::None,
+            });
+        }
     }
 
     #[tracing::instrument(err, level = "trace", skip(self))]
     pub fn parse(&mut self) -> Result<()> {
-        let mut x = 0;
-        if self.footer[0..4] == *hex::decode("522A4D18")?.as_slice() {
-            if self.footer[4..8].as_ref().read_u32::<LittleEndian>()? != 65536 - 8 {
-                error!(size = ?self.footer[4..8].as_ref(), "Unexpected skippable framesize");
-                return Err(anyhow!("Unexpected skippable framesize"));
-            };
-            self.total = self.footer[8..12].as_ref().read_u32::<LittleEndian>()?;
-
-            while x < 65536 {
-                match self.footer[12 + x] {
-                    0u8 => {
-                        break;
-                    }
-                    a => self.blocklist.push(a),
-                }
-                x += 1;
-            }
-            x = 0;
-
-            if self.footer[65536 + 4..65536 + 8]
-                .as_ref()
-                .read_u32::<LittleEndian>()?
-                != 65536 - 8
-            {
-                error!(size = ?self.footer[65536 + 4..65536 + 8]
-                    .as_ref(), "Unexpected skippable framesize");
-                return Err(anyhow!("Unexpected skippable framesize"));
-            };
-
-            while x < self.footer.len() {
-                match self.footer[65536 + x + 12] {
-                    0u8 => {
-                        break;
-                    }
-                    a => self.blocklist.push(a),
-                }
-                x += 1;
-            }
-
-            // This is a double_footer
+        let eof_md = self.locate_and_parse_eof_md()?;
+        let encryption_metadata = if eof_md.is_flag_set(Flag::HasEncryptionMetadata) {
+            Some(self.parse_encryption_metadata(
+                eof_md.eof_metadata_len,
+                eof_md.encryption_len.ok_or_else(|| {
+                    anyhow!("Invalid format, flag set but no encryption md written")
+                })?,
+            )?)
         } else {
-            if self.footer[65536..65540] != *hex::decode("512A4D18")?.as_slice() {
-                error!(magic_number = ?self.footer[65536..65540], "Unexpected slice, does not start with magic number 512A4D18");
-                return Err(anyhow!(
-                    "Unexpected slice, does not start with magic number 512A4D18"
-                ));
+            None
+        };
+
+
+
+        Ok(())
+    }
+
+    fn locate_and_parse_eof_md(&mut self) -> Result<EndOfFileMetadata> {
+        match self.state {
+            FooterParserState::Raw(ref mut bytes) => {
+                let eof_len = LittleEndian::read_u64(&bytes[bytes.len() - 8..]) as usize;
+                let eof_md = EndOfFileMetadata::try_from(&bytes[bytes.len() - eof_len..])?;
+                Ok(eof_md)
             }
-            if self.footer[65536 + 4..65536 + 8]
-                .as_ref()
-                .read_u32::<LittleEndian>()?
-                != 65536 - 8
-            {
-                error!(size = ?self.footer[65536 + 4..65536 + 8]
-                    .as_ref()
-                    .read_u32::<LittleEndian>()?, "Unexpected skippable framesize");
-                return Err(anyhow!("Unexpected skippable framesize"));
-            };
+            FooterParserState::Empty => Err(anyhow!("Empty footer")),
+            FooterParserState::Decoded(ref footer) => Err(anyhow!(
+                "Footer already decoded, cannot locate end of file metadata"
+            )),
+        }
+    }
 
-            self.total = self.footer[65536 + 8..65536 + 12]
-                .as_ref()
-                .read_u32::<LittleEndian>()?;
-
-            while x < self.footer.len() {
-                match self.footer[65536 + x + 12] {
-                    0u8 => {
-                        break;
-                    }
-                    a => self.blocklist.push(a),
+    fn parse_encryption_metadata(
+        &mut self,
+        len_eof: u64,
+        len_enc: u64,
+    ) -> Result<EncryptionMetadata> {
+        match self.state {
+            FooterParserState::Raw(ref mut bytes) => {
+                let from = bytes.len() - len_enc as usize - len_eof as usize;
+                let to = bytes.len() - len_eof as usize;
+                if bytes.len() < from {
+                    return Err(anyhow!("Invalid format, not enough bytes"));
                 }
-                x += 1;
+                let mut enc_md = EncryptionMetadata::try_from(
+                    &bytes[from..to],
+                )?;
+                self.handle_encryption_metadata(&mut enc_md)?;
+                Ok(enc_md)
             }
+            FooterParserState::Empty => Err(anyhow!("Empty footer")),
+            FooterParserState::Decoded(ref footer) => Err(anyhow!(
+                "Footer already decoded, cannot locate end of file metadata"
+            )),
+        }
+    }
+
+    fn handle_encryption_metadata(&mut self, md: &mut EncryptionMetadata) -> Result<()> {
+        match self.keys.as_mut() {
+            Some(current_keys) => {
+                match &current_keys.recepient_keys {
+                    EncryptionKeySet::None => {}
+                    EncryptionKeySet::Single(key) => {
+                        let _ = md.decrypt(key.clone());
+                    }
+                    EncryptionKeySet::Multiple(keys) => {
+                        for key in keys {
+                            let _ = md.decrypt(key.clone());
+                        }
+                    }
+                }
+                for x in &md.packets {
+                    match x.keys {
+                        EncryptionKeys::Decrypted(_) => {
+                            match x.extract_keys_with_flags()? {
+                                (None, None, vec) => {
+                                    current_keys.add_data_keys(vec);
+                                },
+                                (Some(range), None, vec) => {
+                                    current_keys.add_range_table_key(range);
+                                    current_keys.add_data_keys(vec);
+                                },
+                                (None, Some(semantic), vec) => {
+                                    current_keys.add_semantic_metadata_key(semantic);
+                                    current_keys.add_data_keys(vec);
+                                },
+                                (Some(range), Some(semantic), vec) => {
+                                    current_keys.add_range_table_key(range);
+                                    current_keys.add_semantic_metadata_key(semantic);
+                                    current_keys.add_data_keys(vec);
+                                },
+                            }
+                            
+                        }
+                        _ => continue,
+                    }
+                }
+            }
+            None => {}
         }
         Ok(())
     }
 
-    #[tracing::instrument(level = "trace", skip(self, range))]
-    pub fn get_offsets_by_range(&self, range: Range) -> Result<(Range, Range)> {
-        let from_chunk = range.from / 5_242_880;
-        let to_chunk = range.to / 5_242_880;
+    // #[tracing::instrument(level = "trace", skip(self, range))]
+    // pub fn get_offsets_by_range(&self, range: Range) -> Result<(Range, Range)> {
+    //     let from_chunk = range.from / 5_242_880;
+    //     let to_chunk = range.to / 5_242_880;
 
-        let mut from_block: u64 = 0;
-        let mut to_block: u64 = 0;
+    //     let mut from_block: u64 = 0;
+    //     let mut to_block: u64 = 0;
 
-        if from_chunk > to_chunk {
-            error!(
-                from_chunk = from_chunk,
-                to_chunk = to_chunk,
-                "From must be smaller than to"
-            );
-            return Err(anyhow!("From must be smaller than to"));
-        }
+    //     if from_chunk > to_chunk {
+    //         error!(
+    //             from_chunk = from_chunk,
+    //             to_chunk = to_chunk,
+    //             "From must be smaller than to"
+    //         );
+    //         return Err(anyhow!("From must be smaller than to"));
+    //     }
 
-        // 0 - 1 - [2 - 3] - 4
-        // Want 2, 3
+    //     // 0 - 1 - [2 - 3] - 4
+    //     // Want 2, 3
 
-        for (index, block) in self.blocklist.iter().enumerate() {
-            if (index as u64) < from_chunk {
-                from_block += *block as u64;
-            }
-            if index as u64 <= to_chunk {
-                to_block += *block as u64;
-            } else {
-                break;
-            }
-        }
+    //     for (index, block) in self.blocklist.iter().enumerate() {
+    //         if (index as u64) < from_chunk {
+    //             from_block += *block as u64;
+    //         }
+    //         if index as u64 <= to_chunk {
+    //             to_block += *block as u64;
+    //         } else {
+    //             break;
+    //         }
+    //     }
 
-        Ok((
-            if self.is_encrypted {
-                Range {
-                    from: from_block * (65536 + 28),
-                    to: to_block * (65536 + 28),
-                }
-            } else {
-                Range {
-                    from: from_block * 65536,
-                    to: to_block * 65536,
-                }
-            },
-            Range {
-                from: range.from % 5_242_880,
-                to: range.to % 5_242_880 + (to_chunk - from_chunk) * 5_242_880,
-            },
-        ))
-    }
-
-    #[tracing::instrument(level = "trace", skip(self))]
-    pub fn debug(&self) {
-        debug!(?self.blocklist, ?self.total);
-    }
+    //     Ok((
+    //         if self.is_encrypted {
+    //             Range {
+    //                 from: from_block * (65536 + 28),
+    //                 to: to_block * (65536 + 28),
+    //             }
+    //         } else {
+    //             Range {
+    //                 from: from_block * 65536,
+    //                 to: to_block * 65536,
+    //             }
+    //         },
+    //         Range {
+    //             from: range.from % 5_242_880,
+    //             to: range.to % 5_242_880 + (to_chunk - from_chunk) * 5_242_880,
+    //         },
+    //     ))
+    // }
 }
 
 #[tracing::instrument(level = "trace", skip(chunk, decryption_key))]
