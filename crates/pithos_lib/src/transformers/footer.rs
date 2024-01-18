@@ -23,6 +23,7 @@ pub struct FooterGenerator {
     hasher: Sha256,
     counter: u64,
     endoffile: EndOfFileMetadata,
+    send_context: bool,
     blocklist: Option<Vec<u8>>,
     filectx: Option<FileContext>,
     metadata: Option<(Option<Vec<u8>>, String)>,
@@ -42,6 +43,7 @@ impl FooterGenerator {
             hasher: Sha256::new(),
             counter: 0,
             endoffile: EndOfFileMetadata::init(),
+            send_context: false,
             blocklist: None,
             filectx: None,
             metadata: None,
@@ -62,6 +64,7 @@ impl FooterGenerator {
                         return Ok(true)
                     },
                     Ok(Message::FileContext(ctx)) => {
+                        self.send_context = false;
                         if ctx.encryption_key.is_some() {
                             self.endoffile.set_flag(Encrypted);
                             self.endoffile.set_flag(HasEncryptionMetadata);
@@ -180,6 +183,7 @@ impl Transformer for FooterGenerator {
                     // Reset counter & hasher
                     self.counter = 0;
                     self.hasher.reset();
+                    self.send_context = true;
 
                     if let Some(notifier) = &self.notifier {
                         notifier.send_next(
@@ -188,6 +192,8 @@ impl Transformer for FooterGenerator {
                         )?;
                     }
                     self.filectx = None;
+                }else if !self.send_context {
+                    return Err(anyhow!("Missing file context"));
                 }
             }
         } else {

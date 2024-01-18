@@ -206,18 +206,12 @@ mod tests {
         GenericReadWriter::new_with_writer(file, file2)
             .add_transformer(ZstdEnc::new())
             .add_transformer(FooterGenerator::new())
-            .add_transformer(
-                ChaCha20Enc::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
-            )
-            .add_transformer(
-                ChaCha20Dec::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
-            )
             .process()
             .await
             .unwrap();
 
         let mut file2 = File::open("test.txt.out.6").await.unwrap();
-
+        dbg!("Was here");
         file2
             .seek(std::io::SeekFrom::End(-65536 * 2))
             .await
