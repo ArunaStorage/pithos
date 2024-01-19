@@ -1,15 +1,13 @@
-use std::io::{Read, Write};
-
+use crate::helpers::flag_helpers;
 use anyhow::{anyhow, bail, Result};
-use byteorder::{ByteOrder, LittleEndian};
+use byteorder::LittleEndian;
 use byteorder::{ReadBytesExt, WriteBytesExt};
 use chacha20poly1305::aead::Aead;
 use chacha20poly1305::aead::OsRng;
 use chacha20poly1305::{AeadCore, Nonce};
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
 use crypto_kx::{Keypair, PublicKey, SecretKey};
-
-use crate::helpers::flag_helpers;
+use std::io::{Read, Write};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 pub struct FileContext {
@@ -90,6 +88,7 @@ pub struct EndOfFileMetadata {
     pub disk_hash_sha256: [u8; 32], // Everything except disk_hash_sha1 is expected to be 0
     // Optional
     pub semantic_len: Option<u64>,
+    pub range_table_len: Option<u64>,
     pub blocklist_len: Option<u64>,
     pub encryption_len: Option<u64>,
     // Required
@@ -111,6 +110,7 @@ impl EndOfFileMetadata {
             disk_file_size: 0,
             disk_hash_sha256: [0; 32],
             semantic_len: None,
+            range_table_len: None,
             blocklist_len: None,
             encryption_len: None,
             eof_metadata_len: 0,
@@ -164,6 +164,7 @@ impl TryFrom<&[u8]> for EndOfFileMetadata {
     type Error = anyhow::Error;
 
     fn try_from(mut value: &[u8]) -> Result<Self, Self::Error> {
+        let original_len = value.len();
         let mut magic_bytes = [0; 4];
         value.read_exact(&mut magic_bytes)?;
         if magic_bytes != [0x50, 0x2A, 0x4D, 0x18] {
@@ -191,6 +192,11 @@ impl TryFrom<&[u8]> for EndOfFileMetadata {
         } else {
             None
         };
+        let range_table_len = if Self::is_flag_set_u64(flags, Flag::HasRangeTable) {
+            Some(value.read_u64::<LittleEndian>()?)
+        } else {
+            None
+        };
         let blocklist_len = if Self::is_flag_set_u64(flags, Flag::HasBlockList) {
             Some(value.read_u64::<LittleEndian>()?)
         } else {
@@ -203,7 +209,11 @@ impl TryFrom<&[u8]> for EndOfFileMetadata {
         };
 
         let eof_metadata_len = value.read_u64::<LittleEndian>()?;
-        if eof_metadata_len != value.len() as u64 {
+        if eof_metadata_len != original_len as u64 {
+            return Err(anyhow!("Invalid EOF metadata length {} != {}", eof_metadata_len, value.len()));
+        }
+
+        if value.len() != 0 {
             return Err(anyhow!("Invalid EOF metadata length"));
         }
 
@@ -220,6 +230,7 @@ impl TryFrom<&[u8]> for EndOfFileMetadata {
             disk_file_size,
             disk_hash_sha256,
             semantic_len,
+            range_table_len,
             blocklist_len,
             encryption_len,
             eof_metadata_len,
@@ -244,6 +255,9 @@ impl TryInto<Vec<u8>> for EndOfFileMetadata {
         buffer.write_all(&self.disk_hash_sha256)?;
         if let Some(semantic_len) = self.semantic_len {
             buffer.write_u64::<LittleEndian>(semantic_len)?;
+        }
+        if let Some(range_table_len) = self.range_table_len {
+            buffer.write_u64::<LittleEndian>(range_table_len)?;
         }
         if let Some(blocklist_len) = self.blocklist_len {
             buffer.write_u64::<LittleEndian>(blocklist_len)?;
@@ -419,7 +433,7 @@ impl EncryptionPacket {
                     ))
                 }
             }
-            (false, false, false, Keys::Decrypted(keys)) => Ok((None, None, vec![])),
+            (false, false, false, Keys::Decrypted(_)) => Ok((None, None, vec![])),
             (_, _, _, Keys::Decrypted(_)) => {
                 Err(anyhow!("Invalid flag combination cant combine and with or"))
             }
@@ -472,8 +486,7 @@ impl TryFrom<&[u8]> for EncryptionMetadata {
             return Err(anyhow!("Invalid blocklist length"));
         }
         let mut packets = Vec::new();
-        let mut offset = 8;
-        while offset < len as usize {
+        while value.len() > 0 {
             let packet_len = value.read_u32::<LittleEndian>()?;
             let mut pubkey = [0; 32];
             value.read_exact(&mut pubkey)?;
@@ -492,7 +505,9 @@ impl TryFrom<&[u8]> for EncryptionMetadata {
                 keys: Keys::Encrypted(keys),
                 mac,
             });
-            offset += packet_len as usize;
+        }
+        if value.len() != 0 {
+            return Err(anyhow!("Invalid semantic metadata length"));
         }
         Ok(Self {
             magic_bytes,
@@ -551,11 +566,14 @@ impl TryFrom<&[u8]> for BlockList {
         }
         let len = value.read_u32::<LittleEndian>()?;
 
-        if len as usize != value[8..].len() {
+        if len as usize != value.len() {
             return Err(anyhow!("Invalid blocklist length"));
         }
         let mut blocklist = Vec::new();
         value.read_to_end(&mut blocklist)?;
+        if value.len() != 0 {
+            return Err(anyhow!("Invalid blocklist length"));
+        }
         Ok(Self {
             magic_bytes,
             len,
@@ -588,6 +606,71 @@ pub struct RangeTableEntry {
     pub end: u64,
 }
 
+impl RangeTable {
+    pub fn from_encrypted(encrypted: &[u8], key: [u8; 32]) -> Result<Self, anyhow::Error> {
+        let (nonce, data) = encrypted.split_at(12);
+        let decrypted = ChaCha20Poly1305::new_from_slice(&key)?
+            .decrypt(nonce.into(), data)
+            .map_err(|_| anyhow!("Error while decrypting range table"))?;
+        Ok(Self::try_from(decrypted.as_slice())?)
+    }
+}
+
+impl TryInto<Vec<u8>> for RangeTable {
+    type Error = anyhow::Error;
+    fn try_into(self) -> Result<Vec<u8>, Self::Error> {
+        let mut buffer = Vec::with_capacity(8 + self.len as usize);
+        buffer.write_all(&self.magic_bytes)?;
+        buffer.write_u32::<LittleEndian>(self.len)?;
+        for section in self.sections {
+            buffer.write_u8(section.tag_len)?;
+            buffer.write_all(section.tag.as_bytes())?;
+            buffer.write_u64::<LittleEndian>(section.start)?;
+            buffer.write_u64::<LittleEndian>(section.end)?;
+        }
+        Ok(buffer)
+    }
+}
+
+impl TryFrom<&[u8]> for RangeTable {
+    type Error = anyhow::Error;
+
+    fn try_from(mut value: &[u8]) -> Result<Self, Self::Error> {
+        let mut magic_bytes: [u8; 4] = [0; 4];
+        value.read_exact(&mut magic_bytes)?;
+        if magic_bytes != [0x53, 0x2A, 0x4D, 0x18] {
+            return Err(anyhow!("Received invalid message"));
+        }
+        let len = value.read_u32::<LittleEndian>()?;
+        if len as usize != value[8..].len() {
+            return Err(anyhow!("Invalid blocklist length"));
+        }
+        let mut sections = Vec::new();
+        while value.len() > 0 {
+            let tag_len = value.read_u8()?;
+            let mut tag = vec![0u8; tag_len as usize];
+            value.read_exact(&mut tag)?;
+            let tag = String::from_utf8(tag)?;
+            let start = value.read_u64::<LittleEndian>()?;
+            let end = value.read_u64::<LittleEndian>()?;
+            sections.push(RangeTableEntry {
+                tag_len,
+                tag,
+                start,
+                end,
+            });
+        }
+        if value.len() != 0 {
+            return Err(anyhow!("Invalid range table length"));
+        }
+        Ok(Self {
+            magic_bytes,
+            len,
+            sections,
+        })
+    }
+}
+
 pub struct SemanticMetadata {
     pub magic_bytes: [u8; 4], // Should be 0x54, 0x2A, 0x4D, 0x18
     pub len: u32,
@@ -602,6 +685,14 @@ impl SemanticMetadata {
             semantic,
         }
     }
+
+    pub fn from_encrypted(encrypted: &[u8], key: [u8; 32]) -> Result<Self, anyhow::Error> {
+        let (nonce, data) = encrypted.split_at(12);
+        let decrypted = ChaCha20Poly1305::new_from_slice(&key)?
+            .decrypt(nonce.into(), data)
+            .map_err(|_| anyhow!("Error while decrypting semantic metadata"))?;
+        Ok(Self::try_from(decrypted.as_slice())?)
+    }
 }
 
 impl TryFrom<&[u8]> for SemanticMetadata {
@@ -610,7 +701,7 @@ impl TryFrom<&[u8]> for SemanticMetadata {
     fn try_from(mut value: &[u8]) -> Result<Self, Self::Error> {
         let mut magic_bytes: [u8; 4] = [0; 4];
         value.read_exact(&mut magic_bytes)?;
-        if magic_bytes != [0x53, 0x2A, 0x4D, 0x18] {
+        if magic_bytes != [0x54, 0x2A, 0x4D, 0x18] {
             return Err(anyhow!("Received invalid message"));
         }
 
@@ -620,8 +711,12 @@ impl TryFrom<&[u8]> for SemanticMetadata {
             return Err(anyhow!("Invalid semantic length"));
         }
 
-        let semantic = String::from_utf8(value[8..].to_vec())?;
+        let mut semantic = String::with_capacity(len as usize - 8);
+        value.read_to_string(&mut semantic)?;
 
+        if value.len() != 0 {
+            return Err(anyhow!("Invalid semantic metadata length"));
+        }
         Ok(Self {
             magic_bytes,
             len,

@@ -205,24 +205,26 @@ mod tests {
         let file2 = File::create("test.txt.out.6").await.unwrap();
         GenericReadWriter::new_with_writer(file, file2)
             .add_transformer(ZstdEnc::new())
-            .add_transformer(FooterGenerator::new())
+            .add_transformer(FooterGenerator::new_with_ctx(FileContext {
+                file_name: "test.txt".to_string(),
+                ..Default::default()
+            }))
             .process()
             .await
             .unwrap();
 
         let mut file2 = File::open("test.txt.out.6").await.unwrap();
-        dbg!("Was here");
         file2
             .seek(std::io::SeekFrom::End(-65536 * 2))
             .await
             .unwrap();
 
-        // let buf: &mut [u8; 65536 * 2] = &mut [0; 65536 * 2];
-        // file2.read_exact(buf).await.unwrap();
+        let buf: &mut [u8; 65536 * 2] = &mut [0; 65536 * 2];
+        file2.read_exact(buf).await.unwrap();
 
-        // let mut fp = FooterParser::new(buf);
+        let mut fp = FooterParser::new(buf);
 
-        // fp.parse().unwrap();
+        fp.parse().unwrap();
 
         // let (a, b) = fp
         //     .get_offsets_by_range(Range { from: 0, to: 1000 })
@@ -246,10 +248,14 @@ mod tests {
         let file2 = File::create("test.txt.out.7").await.unwrap();
         GenericReadWriter::new_with_writer(file, file2)
             .add_transformer(ZstdEnc::new())
-            .add_transformer(FooterGenerator::new())
             .add_transformer(
                 ChaCha20Enc::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
             )
+            .add_transformer(FooterGenerator::new_with_ctx(FileContext {
+                file_name: "test.txt".to_string(),
+                encryption_key: Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+                ..Default::default()
+            }))
             .process()
             .await
             .unwrap();
@@ -263,9 +269,8 @@ mod tests {
         let buf: &mut [u8; (65536 + 28) * 2] = &mut [0; (65536 + 28) * 2];
         file2.read_exact(buf).await.unwrap();
 
-        // let mut fp =
-        //     FooterParser::from_encrypted(buf, b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea").unwrap();
-        // fp.parse().unwrap();
+        let mut fp = FooterParser::new(buf);
+        fp.parse().unwrap();
 
         // let (a, b) = fp
         //     .get_offsets_by_range(Range { from: 0, to: 1000 })
@@ -322,7 +327,7 @@ mod tests {
 
         let combined = Vec::from_iter(file1.clone().into_iter().chain(file2.clone()));
 
-        let (sx, rx) = async_channel::bounded(10);
+        let (sx, _rx) = async_channel::bounded(10);
         sx.send((
             FileContext {
                 file_name: "file1.txt".to_string(),
@@ -462,7 +467,7 @@ mod tests {
         file1.read_to_end(&mut combined).await.unwrap();
         file2.read_to_end(&mut combined).await.unwrap();
 
-        let (sx, rx) = async_channel::bounded(10);
+        let (sx, _rx) = async_channel::bounded(10);
         sx.send((
             FileContext {
                 file_name: "file1.txt".to_string(),
@@ -510,7 +515,7 @@ mod tests {
         });
         let mut file3 = File::create("test.txt.out.10").await.unwrap();
 
-        let (sx, rx) = async_channel::bounded(10);
+        let (sx, _rx) = async_channel::bounded(10);
         sx.send((
             FileContext {
                 file_name: "file1.txt".to_string(),
@@ -558,7 +563,7 @@ mod tests {
         });
         let mut file3 = File::create("test.txt.out.11").await.unwrap();
 
-        let (sx, rx) = async_channel::bounded(10);
+        let (sx, _rx) = async_channel::bounded(10);
         sx.send((
             FileContext {
                 file_name: "file1.txt".to_string(),
@@ -588,6 +593,7 @@ mod tests {
             .add_transformer(TarEnc::new())
             .add_transformer(GzipEnc::new());
         aswr.process().await.unwrap();
+        // FIX
     }
 
     #[tokio::test]
@@ -634,7 +640,7 @@ mod tests {
         });
         let mut file3 = File::create("test.txt.out.tar").await.unwrap();
 
-        let (sx, rx) = async_channel::bounded(10);
+        let (sx, _rx) = async_channel::bounded(10);
 
         sx.send((
             FileContext {

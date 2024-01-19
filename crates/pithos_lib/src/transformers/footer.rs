@@ -55,6 +55,23 @@ impl FooterGenerator {
         }
     }
 
+    pub fn new_with_ctx(ctx: FileContext) -> FooterGenerator {
+        FooterGenerator {
+            hasher: Sha256::new(),
+            counter: 0,
+            endoffile: EndOfFileMetadata::init(),
+            send_context: false,
+            blocklist: None,
+            filectx: Some(ctx),
+            metadata: None,
+            sha1_hash: None,
+            md5_hash: None,
+            notifier: None,
+            msg_receiver: None,
+            idx: None,
+        }
+    }
+
     #[tracing::instrument(level = "trace", skip(self))]
     fn process_messages(&mut self) -> Result<bool> {
         if let Some(rx) = &self.msg_receiver {
@@ -118,7 +135,6 @@ impl Transformer for FooterGenerator {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
         // Update overall hash & size counter
         self.hasher.update(buf.as_ref());
-        self.counter += buf.len() as u64;
         if let Ok(finished) = self.process_messages() {
             if finished {
                 if let Some(file_ctx) = &self.filectx {

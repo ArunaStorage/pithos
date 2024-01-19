@@ -2,9 +2,9 @@ use crate::structs::BlockList;
 use crate::structs::EncryptionMetadata;
 use crate::structs::EndOfFileMetadata;
 use crate::structs::Flag;
+use crate::structs::Keys as EncryptionKeys;
 use crate::structs::RangeTable;
 use crate::structs::SemanticMetadata;
-use crate::structs::Keys as EncryptionKeys;
 use anyhow::anyhow;
 use anyhow::Result;
 use byteorder::ByteOrder;
@@ -16,14 +16,14 @@ use chacha20poly1305::{
 };
 use tracing::error;
 
-pub enum FooterParserState {
+pub enum FooterParserState<'a> {
     Empty,
-    Raw(Vec<u8>),
+    Raw(&'a [u8]),
     Decoded(Footer),
 }
 
-pub struct FooterParser {
-    state: FooterParserState,
+pub struct FooterParser<'a> {
+    state: FooterParserState<'a>,
     keys: Option<Keys>,
 }
 
@@ -42,17 +42,17 @@ pub struct Keys {
 
 impl Keys {
     pub fn add_data_keys(&mut self, mut keys: Vec<[u8; 32]>) {
-        match (&mut self.data_keys, keys.len()){
+        match (&mut self.data_keys, keys.len()) {
             (EncryptionKeySet::None, 1) => {
                 self.data_keys = EncryptionKeySet::Single(keys[0]);
-            },
+            }
             (EncryptionKeySet::None, _) => {
                 self.data_keys = EncryptionKeySet::Multiple(keys);
-            },
+            }
             (EncryptionKeySet::Single(key), _) => {
                 keys.push(*key);
                 self.data_keys = EncryptionKeySet::Multiple(keys);
-            },
+            }
             (EncryptionKeySet::Multiple(current_keys), _) => {
                 current_keys.extend(keys);
             }
@@ -60,14 +60,14 @@ impl Keys {
         }
     }
 
-    pub fn add_range_table_key(&mut self, key: [u8; 32]) -> Result<()>{
+    pub fn add_range_table_key(&mut self, key: [u8; 32]) -> Result<()> {
         match &self.range_table_key {
             EncryptionKeySet::None => {
                 self.range_table_key = EncryptionKeySet::Single(key);
-            },
+            }
             EncryptionKeySet::Single(_) => {
                 return Err(anyhow!("Range table key already set"));
-            },
+            }
             EncryptionKeySet::Multiple(_) => {
                 return Err(anyhow!("Range table key already set"));
             }
@@ -75,14 +75,14 @@ impl Keys {
         Ok(())
     }
 
-    pub fn add_semantic_metadata_key(&mut self, key: [u8; 32]) -> Result<()>{
+    pub fn add_semantic_metadata_key(&mut self, key: [u8; 32]) -> Result<()> {
         match &self.semantic_metadata {
             EncryptionKeySet::None => {
                 self.semantic_metadata = EncryptionKeySet::Single(key);
-            },
+            }
             EncryptionKeySet::Single(_) => {
                 return Err(anyhow!("Semantic metadata key already set"));
-            },
+            }
             EncryptionKeySet::Multiple(_) => {
                 return Err(anyhow!("Semantic metadata key already set"));
             }
@@ -94,10 +94,10 @@ impl Keys {
         match &mut self.recepient_keys {
             EncryptionKeySet::None => {
                 self.recepient_keys = EncryptionKeySet::Single(key);
-            },
+            }
             EncryptionKeySet::Single(_) => {
                 self.recepient_keys = EncryptionKeySet::Multiple(vec![key]);
-            },
+            }
             EncryptionKeySet::Multiple(keys) => {
                 keys.push(key);
             }
@@ -119,9 +119,9 @@ pub struct Range {
     pub to: u64,
 }
 
-impl FooterParser {
+impl FooterParser<'_> {
     #[tracing::instrument(level = "trace", skip(bytes))]
-    pub fn new(bytes: Vec<u8>) -> Self {
+    pub fn new<'a>(bytes: &'a [u8]) -> FooterParser<'a> {
         FooterParser {
             state: FooterParserState::Raw(bytes),
             keys: None,
@@ -132,8 +132,8 @@ impl FooterParser {
     pub fn add_keys(&mut self, keys: Vec<[u8; 32]>) {
         if let Some(current_keys) = self.keys.as_mut() {
             current_keys.add_data_keys(keys);
-        }else{
-            self.keys = Some(Keys{
+        } else {
+            self.keys = Some(Keys {
                 data_keys: EncryptionKeySet::Multiple(keys),
                 recepient_keys: EncryptionKeySet::None,
                 range_table_key: EncryptionKeySet::None,
@@ -146,8 +146,8 @@ impl FooterParser {
     pub fn add_recepient_key(&mut self, key: [u8; 32]) {
         if let Some(current_keys) = self.keys.as_mut() {
             current_keys.add_recepient(key);
-        }else{
-            self.keys = Some(Keys{
+        } else {
+            self.keys = Some(Keys {
                 data_keys: EncryptionKeySet::None,
                 recepient_keys: EncryptionKeySet::Single(key),
                 range_table_key: EncryptionKeySet::None,
@@ -159,9 +159,10 @@ impl FooterParser {
     #[tracing::instrument(err, level = "trace", skip(self))]
     pub fn parse(&mut self) -> Result<()> {
         let eof_md = self.locate_and_parse_eof_md()?;
+        let mut start_location = eof_md.eof_metadata_len;
         let encryption_metadata = if eof_md.is_flag_set(Flag::HasEncryptionMetadata) {
             Some(self.parse_encryption_metadata(
-                eof_md.eof_metadata_len,
+                start_location,
                 eof_md.encryption_len.ok_or_else(|| {
                     anyhow!("Invalid format, flag set but no encryption md written")
                 })?,
@@ -169,8 +170,68 @@ impl FooterParser {
         } else {
             None
         };
+        start_location += eof_md.encryption_len.unwrap_or_default();
+        let blocklist = if eof_md.is_flag_set(Flag::HasBlockList) {
+            Some(self.parse_blocklist(start_location, eof_md.blocklist_len.unwrap_or_default())?)
+        } else {
+            None
+        };
+        start_location += eof_md.blocklist_len.unwrap_or_default();
+        let range_table = if eof_md.is_flag_set(Flag::HasRangeTable) {
+            let enc_key = if eof_md.is_flag_set(Flag::RangeTableEncrypted) {
+                let encryption_key = match self
+                    .keys
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("Range table encrypted but no keys"))?
+                    .range_table_key
+                {
+                    EncryptionKeySet::Single(key) => key.clone(),
+                    _ => return Err(anyhow!("Range table encrypted but invalid keys")),
+                };
+                Some(encryption_key)
+            } else {
+                None
+            };
+            Some(self.parse_range_table(
+                start_location,
+                eof_md.range_table_len.unwrap_or_default(),
+                enc_key,
+            )?)
+        } else {
+            None
+        };
+        start_location += eof_md.range_table_len.unwrap_or_default();
+        let semantic_metadata = if eof_md.is_flag_set(Flag::HasSemanticMetadata) {
+            let enc_key = if eof_md.is_flag_set(Flag::SemanticMetadataEncrypted) {
+                let encryption_key = match self
+                    .keys
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("Semantic metadata encrypted but no keys"))?
+                    .semantic_metadata
+                {
+                    EncryptionKeySet::Single(key) => key.clone(),
+                    _ => return Err(anyhow!("Semantic metadata encrypted but invalid keys")),
+                };
+                Some(encryption_key)
+            } else {
+                None
+            };
+            Some(self.parse_semantic_metadata(
+                start_location,
+                eof_md.semantic_len.unwrap_or_default(),
+                enc_key,
+            )?)
+        } else {
+            None
+        };
 
-
+        self.state = FooterParserState::Decoded(Footer {
+            eof_metadata: eof_md,
+            encryption_metadata,
+            blocklist,
+            range_table,
+            semantic_metadata,
+        });
 
         Ok(())
     }
@@ -183,7 +244,79 @@ impl FooterParser {
                 Ok(eof_md)
             }
             FooterParserState::Empty => Err(anyhow!("Empty footer")),
-            FooterParserState::Decoded(ref footer) => Err(anyhow!(
+            FooterParserState::Decoded(_) => Err(anyhow!(
+                "Footer already decoded, cannot locate end of file metadata"
+            )),
+        }
+    }
+
+    fn parse_semantic_metadata(
+        &self,
+        end_location: u64,
+        len_semantic_metadata: u64,
+        enc_key: Option<[u8; 32]>,
+    ) -> Result<SemanticMetadata> {
+        match self.state {
+            FooterParserState::Raw(ref bytes) => {
+                let from = bytes.len() - end_location as usize - len_semantic_metadata as usize;
+                let to = bytes.len() - end_location as usize;
+                if bytes.len() < from {
+                    return Err(anyhow!("Invalid format, not enough bytes"));
+                }
+
+                Ok(if let Some(key) = enc_key {
+                    SemanticMetadata::from_encrypted(&bytes[from..to], key)?
+                } else {
+                    SemanticMetadata::try_from(&bytes[from..to])?
+                })
+            }
+            FooterParserState::Empty => Err(anyhow!("Empty footer")),
+            FooterParserState::Decoded(_) => Err(anyhow!(
+                "Footer already decoded, cannot locate end of file metadata"
+            )),
+        }
+    }
+
+    fn parse_range_table(
+        &self,
+        end_location: u64,
+        len_range_table: u64,
+        enc_key: Option<[u8; 32]>,
+    ) -> Result<RangeTable> {
+        match self.state {
+            FooterParserState::Raw(ref bytes) => {
+                let from = bytes.len() - end_location as usize - len_range_table as usize;
+                let to = bytes.len() - end_location as usize;
+                if bytes.len() < from {
+                    return Err(anyhow!("Invalid format, not enough bytes"));
+                }
+
+                Ok(if let Some(key) = enc_key {
+                    RangeTable::from_encrypted(&bytes[from..to], key)?
+                } else {
+                    RangeTable::try_from(&bytes[from..to])?
+                })
+            }
+            FooterParserState::Empty => Err(anyhow!("Empty footer")),
+            FooterParserState::Decoded(_) => Err(anyhow!(
+                "Footer already decoded, cannot locate end of file metadata"
+            )),
+        }
+    }
+
+    fn parse_blocklist(&self, end_location: u64, len_blocklist: u64) -> Result<BlockList> {
+        match self.state {
+            FooterParserState::Raw(ref bytes) => {
+                let from = bytes.len() - end_location as usize - len_blocklist as usize;
+                let to = bytes.len() - end_location as usize;
+                if bytes.len() < from {
+                    return Err(anyhow!("Invalid format, not enough bytes"));
+                }
+                let blocklist = BlockList::try_from(&bytes[from..to])?;
+                Ok(blocklist)
+            }
+            FooterParserState::Empty => Err(anyhow!("Empty footer")),
+            FooterParserState::Decoded(_) => Err(anyhow!(
                 "Footer already decoded, cannot locate end of file metadata"
             )),
         }
@@ -201,14 +334,12 @@ impl FooterParser {
                 if bytes.len() < from {
                     return Err(anyhow!("Invalid format, not enough bytes"));
                 }
-                let mut enc_md = EncryptionMetadata::try_from(
-                    &bytes[from..to],
-                )?;
+                let mut enc_md = EncryptionMetadata::try_from(&bytes[from..to])?;
                 self.handle_encryption_metadata(&mut enc_md)?;
                 Ok(enc_md)
             }
             FooterParserState::Empty => Err(anyhow!("Empty footer")),
-            FooterParserState::Decoded(ref footer) => Err(anyhow!(
+            FooterParserState::Decoded(_) => Err(anyhow!(
                 "Footer already decoded, cannot locate end of file metadata"
             )),
         }
@@ -230,27 +361,24 @@ impl FooterParser {
                 }
                 for x in &md.packets {
                     match x.keys {
-                        EncryptionKeys::Decrypted(_) => {
-                            match x.extract_keys_with_flags()? {
-                                (None, None, vec) => {
-                                    current_keys.add_data_keys(vec);
-                                },
-                                (Some(range), None, vec) => {
-                                    current_keys.add_range_table_key(range);
-                                    current_keys.add_data_keys(vec);
-                                },
-                                (None, Some(semantic), vec) => {
-                                    current_keys.add_semantic_metadata_key(semantic);
-                                    current_keys.add_data_keys(vec);
-                                },
-                                (Some(range), Some(semantic), vec) => {
-                                    current_keys.add_range_table_key(range);
-                                    current_keys.add_semantic_metadata_key(semantic);
-                                    current_keys.add_data_keys(vec);
-                                },
+                        EncryptionKeys::Decrypted(_) => match x.extract_keys_with_flags()? {
+                            (None, None, vec) => {
+                                current_keys.add_data_keys(vec);
                             }
-                            
-                        }
+                            (Some(range), None, vec) => {
+                                current_keys.add_range_table_key(range)?;
+                                current_keys.add_data_keys(vec);
+                            }
+                            (None, Some(semantic), vec) => {
+                                current_keys.add_semantic_metadata_key(semantic)?;
+                                current_keys.add_data_keys(vec);
+                            }
+                            (Some(range), Some(semantic), vec) => {
+                                current_keys.add_range_table_key(range)?;
+                                current_keys.add_semantic_metadata_key(semantic)?;
+                                current_keys.add_data_keys(vec);
+                            }
+                        },
                         _ => continue,
                     }
                 }
