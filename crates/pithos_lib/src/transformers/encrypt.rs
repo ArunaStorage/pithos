@@ -110,8 +110,7 @@ impl Transformer for ChaCha20Enc {
             self.output_buf.put(encrypt_chunk(
                 &self.input_buf.split(),
                 b"",
-                &self
-                    .encryption_key
+                self.encryption_key
                     .as_ref()
                     .ok_or_else(|| anyhow!("Missing encryption key"))?,
                 true,
@@ -126,8 +125,7 @@ impl Transformer for ChaCha20Enc {
                 self.output_buf.put(encrypt_chunk(
                     &self.input_buf.split_to(ENCRYPTION_BLOCK_SIZE),
                     b"",
-                    &self
-                        .encryption_key
+                    self.encryption_key
                         .as_ref()
                         .ok_or_else(|| anyhow!("Missing encryption key"))?,
                     true,
@@ -142,8 +140,7 @@ impl Transformer for ChaCha20Enc {
                 self.output_buf.put(encrypt_chunk(
                     &self.input_buf.split(),
                     b"",
-                    &self
-                        .encryption_key
+                    self.encryption_key
                         .as_ref()
                         .ok_or_else(|| anyhow!("Missing encryption key"))?,
                     true,

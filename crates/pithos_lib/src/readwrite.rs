@@ -82,7 +82,7 @@ impl<'a, R: AsyncRead + Unpin> GenericReadWriter<'a, R> {
                 Ok(ref msg) => match msg {
                     Message::FileContext(context) => {
                         if file_ctx.is_some() {
-                            if let None = next_ctx {
+                            if next_ctx.is_none() {
                                 *next_ctx = Some(context.clone());
                             } else {
                                 bail!("File contexts already set!")

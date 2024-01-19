@@ -66,7 +66,7 @@ impl Filter {
     pub fn new_with_edit_list(filter: Option<Vec<u64>>) -> Self {
         let mut list = Self::from_edit_list(filter.unwrap_or_default());
         Filter {
-            param: list.pop().unwrap_or_else(|| FilterParam::KeepAll),
+            param: list.pop().unwrap_or(FilterParam::KeepAll),
             filter: list,
             captured_buf_len: 0,
             advanced_by: 0,
@@ -110,7 +110,7 @@ impl Filter {
 
     fn next_param(&mut self) {
         let next = self.filter.pop();
-        self.param = next.unwrap_or_else(|| FilterParam::DiscardAll);
+        self.param = next.unwrap_or(FilterParam::DiscardAll);
     }
 }
 
@@ -171,16 +171,14 @@ impl Transformer for Filter {
                 buf.clear();
                 buf.put(keep_buf);
             }
-        } else {
-            if self.previous_finished
-                && [FilterParam::DiscardAll, FilterParam::KeepAll].contains(&self.param)
-            {
-                if let Some(notifier) = &self.notifier {
-                    notifier.send_next(
-                        self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
-                        Message::Finished,
-                    )?;
-                }
+        } else if self.previous_finished
+            && [FilterParam::DiscardAll, FilterParam::KeepAll].contains(&self.param)
+        {
+            if let Some(notifier) = &self.notifier {
+                notifier.send_next(
+                    self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
+                    Message::Finished,
+                )?;
             }
         }
 

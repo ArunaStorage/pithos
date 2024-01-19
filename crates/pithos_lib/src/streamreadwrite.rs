@@ -43,7 +43,7 @@ impl<
     ) -> Self {
         let (sx, rx) = async_channel::unbounded();
         GenericStreamReadWriter {
-            input_stream: input_stream,
+            input_stream,
             notifier: None,
             sink: Some(Box::new(transformer)),
             transformers: Vec::new(),
@@ -58,7 +58,7 @@ impl<
     pub fn new_with_writer<W: AsyncWrite + Send + Sync + 'a>(input_stream: R, writer: W) -> Self {
         let (sx, rx) = async_channel::unbounded();
         GenericStreamReadWriter {
-            input_stream: input_stream,
+            input_stream,
             notifier: None,
             sink: Some(Box::new(WriterSink::new(BufWriter::new(Box::pin(writer))))),
             transformers: Vec::new(),
@@ -92,7 +92,7 @@ impl<
                 Ok(ref msg) => match &msg {
                     &Message::FileContext(context) => {
                         if file_ctx.is_some() {
-                            if let None = next_ctx {
+                            if next_ctx.is_none() {
                                 *next_ctx = Some(context.clone());
                             } else {
                                 bail!("File contexts already set!")

@@ -210,10 +210,14 @@ impl TryFrom<&[u8]> for EndOfFileMetadata {
 
         let eof_metadata_len = value.read_u64::<LittleEndian>()?;
         if eof_metadata_len != original_len as u64 {
-            return Err(anyhow!("Invalid EOF metadata length {} != {}", eof_metadata_len, value.len()));
+            return Err(anyhow!(
+                "Invalid EOF metadata length {} != {}",
+                eof_metadata_len,
+                value.len()
+            ));
         }
 
-        if value.len() != 0 {
+        if !value.is_empty() {
             return Err(anyhow!("Invalid EOF metadata length"));
         }
 
@@ -348,17 +352,15 @@ impl EncryptionPacket {
                 let nonce = Nonce::from_slice(&self.nonce);
                 let dec_keys = ChaCha20Poly1305::new_from_slice(session_key.as_ref())?
                     .decrypt(
-                        nonce.into(),
-                        vec![keys.as_slice(), self.mac.as_slice()]
-                            .concat()
-                            .as_slice(),
+                        nonce,
+                        [keys.as_slice(), self.mac.as_slice()].concat().as_slice(),
                     )
                     .map_err(|_| anyhow!("Error while decrypting keys"))?;
 
                 self.keys = Keys::Decrypted(DecryptedKey {
                     keys: dec_keys
                         .chunks_exact(32)
-                        .map(|x| <[u8; 32]>::try_from(x))
+                        .map(<[u8; 32]>::try_from)
                         .collect::<Result<Vec<_>, _>>()?,
                     readers_pubkey: *keypair.public().as_ref(),
                 });
@@ -394,41 +396,41 @@ impl EncryptionPacket {
                     Err(anyhow!("Invalid key count < 2"))
                 } else {
                     Ok((
-                        keys.keys.get(0).copied(),
+                        keys.keys.first().copied(),
                         keys.keys.get(1).copied(),
                         keys.keys.get(2..).unwrap_or_default().to_vec(),
                     ))
                 }
             }
             (true, false, false, Keys::Decrypted(keys)) => {
-                if keys.keys.len() < 1 {
+                if keys.keys.is_empty() {
                     Err(anyhow!("Invalid key count"))
                 } else {
                     Ok((
-                        keys.keys.get(0).copied(),
+                        keys.keys.first().copied(),
                         None,
                         keys.keys.get(1..).unwrap_or_default().to_vec(),
                     ))
                 }
             }
             (false, true, false, Keys::Decrypted(keys)) => {
-                if keys.keys.len() == 0 {
+                if keys.keys.is_empty() {
                     Err(anyhow!("Invalid key count == 0"))
                 } else {
                     Ok((
                         None,
-                        keys.keys.get(0).copied(),
+                        keys.keys.first().copied(),
                         keys.keys.get(1..).unwrap_or_default().to_vec(),
                     ))
                 }
             }
             (false, false, true, Keys::Decrypted(keys)) => {
-                if keys.keys.len() == 0 {
+                if keys.keys.is_empty() {
                     Err(anyhow!("Invalid key count == 0"))
                 } else {
                     Ok((
-                        keys.keys.get(0).copied(),
-                        keys.keys.get(0).copied(),
+                        keys.keys.first().copied(),
+                        keys.keys.first().copied(),
                         keys.keys.get(1..).unwrap_or_default().to_vec(),
                     ))
                 }
@@ -486,7 +488,7 @@ impl TryFrom<&[u8]> for EncryptionMetadata {
             return Err(anyhow!("Invalid blocklist length"));
         }
         let mut packets = Vec::new();
-        while value.len() > 0 {
+        while !value.is_empty() {
             let packet_len = value.read_u32::<LittleEndian>()?;
             let mut pubkey = [0; 32];
             value.read_exact(&mut pubkey)?;
@@ -506,7 +508,7 @@ impl TryFrom<&[u8]> for EncryptionMetadata {
                 mac,
             });
         }
-        if value.len() != 0 {
+        if !value.is_empty() {
             return Err(anyhow!("Invalid semantic metadata length"));
         }
         Ok(Self {
@@ -571,7 +573,7 @@ impl TryFrom<&[u8]> for BlockList {
         }
         let mut blocklist = Vec::new();
         value.read_to_end(&mut blocklist)?;
-        if value.len() != 0 {
+        if !value.is_empty() {
             return Err(anyhow!("Invalid blocklist length"));
         }
         Ok(Self {
@@ -612,7 +614,7 @@ impl RangeTable {
         let decrypted = ChaCha20Poly1305::new_from_slice(&key)?
             .decrypt(nonce.into(), data)
             .map_err(|_| anyhow!("Error while decrypting range table"))?;
-        Ok(Self::try_from(decrypted.as_slice())?)
+        Self::try_from(decrypted.as_slice())
     }
 }
 
@@ -646,7 +648,7 @@ impl TryFrom<&[u8]> for RangeTable {
             return Err(anyhow!("Invalid blocklist length"));
         }
         let mut sections = Vec::new();
-        while value.len() > 0 {
+        while !value.is_empty() {
             let tag_len = value.read_u8()?;
             let mut tag = vec![0u8; tag_len as usize];
             value.read_exact(&mut tag)?;
@@ -660,7 +662,7 @@ impl TryFrom<&[u8]> for RangeTable {
                 end,
             });
         }
-        if value.len() != 0 {
+        if !value.is_empty() {
             return Err(anyhow!("Invalid range table length"));
         }
         Ok(Self {
@@ -691,7 +693,7 @@ impl SemanticMetadata {
         let decrypted = ChaCha20Poly1305::new_from_slice(&key)?
             .decrypt(nonce.into(), data)
             .map_err(|_| anyhow!("Error while decrypting semantic metadata"))?;
-        Ok(Self::try_from(decrypted.as_slice())?)
+        Self::try_from(decrypted.as_slice())
     }
 }
 
@@ -714,7 +716,7 @@ impl TryFrom<&[u8]> for SemanticMetadata {
         let mut semantic = String::with_capacity(len as usize - 8);
         value.read_to_string(&mut semantic)?;
 
-        if value.len() != 0 {
+        if !value.is_empty() {
             return Err(anyhow!("Invalid semantic metadata length"));
         }
         Ok(Self {

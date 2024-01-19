@@ -122,8 +122,7 @@ impl Transformer for ChaCha20Dec {
             if !self.input_buffer.is_empty() {
                 self.output_buffer.put(decrypt_chunk(
                     &self.input_buffer.split(),
-                    &self
-                        .decryption_key
+                    self.decryption_key
                         .as_ref()
                         .ok_or_else(|| anyhow!("Missing decryption key"))?,
                 )?);
@@ -143,8 +142,7 @@ impl Transformer for ChaCha20Dec {
             while self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
                 self.output_buffer.put(decrypt_chunk(
                     &self.input_buffer.split_to(CIPHER_SEGMENT_SIZE),
-                    &self
-                        .decryption_key
+                    self.decryption_key
                         .as_ref()
                         .ok_or_else(|| anyhow!("Missing decryption key"))?,
                 )?)
@@ -156,8 +154,7 @@ impl Transformer for ChaCha20Dec {
                     if !self.input_buffer.is_empty() {
                         self.output_buffer.put(decrypt_chunk(
                             &self.input_buffer.split(),
-                            &self
-                                .decryption_key
+                            self.decryption_key
                                 .as_ref()
                                 .ok_or_else(|| anyhow!("Missing decryption key"))?,
                         )?);

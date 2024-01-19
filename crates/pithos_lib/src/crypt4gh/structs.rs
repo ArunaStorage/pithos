@@ -132,7 +132,7 @@ impl TryInto<Vec<u8>> for Crypt4GHHeader {
                     bytes.extend_from_slice(&enc_data);
                 }
                 PacketData::Decrypted(_) => {
-                    Crypt4GHError::InvalidSpec("packet data is not encrypted".to_string());
+                    "packet data is not encrypted".to_string();
                 }
             }
             bytes.extend_from_slice(&packet.mac);
@@ -193,7 +193,7 @@ impl HeaderPacket {
             .session_keys_from(&writers_pub_key)
             .rx;
         self.packet_data
-            .decrypt(session_key.as_ref().into(), &self.nonce, &self.mac)?;
+            .decrypt(session_key.as_ref(), &self.nonce, &self.mac)?;
         Ok(())
     }
 
@@ -208,9 +208,7 @@ impl HeaderPacket {
         };
         let session_key = keypair.session_keys_from(&readers_pubkey).tx;
         let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
-        self.mac = self
-            .packet_data
-            .encrypt(session_key.as_ref().into(), &nonce)?;
+        self.mac = self.packet_data.encrypt(session_key.as_ref(), &nonce)?;
         self.writers_pubkey = *keypair.public().as_ref();
         self.nonce = nonce.into();
         self.length = (4 + 4 + 32 + 12 + self.packet_data.get_len() + 16)
@@ -234,9 +232,7 @@ impl PacketData {
                 })?
                 .decrypt(
                     nonce.into(),
-                    vec![enc_data.as_slice(), mac.as_slice()]
-                        .concat()
-                        .as_slice(),
+                    [enc_data.as_slice(), mac.as_slice()].concat().as_slice(),
                 )
                 .map_err(|_| Crypt4GHError::DecryptionFailed)?;
 
@@ -254,7 +250,7 @@ impl PacketData {
         session_key: &[u8; 32],
         nonce: &Nonce,
     ) -> Result<[u8; 16], Crypt4GHError> {
-        return if let Self::Decrypted(dec_data) = &self {
+        if let Self::Decrypted(dec_data) = &self {
             let mut enc_data = Vec::new();
             for packet in dec_data {
                 match packet {
@@ -274,7 +270,7 @@ impl PacketData {
             }
             ChaCha20Poly1305::new_from_slice(session_key)
                 .map_err(|_| Crypt4GHError::EncryptionError("initialize encryptor".to_string()))?
-                .encrypt(nonce.into(), enc_data.as_slice())
+                .encrypt(nonce, enc_data.as_slice())
                 .map_err(|_| Crypt4GHError::EncryptionError("encrypt chunk".to_string()))?;
             *self = Self::Encrypted(enc_data[..enc_data.len() - 16].to_vec());
             Ok(enc_data[enc_data.len() - 16..]
@@ -284,7 +280,7 @@ impl PacketData {
             Err(Crypt4GHError::EncryptionError(
                 "packet data is already encrypted".to_string(),
             ))
-        };
+        }
     }
 
     pub fn packet_from_bytes(bytes: &[u8]) -> Result<Vec<Packet>, Crypt4GHError> {
