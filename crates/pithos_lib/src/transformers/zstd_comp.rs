@@ -30,6 +30,14 @@ pub struct ZstdEnc {
     notifier: Option<Arc<Notifier>>,
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
+    probe_result: ProbeResult,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum ProbeResult {
+    Unknown,
+    Compressable,
+    Uncompressable,
 }
 
 impl ZstdEnc {
@@ -45,6 +53,7 @@ impl ZstdEnc {
             notifier: None,
             msg_receiver: None,
             idx: None,
+            probe_result: ProbeResult::Unknown,
         }
     }
 
@@ -70,6 +79,15 @@ impl ZstdEnc {
         }
         Ok((false, false))
     }
+
+    #[tracing::instrument(level = "trace", skip(bytes))]
+    async fn probe_compression(bytes: &[u8]) -> Result<bool> {
+        let original_size = bytes.len();
+        let mut compressor = ZstdEncoder::new(Vec::with_capacity(bytes.len() + 100));
+        compressor.write_all(bytes).await?;
+        compressor.shutdown().await?;
+        Ok((original_size as f64 * 0.875) as usize > compressor.get_ref().len())
+    }
 }
 
 #[async_trait::async_trait]
@@ -87,6 +105,30 @@ impl Transformer for ZstdEnc {
         let Ok((should_flush, finished)) = self.process_messages() else {
             return Err(anyhow!("Error processing messages"));
         };
+
+        match self.probe_result {
+            ProbeResult::Compressable => {}
+            ProbeResult::Unknown => {
+                if self.prev_buf.is_empty() && buf.len() < 8192 {
+                    return Ok(());
+                }
+                if buf.len() > 8192 {
+                    if let Ok(compressable) = Self::probe_compression(buf).await {
+                        if compressable {
+                            self.probe_result = ProbeResult::Compressable;
+                        } else {
+                            self.probe_result = ProbeResult::Uncompressable;
+                        }
+                    }
+                } else {
+                }
+            }
+            ProbeResult::Uncompressable => {
+                // Skip all compression
+                return Ok(());
+            }
+        }
+
         if should_flush {
             debug!("flushed zstd encoder");
             self.internal_buf.write_all_buf(buf).await?;
