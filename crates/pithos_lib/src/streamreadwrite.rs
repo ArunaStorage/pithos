@@ -197,7 +197,6 @@ impl<
             }
 
             for t in self.transformers.iter_mut() {
-                dbg!("Processed transformer");
                 t.process_bytes(&mut read_buf).await?;
             }
 

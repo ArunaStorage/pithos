@@ -80,13 +80,21 @@ impl ZstdEnc {
         Ok((false, false))
     }
 
-    #[tracing::instrument(level = "trace", skip(bytes))]
-    async fn probe_compression(bytes: &[u8]) -> Result<bool> {
-        let original_size = bytes.len();
-        let mut compressor = ZstdEncoder::new(Vec::with_capacity(bytes.len() + 100));
-        compressor.write_all(bytes).await?;
+    #[tracing::instrument(level = "trace", skip(self))]
+    async fn probe_compression(&mut self) -> Result<bool> {
+        let original_size = self.prev_buf.len();
+        let mut compressor = ZstdEncoder::new(Vec::with_capacity(original_size + 100));
+        compressor.write_all(&self.prev_buf).await?;
         compressor.shutdown().await?;
-        Ok((original_size as f64 * 0.875) as usize > compressor.get_ref().len())
+        dbg!(original_size, compressor.get_ref().len());
+        if (original_size as f64 * 0.875) as usize > compressor.get_ref().len() {
+            self.probe_result = ProbeResult::Compressable;
+            self.internal_buf.write_all(&self.prev_buf.split()).await?;
+            Ok(false)
+        } else {
+            self.probe_result = ProbeResult::Uncompressable;
+            Ok(true)
+        }
     }
 }
 
@@ -109,18 +117,15 @@ impl Transformer for ZstdEnc {
         match self.probe_result {
             ProbeResult::Compressable => {}
             ProbeResult::Unknown => {
-                if self.prev_buf.is_empty() && buf.len() < 8192 {
-                    return Ok(());
-                }
-                if buf.len() > 8192 {
-                    if let Ok(compressable) = Self::probe_compression(buf).await {
-                        if compressable {
-                            self.probe_result = ProbeResult::Compressable;
-                        } else {
-                            self.probe_result = ProbeResult::Uncompressable;
-                        }
+                if self.prev_buf.len() + buf.len() < 8192 {
+                    if !finished {
+                        self.prev_buf.put(buf.split());
+                        return Ok(());
                     }
-                } else {
+                }
+                let clear_prev = self.probe_compression().await?;
+                if clear_prev {
+                    buf.put(self.prev_buf.split());
                 }
             }
             ProbeResult::Uncompressable => {
