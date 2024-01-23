@@ -27,6 +27,7 @@ pub struct ChaCha20Enc {
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
     encryption_key: Option<Vec<u8>>,
+    key_is_fixed: bool,
     finished: bool,
 }
 
@@ -41,6 +42,7 @@ impl ChaCha20Enc {
             msg_receiver: None,
             idx: None,
             encryption_key: None,
+            key_is_fixed: false,
             finished: false,
         })
     }
@@ -55,6 +57,7 @@ impl ChaCha20Enc {
             msg_receiver: None,
             idx: None,
             encryption_key: Some(key),
+            key_is_fixed: true,
             finished: false,
         })
     }
@@ -65,7 +68,9 @@ impl ChaCha20Enc {
             loop {
                 match rx.try_recv() {
                     Ok(Message::FileContext(ctx)) => {
-                        self.encryption_key = ctx.encryption_key;
+                        if !self.key_is_fixed {
+                            self.encryption_key = ctx.encryption_key;
+                        }
                     }
                     Ok(Message::ShouldFlush) => return Ok((true, false)),
                     Ok(Message::Finished) => return Ok((false, true)),

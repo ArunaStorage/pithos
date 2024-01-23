@@ -12,6 +12,7 @@ pub mod transformers;
 #[cfg(test)]
 mod tests {
     use crate::helpers::footer_parser::{FooterParser, Range};
+    use crate::notifications::Message;
     use crate::readwrite::GenericReadWriter;
     use crate::streamreadwrite::GenericStreamReadWriter;
     use crate::structs::FileContext;
@@ -326,33 +327,37 @@ mod tests {
 
         let combined = Vec::from_iter(file1.clone().into_iter().chain(file2.clone()));
 
-        let (sx, _rx) = async_channel::bounded(10);
-        sx.send((
-            FileContext {
-                file_name: "file1.txt".to_string(),
-                input_size: file1.len() as u64,
-                file_size: file1.len() as u64,
-                ..Default::default()
-            },
-            false,
-        ))
+        let (sx, rx) = async_channel::bounded(10);
+        sx.send(
+            Message::FileContext(
+                FileContext {
+                    file_name: "file1.txt".to_string(),
+                    input_size: file1.len() as u64,
+                    file_size: file1.len() as u64,
+                    compression: true,
+                    ..Default::default()
+                }
+            ))
         .await
         .unwrap();
 
-        sx.send((
-            FileContext {
-                file_name: "file2.txt".to_string(),
-                input_size: file2.len() as u64,
-                file_size: file2.len() as u64,
-                ..Default::default()
-            },
-            true,
-        ))
+        sx.send(
+            Message::FileContext(
+                FileContext {
+                    file_name: "file2.txt".to_string(),
+                    input_size: file2.len() as u64,
+                    file_size: file2.len() as u64,
+                    compression: false,
+                    ..Default::default()
+                }
+            ))
         .await
         .unwrap();
 
         // Create a new GenericReadWriter
-        let mut aswr = GenericReadWriter::new_with_writer(combined.as_ref(), &mut file3)
+        let mut aswr = GenericReadWriter::new_with_writer(combined.as_ref(), &mut file3);
+        aswr.add_message_receiver(rx).await.unwrap();
+        aswr = aswr
             .add_transformer(ZstdEnc::new())
             .add_transformer(ZstdEnc::new()) // Double compression because we can
             .add_transformer(

@@ -29,6 +29,7 @@ pub struct ChaCha20Dec {
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
     decryption_key: Option<Vec<u8>>,
+    key_is_fixed: bool,
     finished: bool,
     backoff_counter: usize,
     skip_me: bool,
@@ -44,6 +45,7 @@ impl ChaCha20Dec {
             finished: false,
             backoff_counter: 0,
             decryption_key: None,
+            key_is_fixed: false,
             skip_me: false,
             notifier: None,
             msg_receiver: None,
@@ -60,6 +62,7 @@ impl ChaCha20Dec {
             finished: false,
             backoff_counter: 0,
             decryption_key: Some(key),
+            key_is_fixed: true,
             skip_me: false,
             notifier: None,
             msg_receiver: None,
@@ -73,7 +76,9 @@ impl ChaCha20Dec {
             loop {
                 match rx.try_recv() {
                     Ok(Message::FileContext(ctx)) => {
-                        self.decryption_key = ctx.encryption_key;
+                        if !self.key_is_fixed {
+                            self.decryption_key = ctx.encryption_key;
+                        }
                     }
                     Ok(Message::ShouldFlush) => return Ok((true, false)),
                     Ok(Message::Skip) => {

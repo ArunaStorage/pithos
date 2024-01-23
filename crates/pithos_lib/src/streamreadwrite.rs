@@ -89,6 +89,25 @@ impl<
         &mut self,
     ) -> Result<bool> {
         loop {
+
+            if let Some(rx) = &self.external_receiver {
+                match rx.try_recv() {
+                    Err(TryRecvError::Empty) => {}
+                    Ok(ref msg) => match &msg {
+                        &Message::FileContext(context) => {
+                            self.context_queue.push_back(context.clone());
+                        }
+                        Message::Completed => {
+                            return Ok(true);
+                        }
+                        _ => {}
+                    },
+                    Err(TryRecvError::Closed) => {
+                        self.external_receiver = None;
+                    },
+                }
+            }
+
             match self.receiver.try_recv() {
                 Err(TryRecvError::Empty) => break,
                 Ok(ref msg) => match &msg {
