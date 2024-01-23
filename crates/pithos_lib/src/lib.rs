@@ -185,8 +185,7 @@ mod tests {
                 encryption_key: Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
                 ..Default::default()
             })
-            .await
-            .unwrap();
+            .await;
 
         read_writer.process().await.unwrap();
 

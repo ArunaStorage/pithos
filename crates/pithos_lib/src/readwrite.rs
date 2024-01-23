@@ -5,6 +5,7 @@ use crate::transformers::writer_sink::WriterSink;
 use anyhow::{anyhow, bail, Result};
 use async_channel::{Receiver, Sender, TryRecvError};
 use bytes::BytesMut;
+use std::collections::VecDeque;
 use std::mem;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, BufReader, BufWriter};
@@ -15,6 +16,7 @@ pub struct GenericReadWriter<'a, R: AsyncRead + Unpin> {
     notifier: Option<Arc<Notifier>>,
     transformers: Vec<Box<dyn Transformer + Send + Sync + 'a>>,
     sink: Option<Box<dyn Transformer + Send + Sync + 'a>>,
+    context_queue: VecDeque<FileContext>,
     receiver: Receiver<Message>,
     sender: Sender<Message>,
     size_counter: usize,
@@ -33,6 +35,7 @@ impl<'a, R: AsyncRead + Unpin> GenericReadWriter<'a, R> {
             notifier: None,
             sink: Some(Box::new(WriterSink::new(BufWriter::new(writer)))),
             transformers: Vec::new(),
+            context_queue: VecDeque::new(),
             sender: sx,
             receiver: rx,
             size_counter: 0,
@@ -52,6 +55,7 @@ impl<'a, R: AsyncRead + Unpin> GenericReadWriter<'a, R> {
             notifier: None,
             sink: Some(Box::new(sink)),
             transformers: Vec::new(),
+            context_queue: VecDeque::new(),
             sender: sx,
             receiver: rx,
             size_counter: 0,
@@ -66,30 +70,20 @@ impl<'a, R: AsyncRead + Unpin> GenericReadWriter<'a, R> {
     }
 
     #[tracing::instrument(level = "trace", skip(self, file_ctx))]
-    pub async fn set_file_ctx(&mut self, file_ctx: FileContext) -> Result<()> {
-        Ok(self.sender.send(Message::FileContext(file_ctx)).await?)
+    pub async fn set_file_ctx(&mut self, file_ctx: FileContext) {
+        self.context_queue.push_back(file_ctx)
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn process_messages(
-        &self,
-        file_ctx: &mut Option<FileContext>,
-        next_ctx: &mut Option<FileContext>,
+        &mut self,
     ) -> Result<bool> {
         loop {
             match self.receiver.try_recv() {
                 Err(TryRecvError::Empty) => break,
-                Ok(ref msg) => match msg {
-                    Message::FileContext(context) => {
-                        if file_ctx.is_some() {
-                            if next_ctx.is_none() {
-                                *next_ctx = Some(context.clone());
-                            } else {
-                                bail!("File contexts already set!")
-                            }
-                        } else {
-                            *file_ctx = Some(context.clone());
-                        }
+                Ok(ref msg) => match &msg {
+                    &Message::FileContext(context) => {
+                        self.context_queue.push_back(context.clone());
                     }
                     Message::Completed => {
                         return Ok(true);
@@ -112,8 +106,6 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for GenericReadWriter<'a
         let mut read_buf = BytesMut::with_capacity(65_536 * 2);
         let mut hold_buffer = BytesMut::with_capacity(65536);
         let mut read_bytes: usize = 0;
-        let mut next_file_ctx: Option<FileContext> = None;
-        let mut file_ctx: Option<FileContext> = None;
         self.transformers
             .push(self.sink.take().ok_or_else(|| anyhow!("No sink!"))?);
 
@@ -123,7 +115,8 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for GenericReadWriter<'a
             t.set_notifier(notifier.clone()).await?;
         }
 
-        let _ = self.process_messages(&mut file_ctx, &mut next_file_ctx)?;
+        let _ = self.process_messages()?;
+        let mut file_ctx = self.context_queue.pop_front();
 
         if let Some(ctx) = &file_ctx {
             notifier.send_all(Message::FileContext(ctx.clone()))?;
@@ -143,7 +136,7 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for GenericReadWriter<'a
                 notifier.send_first(Message::Finished)?;
             }
 
-            let completed = self.process_messages(&mut file_ctx, &mut next_file_ctx)?;
+            let completed = self.process_messages()?;
 
             if let Some(context) = &file_ctx {
                 self.size_counter += read_bytes;
@@ -155,12 +148,10 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for GenericReadWriter<'a
                     hold_buffer = read_buf.split_to(diff);
                     mem::swap(&mut read_buf, &mut hold_buffer);
                     self.size_counter -= context.input_size as usize;
-                    file_ctx = next_file_ctx;
-                    next_file_ctx = None;
+                    file_ctx = self.context_queue.pop_front();
                 } else if self.size_counter == context.input_size as usize && hold_buffer.is_empty()
                 {
-                    file_ctx = next_file_ctx;
-                    next_file_ctx = None;
+                    file_ctx = self.context_queue.pop_front();
                 }
             }
 

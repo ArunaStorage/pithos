@@ -6,6 +6,7 @@ use anyhow::{anyhow, bail, Result};
 use async_channel::{Receiver, Sender, TryRecvError};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{Stream, StreamExt};
+use std::collections::VecDeque;
 use std::mem;
 use std::sync::Arc;
 use tokio::io::{AsyncWrite, BufWriter};
@@ -22,6 +23,7 @@ pub struct GenericStreamReadWriter<
     notifier: Option<Arc<Notifier>>,
     transformers: Vec<Box<dyn Transformer + Send + Sync + 'a>>,
     sink: Option<Box<dyn Transformer + Send + Sync + 'a>>,
+    context_queue: VecDeque<FileContext>,
     receiver: Receiver<Message>,
     sender: Sender<Message>,
     size_counter: usize,
@@ -47,6 +49,7 @@ impl<
             notifier: None,
             sink: Some(Box::new(transformer)),
             transformers: Vec::new(),
+            context_queue: VecDeque::new(),
             sender: sx,
             receiver: rx,
             size_counter: 0,
@@ -62,6 +65,7 @@ impl<
             notifier: None,
             sink: Some(Box::new(WriterSink::new(BufWriter::new(Box::pin(writer))))),
             transformers: Vec::new(),
+            context_queue: VecDeque::new(),
             sender: sx,
             receiver: rx,
             size_counter: 0,
@@ -76,30 +80,20 @@ impl<
     }
 
     #[tracing::instrument(level = "trace", skip(self, file_ctx))]
-    pub async fn set_file_ctx(&mut self, file_ctx: FileContext) -> Result<()> {
-        Ok(self.sender.send(Message::FileContext(file_ctx)).await?)
+    pub async fn set_file_ctx(&mut self, file_ctx: FileContext) {
+        self.context_queue.push_back(file_ctx)
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn process_messages(
-        &self,
-        file_ctx: &mut Option<FileContext>,
-        next_ctx: &mut Option<FileContext>,
+        &mut self,
     ) -> Result<bool> {
         loop {
             match self.receiver.try_recv() {
                 Err(TryRecvError::Empty) => break,
                 Ok(ref msg) => match &msg {
                     &Message::FileContext(context) => {
-                        if file_ctx.is_some() {
-                            if next_ctx.is_none() {
-                                *next_ctx = Some(context.clone());
-                            } else {
-                                bail!("File contexts already set!")
-                            }
-                        } else {
-                            *file_ctx = Some(context.clone());
-                        }
+                        self.context_queue.push_back(context.clone());
                     }
                     Message::Completed => {
                         return Ok(true);
@@ -130,8 +124,6 @@ impl<
         let mut hold_buffer = BytesMut::with_capacity(65536);
         let mut data;
         let mut read_bytes: usize = 0;
-        let mut next_file_ctx: Option<FileContext> = None;
-        let mut file_ctx: Option<FileContext> = None;
         let mut empty_counter: Option<u8> = Some(0);
         self.transformers
             .push(self.sink.take().ok_or_else(|| anyhow!("No sink!"))?);
@@ -142,7 +134,8 @@ impl<
             t.set_notifier(notifier.clone()).await?;
         }
 
-        let _ = self.process_messages(&mut file_ctx, &mut next_file_ctx)?;
+        let _ = self.process_messages()?;
+        let mut file_ctx = self.context_queue.pop_front();
 
         if let Some(ctx) = &file_ctx {
             notifier.send_all(Message::FileContext(ctx.clone()))?;
@@ -175,7 +168,7 @@ impl<
                 notifier.send_first(Message::Finished)?;
             }
 
-            let completed = self.process_messages(&mut file_ctx, &mut next_file_ctx)?;
+            let completed = self.process_messages()?;
 
             if let Some(context) = &file_ctx {
                 self.size_counter += read_bytes;
@@ -187,12 +180,10 @@ impl<
                     hold_buffer = read_buf.split_to(diff);
                     mem::swap(&mut read_buf, &mut hold_buffer);
                     self.size_counter -= context.input_size as usize;
-                    file_ctx = next_file_ctx;
-                    next_file_ctx = None;
+                    file_ctx = self.context_queue.pop_front();
                 } else if self.size_counter == context.input_size as usize && hold_buffer.is_empty()
                 {
-                    file_ctx = next_file_ctx;
-                    next_file_ctx = None;
+                    file_ctx = self.context_queue.pop_front();
                 }
             }
 

@@ -115,6 +115,16 @@ impl Transformer for ZstdEnc {
             return Err(anyhow!("Error processing messages"));
         };
 
+        if should_flush {
+            debug!("flushed zstd encoder");
+            self.internal_buf.write_all_buf(buf).await?;
+            self.internal_buf.shutdown().await?;
+            self.prev_buf.extend_from_slice(self.internal_buf.get_ref());
+            self.internal_buf = ZstdEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
+            buf.put(self.prev_buf.split().freeze());
+            return Ok(());
+        }
+
         match self.probe_result {
             ProbeResult::Compression => {}
             ProbeResult::Unknown => {
@@ -131,16 +141,6 @@ impl Transformer for ZstdEnc {
                 // Skip all compression
                 return Ok(());
             }
-        }
-
-        if should_flush {
-            debug!("flushed zstd encoder");
-            self.internal_buf.write_all_buf(buf).await?;
-            self.internal_buf.shutdown().await?;
-            self.prev_buf.extend_from_slice(self.internal_buf.get_ref());
-            self.internal_buf = ZstdEncoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
-            buf.put(self.prev_buf.split().freeze());
-            return Ok(());
         }
 
         // Create a new frame if buf would increase size_counter to more than RAW_FRAME_SIZE
