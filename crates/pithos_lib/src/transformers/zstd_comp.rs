@@ -86,7 +86,6 @@ impl ZstdEnc {
         let mut compressor = ZstdEncoder::new(Vec::with_capacity(original_size + 100));
         compressor.write_all(&self.prev_buf).await?;
         compressor.shutdown().await?;
-        dbg!(original_size, compressor.get_ref().len());
         if (original_size as f64 * 0.875) as usize > compressor.get_ref().len() {
             self.probe_result = ProbeResult::Compressable;
             self.internal_buf.write_all(&self.prev_buf.split()).await?;
@@ -117,15 +116,13 @@ impl Transformer for ZstdEnc {
         match self.probe_result {
             ProbeResult::Compressable => {}
             ProbeResult::Unknown => {
-                if self.prev_buf.len() + buf.len() < 8192 {
-                    if !finished {
-                        self.prev_buf.put(buf.split());
-                        return Ok(());
+                self.prev_buf.put(buf.split());
+                if finished || self.prev_buf.len() > 8192 {
+                    if self.probe_compression().await? {
+                        buf.put(self.prev_buf.split());
                     }
-                }
-                let clear_prev = self.probe_compression().await?;
-                if clear_prev {
-                    buf.put(self.prev_buf.split());
+                }else if self.prev_buf.len() < 8192 {
+                    return Ok(());
                 }
             }
             ProbeResult::Uncompressable => {
