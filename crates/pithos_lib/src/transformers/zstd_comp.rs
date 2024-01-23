@@ -61,6 +61,13 @@ impl ZstdEnc {
                     Ok(Message::Finished) => {
                         return Ok((false, true));
                     }
+                    Ok(Message::FileContext(ctx)) => {
+                        if ctx.compression {
+                            self.probe_result = ProbeResult::Compression;
+                        }else{
+                            self.probe_result = ProbeResult::Unknown;
+                        }
+                    }
                     Ok(_) => {}
                     Err(TryRecvError::Empty) => {
                         break;
