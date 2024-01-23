@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use crate::notifications::Message;
 use crate::notifications::Notifier;
+use crate::structs::ProbeResult;
+use crate::structs::ZSTD_MAGIC_BYTES_SKIPPABLE_15;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::anyhow;
@@ -31,13 +33,6 @@ pub struct ZstdEnc {
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
     probe_result: ProbeResult,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum ProbeResult {
-    Unknown,
-    Compressable,
-    Uncompressable,
 }
 
 impl ZstdEnc {
@@ -87,11 +82,11 @@ impl ZstdEnc {
         compressor.write_all(&self.prev_buf).await?;
         compressor.shutdown().await?;
         if (original_size as f64 * 0.875) as usize > compressor.get_ref().len() {
-            self.probe_result = ProbeResult::Compressable;
+            self.probe_result = ProbeResult::Compression;
             self.internal_buf.write_all(&self.prev_buf.split()).await?;
             Ok(false)
         } else {
-            self.probe_result = ProbeResult::Uncompressable;
+            self.probe_result = ProbeResult::NoCompression;
             Ok(true)
         }
     }
@@ -114,7 +109,7 @@ impl Transformer for ZstdEnc {
         };
 
         match self.probe_result {
-            ProbeResult::Compressable => {}
+            ProbeResult::Compression => {}
             ProbeResult::Unknown => {
                 self.prev_buf.put(buf.split());
                 if finished || self.prev_buf.len() > 8192 {
@@ -125,7 +120,7 @@ impl Transformer for ZstdEnc {
                     return Ok(());
                 }
             }
-            ProbeResult::Uncompressable => {
+            ProbeResult::NoCompression => {
                 // Skip all compression
                 return Ok(());
             }
@@ -242,7 +237,7 @@ fn create_skippable_padding_frame(size: usize) -> Result<Bytes> {
         return Err(anyhow!("{size} is too small, minimum is 8 bytes"));
     }
     // Add frame_header
-    let mut frame = hex::decode("542A4D18")?;
+    let mut frame = ZSTD_MAGIC_BYTES_SKIPPABLE_15.to_vec();
     // 4 Bytes (little-endian) for size
     WriteBytesExt::write_u32::<LittleEndian>(&mut frame, size as u32 - 8)?;
     frame.extend(vec![0; size - 8]);

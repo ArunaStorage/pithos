@@ -53,6 +53,51 @@ impl FileContext {
     }
 }
 
+
+#[derive(Debug, PartialEq)]
+pub enum ProbeResult {
+    Unknown,
+    Compression,
+    NoCompression,
+}
+
+pub const ZSTD_MAGIC_BYTES: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
+pub const ZSTD_MAGIC_BYTES_SKIPPABLE_0: [u8; 4] = [0x50, 0x2A, 0x4D, 0x18];
+pub const ZSTD_MAGIC_BYTES_SKIPPABLE_1: [u8; 4] = [0x51, 0x2A, 0x4D, 0x18];
+pub const ZSTD_MAGIC_BYTES_SKIPPABLE_2: [u8; 4] = [0x52, 0x2A, 0x4D, 0x18];
+pub const ZSTD_MAGIC_BYTES_SKIPPABLE_3: [u8; 4] = [0x53, 0x2A, 0x4D, 0x18];
+pub const ZSTD_MAGIC_BYTES_SKIPPABLE_4: [u8; 4] = [0x54, 0x2A, 0x4D, 0x18];
+pub const ZSTD_MAGIC_BYTES_SKIPPABLE_5: [u8; 4] = [0x55, 0x2A, 0x4D, 0x18];
+pub const ZSTD_MAGIC_BYTES_SKIPPABLE_6: [u8; 4] = [0x56, 0x2A, 0x4D, 0x18];
+pub const ZSTD_MAGIC_BYTES_SKIPPABLE_7: [u8; 4] = [0x57, 0x2A, 0x4D, 0x18];
+pub const ZSTD_MAGIC_BYTES_SKIPPABLE_8: [u8; 4] = [0x58, 0x2A, 0x4D, 0x18];
+pub const ZSTD_MAGIC_BYTES_SKIPPABLE_9: [u8; 4] = [0x59, 0x2A, 0x4D, 0x18];
+pub const ZSTD_MAGIC_BYTES_SKIPPABLE_10: [u8; 4] = [0x5A, 0x2A, 0x4D, 0x18];
+pub const ZSTD_MAGIC_BYTES_SKIPPABLE_11: [u8; 4] = [0x5B, 0x2A, 0x4D, 0x18];
+pub const ZSTD_MAGIC_BYTES_SKIPPABLE_12: [u8; 4] = [0x5C, 0x2A, 0x4D, 0x18];
+pub const ZSTD_MAGIC_BYTES_SKIPPABLE_13: [u8; 4] = [0x5D, 0x2A, 0x4D, 0x18];
+pub const ZSTD_MAGIC_BYTES_SKIPPABLE_14: [u8; 4] = [0x5E, 0x2A, 0x4D, 0x18];
+pub const ZSTD_MAGIC_BYTES_SKIPPABLE_15: [u8; 4] = [0x5F, 0x2A, 0x4D, 0x18];
+pub const ZSTD_MAGIC_BYTES_ALL: [[u8; 4]; 17] = [
+    ZSTD_MAGIC_BYTES,
+    ZSTD_MAGIC_BYTES_SKIPPABLE_0,
+    ZSTD_MAGIC_BYTES_SKIPPABLE_1,
+    ZSTD_MAGIC_BYTES_SKIPPABLE_2,
+    ZSTD_MAGIC_BYTES_SKIPPABLE_3,
+    ZSTD_MAGIC_BYTES_SKIPPABLE_4,
+    ZSTD_MAGIC_BYTES_SKIPPABLE_5,
+    ZSTD_MAGIC_BYTES_SKIPPABLE_6,
+    ZSTD_MAGIC_BYTES_SKIPPABLE_7,
+    ZSTD_MAGIC_BYTES_SKIPPABLE_8,
+    ZSTD_MAGIC_BYTES_SKIPPABLE_9,
+    ZSTD_MAGIC_BYTES_SKIPPABLE_10,
+    ZSTD_MAGIC_BYTES_SKIPPABLE_11,
+    ZSTD_MAGIC_BYTES_SKIPPABLE_12,
+    ZSTD_MAGIC_BYTES_SKIPPABLE_13,
+    ZSTD_MAGIC_BYTES_SKIPPABLE_14,
+    ZSTD_MAGIC_BYTES_SKIPPABLE_15,
+];
+
 // Flags:
 // only the last 2 bytes are in use
 // 0000 0000 0000 0000
@@ -167,7 +212,7 @@ impl TryFrom<&[u8]> for EndOfFileMetadata {
         let original_len = value.len();
         let mut magic_bytes = [0; 4];
         value.read_exact(&mut magic_bytes)?;
-        if magic_bytes != [0x50, 0x2A, 0x4D, 0x18] {
+        if magic_bytes != ZSTD_MAGIC_BYTES_SKIPPABLE_0 {
             return Err(anyhow!("Received invalid message"));
         }
         let len = value.read_u32::<LittleEndian>()?;
@@ -453,7 +498,7 @@ pub struct EncryptionMetadata {
 impl EncryptionMetadata {
     pub fn new(_header_packets: Vec<EncryptionPacket>) -> Self {
         Self {
-            magic_bytes: [0x51, 0x2A, 0x4D, 0x18],
+            magic_bytes: ZSTD_MAGIC_BYTES_SKIPPABLE_1,
             len: 0, // (Sum of all packages len)
             packets: vec![],
         }
@@ -480,7 +525,7 @@ impl TryFrom<&[u8]> for EncryptionMetadata {
     fn try_from(mut value: &[u8]) -> Result<Self, Self::Error> {
         let mut magic_bytes = [0; 4];
         value.read_exact(&mut magic_bytes)?;
-        if magic_bytes != [0x51, 0x2A, 0x4D, 0x18] {
+        if magic_bytes != ZSTD_MAGIC_BYTES_SKIPPABLE_1 {
             return Err(anyhow!("Received invalid message"));
         }
         let len = value.read_u32::<LittleEndian>()?;
@@ -550,7 +595,7 @@ pub struct BlockList {
 impl BlockList {
     pub fn new(blocklist: Vec<u8>) -> Self {
         Self {
-            magic_bytes: [0x52, 0x2A, 0x4D, 0x18],
+            magic_bytes: ZSTD_MAGIC_BYTES_SKIPPABLE_2,
             len: blocklist.len() as u32,
             blocklist,
         }
@@ -563,7 +608,7 @@ impl TryFrom<&[u8]> for BlockList {
     fn try_from(mut value: &[u8]) -> Result<Self, Self::Error> {
         let mut magic_bytes: [u8; 4] = [0; 4];
         value.read_exact(&mut magic_bytes)?;
-        if magic_bytes != [0x52, 0x2A, 0x4D, 0x18] {
+        if magic_bytes != ZSTD_MAGIC_BYTES_SKIPPABLE_2 {
             return Err(anyhow!("Received invalid message"));
         }
         let len = value.read_u32::<LittleEndian>()?;
@@ -640,7 +685,7 @@ impl TryFrom<&[u8]> for RangeTable {
     fn try_from(mut value: &[u8]) -> Result<Self, Self::Error> {
         let mut magic_bytes: [u8; 4] = [0; 4];
         value.read_exact(&mut magic_bytes)?;
-        if magic_bytes != [0x53, 0x2A, 0x4D, 0x18] {
+        if magic_bytes != ZSTD_MAGIC_BYTES_SKIPPABLE_3 {
             return Err(anyhow!("Received invalid message"));
         }
         let len = value.read_u32::<LittleEndian>()?;
@@ -682,7 +727,7 @@ pub struct SemanticMetadata {
 impl SemanticMetadata {
     pub fn new(semantic: String) -> Self {
         Self {
-            magic_bytes: [0x54, 0x2A, 0x4D, 0x18],
+            magic_bytes: ZSTD_MAGIC_BYTES_SKIPPABLE_4,
             len: semantic.len() as u32,
             semantic,
         }
@@ -703,7 +748,7 @@ impl TryFrom<&[u8]> for SemanticMetadata {
     fn try_from(mut value: &[u8]) -> Result<Self, Self::Error> {
         let mut magic_bytes: [u8; 4] = [0; 4];
         value.read_exact(&mut magic_bytes)?;
-        if magic_bytes != [0x54, 0x2A, 0x4D, 0x18] {
+        if magic_bytes != ZSTD_MAGIC_BYTES_SKIPPABLE_4 {
             return Err(anyhow!("Received invalid message"));
         }
 

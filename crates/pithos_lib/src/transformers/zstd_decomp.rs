@@ -2,6 +2,8 @@ use std::sync::Arc;
 
 use crate::notifications::Message;
 use crate::notifications::Notifier;
+use crate::structs::ProbeResult;
+use crate::structs::ZSTD_MAGIC_BYTES_ALL;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::{anyhow, Result};
@@ -26,6 +28,7 @@ pub struct ZstdDec {
     notifier: Option<Arc<Notifier>>,
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
+    probe_result: ProbeResult,
 }
 
 impl ZstdDec {
@@ -40,6 +43,7 @@ impl ZstdDec {
             notifier: None,
             msg_receiver: None,
             idx: None,
+            probe_result: ProbeResult::Unknown,
         }
     }
 
@@ -65,6 +69,20 @@ impl ZstdDec {
             }
         }
         Ok((false, false))
+    }
+
+
+    #[tracing::instrument(level = "trace", skip(self))]
+    async fn probe_decompression(&mut self, buf: [u8; 4]) -> Result<bool> {
+        if ZSTD_MAGIC_BYTES_ALL.contains(&buf) {
+            debug!("ZstdDec: Found zstd magic bytes");
+            self.probe_result = ProbeResult::Compression;
+            return Ok(true);
+        }else{
+            debug!("ZstdDec: Did not find zstd magic bytes");
+            self.probe_result = ProbeResult::NoCompression;
+            return Ok(false);
+        }
     }
 }
 
