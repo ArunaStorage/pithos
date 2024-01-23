@@ -160,7 +160,11 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for GenericReadWriter<'a
             if let Some(context) = &file_ctx {
                 self.size_counter += read_bytes;
                 if self.size_counter > context.input_size as usize {
-                    let mut diff = read_bytes - (self.size_counter - context.input_size as usize);
+                    let mut diff = if read_bytes > self.size_counter - context.input_size as usize {
+                        read_bytes - (self.size_counter - context.input_size as usize)
+                    }else{
+                        0
+                    };
                     if diff >= context.input_size as usize {
                         diff = context.input_size as usize
                     }

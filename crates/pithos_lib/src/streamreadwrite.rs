@@ -181,6 +181,9 @@ impl<
                 read_buf.put(data);
             } else if read_buf.is_empty() {
                 mem::swap(&mut hold_buffer, &mut read_buf);
+                if let Some(ctx) = &file_ctx {
+                    notifier.send_all(Message::FileContext(ctx.clone()))?;
+                }
             }
 
             if file_ctx.is_none() && read_buf.is_empty() && hold_buffer.is_empty() {
@@ -189,10 +192,14 @@ impl<
 
             let completed = self.process_messages()?;
 
-            if let Some(context) = &file_ctx {
+            if let Some(context) = &file_ctx {  
                 self.size_counter += read_bytes;
                 if self.size_counter > context.input_size as usize {
-                    let mut diff = read_bytes - (self.size_counter - context.input_size as usize);
+                    let mut diff = if read_bytes > self.size_counter - context.input_size as usize {
+                        read_bytes - (self.size_counter - context.input_size as usize)
+                    }else{
+                        0
+                    };
                     if diff >= context.input_size as usize {
                         diff = context.input_size as usize
                     }
@@ -214,7 +221,6 @@ impl<
                 break;
             }
             read_bytes = 0;
-            dbg!("Next iter");
         }
         Ok(())
     }

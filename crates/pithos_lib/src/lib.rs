@@ -430,27 +430,29 @@ mod tests {
 
         let combined = Vec::from_iter(file1.clone().into_iter().chain(file2.clone()));
 
-        let (sx, _rx) = async_channel::bounded(10);
-        sx.send((
+        let (sx, rx) = async_channel::bounded(10);
+        sx.send(Message::FileContext(
             FileContext {
                 file_name: "file1.txt".to_string(),
-                input_size: file2.len() as u64,
+                input_size: file1.len() as u64,
                 file_size: file1.len() as u64,
+                compression: true,
+                encryption_key: Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
                 ..Default::default()
-            },
-            false,
+            }
         ))
         .await
         .unwrap();
 
-        sx.send((
+        sx.send(Message::FileContext(
             FileContext {
                 file_name: "file2.txt".to_string(),
                 input_size: file2.len() as u64,
                 file_size: file2.len() as u64,
+                compression: false,
+                encryption_key: Some(b"xxwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
                 ..Default::default()
             },
-            true,
         ))
         .await
         .unwrap();
@@ -458,6 +460,7 @@ mod tests {
         // Create a new GenericReadWriter
         let mut aswr = GenericReadWriter::new_with_writer(combined.as_ref(), &mut file3)
             .add_transformer(TarEnc::new());
+        aswr.add_message_receiver(rx).await.unwrap();
         aswr.process().await.unwrap();
     }
 
@@ -471,27 +474,29 @@ mod tests {
         file1.read_to_end(&mut combined).await.unwrap();
         file2.read_to_end(&mut combined).await.unwrap();
 
-        let (sx, _rx) = async_channel::bounded(10);
-        sx.send((
+        let (sx, rx) = async_channel::bounded(10);
+        sx.send(Message::FileContext(
             FileContext {
                 file_name: "file1.txt".to_string(),
                 input_size: file1.metadata().await.unwrap().len(),
                 file_size: file1.metadata().await.unwrap().len(),
+                compression: true,
+                encryption_key: Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
                 ..Default::default()
             },
-            false,
         ))
         .await
         .unwrap();
 
-        sx.send((
+        sx.send(Message::FileContext(
             FileContext {
                 file_name: "file2.txt".to_string(),
                 input_size: file2.metadata().await.unwrap().len(),
                 file_size: file2.metadata().await.unwrap().len(),
+                compression: false,
+                encryption_key: Some(b"xxwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
                 ..Default::default()
             },
-            true,
         ))
         .await
         .unwrap();
@@ -499,6 +504,7 @@ mod tests {
         // Create a new GenericReadWriter
         let mut aswr = GenericReadWriter::new_with_writer(combined.as_ref(), &mut file3)
             .add_transformer(TarEnc::new());
+        aswr.add_message_receiver(rx).await.unwrap();
         aswr.process().await.unwrap();
     }
 
@@ -519,27 +525,25 @@ mod tests {
         });
         let mut file3 = File::create("test.txt.out.10").await.unwrap();
 
-        let (sx, _rx) = async_channel::bounded(10);
-        sx.send((
+        let (sx, rx) = async_channel::bounded(10);
+        sx.send(Message::FileContext(
             FileContext {
                 file_name: "file1.txt".to_string(),
                 input_size: file1_size,
                 file_size: file1_size,
                 ..Default::default()
             },
-            false,
         ))
         .await
         .unwrap();
 
-        sx.send((
+        sx.send(Message::FileContext(
             FileContext {
                 file_name: "file2.txt".to_string(),
                 input_size: file2_size,
                 file_size: file2_size,
                 ..Default::default()
             },
-            true,
         ))
         .await
         .unwrap();
@@ -547,6 +551,7 @@ mod tests {
         // Create a new GenericStreamReadWriter
         let mut aswr = GenericStreamReadWriter::new_with_writer(mapped, &mut file3)
             .add_transformer(TarEnc::new());
+        aswr.add_message_receiver(rx).await.unwrap();
         aswr.process().await.unwrap();
     }
 
@@ -567,27 +572,25 @@ mod tests {
         });
         let mut file3 = File::create("test.txt.out.11").await.unwrap();
 
-        let (sx, _rx) = async_channel::bounded(10);
-        sx.send((
+        let (sx, rx) = async_channel::bounded(10);
+        sx.send(Message::FileContext(
             FileContext {
                 file_name: "file1.txt".to_string(),
                 input_size: file1_size,
                 file_size: file1_size,
                 ..Default::default()
             },
-            false,
         ))
         .await
         .unwrap();
 
-        sx.send((
+        sx.send(Message::FileContext(
             FileContext {
                 file_name: "file2.txt".to_string(),
                 input_size: file2_size,
                 file_size: file2_size,
                 ..Default::default()
             },
-            true,
         ))
         .await
         .unwrap();
@@ -596,8 +599,8 @@ mod tests {
         let mut aswr = GenericStreamReadWriter::new_with_writer(mapped, &mut file3)
             .add_transformer(TarEnc::new())
             .add_transformer(GzipEnc::new());
+        aswr.add_message_receiver(rx).await.unwrap();
         aswr.process().await.unwrap();
-        // FIX
     }
 
     #[tokio::test]
@@ -644,9 +647,9 @@ mod tests {
         });
         let mut file3 = File::create("test.txt.out.tar").await.unwrap();
 
-        let (sx, _rx) = async_channel::bounded(10);
+        let (sx, rx) = async_channel::bounded(10);
 
-        sx.send((
+        sx.send(Message::FileContext(
             FileContext {
                 file_name: "blup/".to_string(),
                 input_size: 0,
@@ -654,24 +657,22 @@ mod tests {
                 is_dir: true,
                 ..Default::default()
             },
-            false,
         ))
         .await
         .unwrap();
 
-        sx.send((
+        sx.send(Message::FileContext(
             FileContext {
                 file_name: "blup/file1.txt".to_string(),
                 input_size: file1_size,
                 file_size: file1_size,
                 ..Default::default()
             },
-            false,
         ))
         .await
         .unwrap();
 
-        sx.send((
+        sx.send(Message::FileContext(
             FileContext {
                 file_name: "blip/".to_string(),
                 input_size: 0,
@@ -679,19 +680,17 @@ mod tests {
                 is_dir: true,
                 ..Default::default()
             },
-            false,
         ))
         .await
         .unwrap();
 
-        sx.send((
+        sx.send(Message::FileContext(
             FileContext {
                 file_name: "blip/file2.txt".to_string(),
                 input_size: file2_size,
                 file_size: file2_size,
                 ..Default::default()
             },
-            true,
         ))
         .await
         .unwrap();
@@ -699,6 +698,7 @@ mod tests {
         // Create a new GenericStreamReadWriter
         let mut aswr = GenericStreamReadWriter::new_with_writer(mapped, &mut file3)
             .add_transformer(TarEnc::new());
+        aswr.add_message_receiver(rx).await.unwrap();
         //.add_transformer(GzipEnc::new());
         aswr.process().await.unwrap();
     }
