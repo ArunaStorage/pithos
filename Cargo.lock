@@ -1279,6 +1279,7 @@ dependencies = [
  "async-stream",
  "async-trait",
  "async_zip",
+ "base64",
  "blake2",
  "byteorder",
  "bytes",
