@@ -34,8 +34,8 @@ pub struct ChaCha20Enc {
 impl ChaCha20Enc {
     #[tracing::instrument(level = "trace")]
     #[allow(dead_code)]
-    pub fn new() -> Result<Self> {
-        Ok(ChaCha20Enc {
+    pub fn new() -> Self {
+        ChaCha20Enc {
             input_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
             output_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
             notifier: None,
@@ -44,7 +44,7 @@ impl ChaCha20Enc {
             encryption_key: None,
             key_is_fixed: false,
             finished: false,
-        })
+        }
     }
 
     #[tracing::instrument(level = "trace")]
@@ -185,11 +185,13 @@ pub fn encrypt_chunk(msg: &[u8], aad: &[u8], enc: &[u8], use_limit: bool) -> Res
     let mut bytes = BytesMut::new();
     let pload = Payload { msg, aad };
     let cipher = ChaCha20Poly1305::new_from_slice(enc).map_err(|e| {
-        error!(error = ?e, ?msg, ?aad, "Unable to initialize cipher from key");
+        //error!(error = ?e, ?msg, ?aad, "Unable to initialize cipher from key");
+        error!(error = ?e, enc_len = enc.len(), ?enc, ?aad, "Unable to initialize cipher from key");
         anyhow!("[CHACHA_ENCRYPT] Unable to initialize cipher from key")
     })?;
     let mut result = cipher.encrypt(&nonce, pload).map_err(|e| {
-        error!(error = ?e, ?msg, ?aad, "Unable to encrypt chunk");
+        //error!(error = ?e, ?msg, ?aad, "Unable to encrypt chunk");
+        error!(error = ?e, ?aad, "Unable to encrypt chunk");
         anyhow!("[CHACHA_ENCRYPT] Unable to encrypt chunk")
     })?;
 
@@ -197,7 +199,9 @@ pub fn encrypt_chunk(msg: &[u8], aad: &[u8], enc: &[u8], use_limit: bool) -> Res
         let pload = Payload { msg, aad };
         nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
         result = cipher.encrypt(&nonce, pload).map_err(|e| {
-            error!(error = ?e, ?msg, ?aad, "Unable to encrypt chunk");
+            //error!(error = ?e, ?msg, ?aad, "Unable to encrypt chunk");
+            error!(error = ?e, ?aad, "Unable to encrypt chunk");
+
             anyhow!("[CHACHA_ENCRYPT] Unable to encrypt chunk")
         })?;
     }

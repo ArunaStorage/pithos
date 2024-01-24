@@ -1,6 +1,8 @@
+use anyhow::Result;
 use async_channel::{Receiver, Sender};
 use bytes::Bytes;
 use futures::Stream;
+use tokio::io::AsyncWrite;
 
 use crate::{
     notifications::Message,
@@ -41,5 +43,15 @@ impl<
         metadata: Option<String>,
     ) -> Self {
         todo!()
+    }
+
+    #[tracing::instrument(level = "trace", skip(_input_stream, _writer))]
+    pub async fn new_with_writer<W: AsyncWrite + Send + Sync + 'a>(
+        _input_stream: R,
+        _writer: W,
+        file_context: FileContext,
+        metadata: Option<String>,
+    ) -> Result<Self> {
+        todo!();
     }
 }

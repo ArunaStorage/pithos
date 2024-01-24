@@ -3,9 +3,10 @@ use crate::structs::EncryptionMetadata;
 use crate::structs::EndOfFileMetadata;
 use crate::structs::Flag;
 use crate::structs::Keys as EncryptionKeys;
-use crate::structs::RangeTable;
+use crate::structs::TableOfContents;
 use crate::structs::SemanticMetadata;
 use anyhow::anyhow;
+use anyhow::bail;
 use anyhow::Result;
 use byteorder::ByteOrder;
 use byteorder::LittleEndian;
@@ -14,6 +15,7 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305,
 };
+use tracing::debug;
 use tracing::error;
 
 pub enum FooterParserState<'a> {
@@ -27,15 +29,27 @@ pub struct FooterParser<'a> {
     keys: Option<Keys>,
 }
 
+#[derive(Clone, Debug)]
 pub enum EncryptionKeySet {
     None,
     Single([u8; 32]),
     Multiple(Vec<[u8; 32]>),
 }
 
+impl Into<Vec<[u8; 32]>> for EncryptionKeySet {
+    fn into(self) -> Vec<[u8; 32]> {
+        match self {
+            EncryptionKeySet::None => vec![],
+            EncryptionKeySet::Single(key) => vec![key],
+            EncryptionKeySet::Multiple(keys) => keys,
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct Keys {
     data_keys: EncryptionKeySet,
-    recepient_keys: EncryptionKeySet,
+    recipient_keys: EncryptionKeySet,
     range_table_key: EncryptionKeySet,
     semantic_metadata: EncryptionKeySet,
 }
@@ -59,7 +73,7 @@ impl Keys {
         }
     }
 
-    pub fn add_range_table_key(&mut self, key: [u8; 32]) -> Result<()> {
+    fn add_range_table_key(&mut self, key: [u8; 32]) -> Result<()> {
         match &self.range_table_key {
             EncryptionKeySet::None => {
                 self.range_table_key = EncryptionKeySet::Single(key);
@@ -74,7 +88,7 @@ impl Keys {
         Ok(())
     }
 
-    pub fn add_semantic_metadata_key(&mut self, key: [u8; 32]) -> Result<()> {
+    fn add_semantic_metadata_key(&mut self, key: [u8; 32]) -> Result<()> {
         match &self.semantic_metadata {
             EncryptionKeySet::None => {
                 self.semantic_metadata = EncryptionKeySet::Single(key);
@@ -90,12 +104,12 @@ impl Keys {
     }
 
     pub fn add_recepient(&mut self, key: [u8; 32]) {
-        match &mut self.recepient_keys {
+        match &mut self.recipient_keys {
             EncryptionKeySet::None => {
-                self.recepient_keys = EncryptionKeySet::Single(key);
+                self.recipient_keys = EncryptionKeySet::Single(key);
             }
             EncryptionKeySet::Single(_) => {
-                self.recepient_keys = EncryptionKeySet::Multiple(vec![key]);
+                self.recipient_keys = EncryptionKeySet::Multiple(vec![key]);
             }
             EncryptionKeySet::Multiple(keys) => {
                 keys.push(key);
@@ -108,7 +122,7 @@ pub struct Footer {
     pub eof_metadata: EndOfFileMetadata,
     pub encryption_metadata: Option<EncryptionMetadata>,
     pub blocklist: Option<BlockList>,
-    pub range_table: Option<RangeTable>,
+    pub range_table: Option<TableOfContents>,
     pub semantic_metadata: Option<SemanticMetadata>,
 }
 
@@ -134,7 +148,7 @@ impl FooterParser<'_> {
         } else {
             self.keys = Some(Keys {
                 data_keys: EncryptionKeySet::Multiple(keys),
-                recepient_keys: EncryptionKeySet::None,
+                recipient_keys: EncryptionKeySet::None,
                 range_table_key: EncryptionKeySet::None,
                 semantic_metadata: EncryptionKeySet::None,
             });
@@ -142,13 +156,13 @@ impl FooterParser<'_> {
     }
 
     #[tracing::instrument(level = "trace", skip(self, key))]
-    pub fn add_recepient_key(&mut self, key: [u8; 32]) {
+    pub fn add_recipient_key(&mut self, key: [u8; 32]) {
         if let Some(current_keys) = self.keys.as_mut() {
             current_keys.add_recepient(key);
         } else {
             self.keys = Some(Keys {
                 data_keys: EncryptionKeySet::None,
-                recepient_keys: EncryptionKeySet::Single(key),
+                recipient_keys: EncryptionKeySet::Single(key),
                 range_table_key: EncryptionKeySet::None,
                 semantic_metadata: EncryptionKeySet::None,
             });
@@ -202,16 +216,24 @@ impl FooterParser<'_> {
         start_location += eof_md.range_table_len.unwrap_or_default();
         let semantic_metadata = if eof_md.is_flag_set(Flag::HasSemanticMetadata) {
             let enc_key = if eof_md.is_flag_set(Flag::SemanticMetadataEncrypted) {
-                let encryption_key = match self
+                let encryption_keys = match self
                     .keys
                     .as_ref()
                     .ok_or_else(|| anyhow!("Semantic metadata encrypted but no keys"))?
                     .semantic_metadata
                 {
-                    EncryptionKeySet::Single(key) => key,
-                    _ => return Err(anyhow!("Semantic metadata encrypted but invalid keys")),
+                    EncryptionKeySet::Single(key) => vec![key],
+                    EncryptionKeySet::None => self
+                        .keys
+                        .as_ref()
+                        .ok_or_else(|| anyhow!("Semantic metadata encrypted but no keys"))?
+                        .data_keys
+                        .clone()
+                        .into(),
+                    EncryptionKeySet::Multiple(ref keys) => keys.clone(),
+                    //_ => return Err(anyhow!("Semantic metadata encrypted but invalid keys")),
                 };
-                Some(encryption_key)
+                Some(encryption_keys)
             } else {
                 None
             };
@@ -253,7 +275,7 @@ impl FooterParser<'_> {
         &self,
         end_location: u64,
         len_semantic_metadata: u64,
-        enc_key: Option<[u8; 32]>,
+        enc_key: Option<Vec<[u8; 32]>>,
     ) -> Result<SemanticMetadata> {
         match self.state {
             FooterParserState::Raw(bytes) => {
@@ -263,8 +285,19 @@ impl FooterParser<'_> {
                     return Err(anyhow!("Invalid format, not enough bytes"));
                 }
 
-                Ok(if let Some(key) = enc_key {
-                    SemanticMetadata::from_encrypted(&bytes[from..to], key)?
+                Ok(if let Some(keys) = enc_key {
+                    debug!(keys = keys.len());
+                    for key in keys {
+                        let hex_key: String = key.iter().map(|b| format!("{:02x}", b)).collect();
+                        debug!(?hex_key);
+
+                        if let Ok(semantic) =
+                            SemanticMetadata::from_encrypted(&bytes[from..to], key)
+                        {
+                            return Ok(semantic);
+                        }
+                    }
+                    return Err(anyhow!("No valid key found"));
                 } else {
                     SemanticMetadata::try_from(&bytes[from..to])?
                 })
@@ -281,7 +314,7 @@ impl FooterParser<'_> {
         end_location: u64,
         len_range_table: u64,
         enc_key: Option<[u8; 32]>,
-    ) -> Result<RangeTable> {
+    ) -> Result<TableOfContents> {
         match self.state {
             FooterParserState::Raw(bytes) => {
                 let from = bytes.len() - end_location as usize - len_range_table as usize;
@@ -291,9 +324,9 @@ impl FooterParser<'_> {
                 }
 
                 Ok(if let Some(key) = enc_key {
-                    RangeTable::from_encrypted(&bytes[from..to], key)?
+                    TableOfContents::from_encrypted(&bytes[from..to], key)?
                 } else {
-                    RangeTable::try_from(&bytes[from..to])?
+                    TableOfContents::try_from(&bytes[from..to])?
                 })
             }
             FooterParserState::Empty => Err(anyhow!("Empty footer")),
@@ -333,8 +366,9 @@ impl FooterParser<'_> {
                 if bytes.len() < from {
                     return Err(anyhow!("Invalid format, not enough bytes"));
                 }
-                let mut enc_md = EncryptionMetadata::try_from(&bytes[from..to])?;
+                let mut enc_md = EncryptionMetadata::try_from(&bytes[from..to]).unwrap();
                 self.handle_encryption_metadata(&mut enc_md)?;
+                debug!(?self.keys);
                 Ok(enc_md)
             }
             FooterParserState::Empty => Err(anyhow!("Empty footer")),
@@ -346,18 +380,24 @@ impl FooterParser<'_> {
 
     fn handle_encryption_metadata(&mut self, md: &mut EncryptionMetadata) -> Result<()> {
         if let Some(current_keys) = self.keys.as_mut() {
-            match &current_keys.recepient_keys {
+            match &current_keys.recipient_keys {
                 EncryptionKeySet::None => {}
                 EncryptionKeySet::Single(key) => {
-                    let _ = md.decrypt(*key);
+                    if let Err(e) = md.decrypt(*key) {
+                        debug!(?e);
+                    }
                 }
                 EncryptionKeySet::Multiple(keys) => {
                     for key in keys {
-                        let _ = md.decrypt(*key);
+                        if let Err(e) = md.decrypt(*key) {
+                            debug!(?e);
+                        }
                     }
                 }
             }
+            debug!(packets = md.packets.len());
             for x in &md.packets {
+                debug!(?x.keys);
                 match x.keys {
                     EncryptionKeys::Decrypted(_) => match x.extract_keys_with_flags()? {
                         (None, None, vec) => {
@@ -382,6 +422,29 @@ impl FooterParser<'_> {
             }
         }
         Ok(())
+    }
+
+    pub fn get_eof_metadata(&self) -> Result<EndOfFileMetadata> {
+        match self.state {
+            FooterParserState::Empty => bail!("Footer is empty"),
+            FooterParserState::Raw(_) => bail!("Footer has not yet been parsed"),
+            FooterParserState::Decoded(ref footer) => Ok(footer.eof_metadata.clone()),
+        }
+    }
+
+    pub fn get_semantic_metadata(&self) -> Result<SemanticMetadata> {
+        match &self.state {
+            FooterParserState::Empty => bail!("Footer is empty"),
+            FooterParserState::Raw(_) => bail!("Footer not  "),
+            FooterParserState::Decoded(footer) => {
+                debug!(?footer.semantic_metadata);
+                Ok(footer
+                    .semantic_metadata
+                    .as_ref()
+                    .ok_or_else(|| anyhow!("File does not contain semantic metadata"))?
+                    .clone())
+            }
+        }
     }
 
     // #[tracing::instrument(level = "trace", skip(self, range))]

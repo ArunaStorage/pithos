@@ -53,6 +53,9 @@ impl TryFrom<FileContext> for Header {
     }
 }
 
+// File1: 0..512+file1_len (HEADER + FILE)
+// File2: 512+file1_len+1..
+
 impl TarEnc {
     #[tracing::instrument(level = "trace", skip())]
     pub fn new() -> TarEnc {

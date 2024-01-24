@@ -1,6 +1,6 @@
 use crate::notifications::{Message, Notifier};
 use crate::structs::FileContext;
-use crate::transformer::{ReadWriter, Sink, Transformer};
+use crate::transformer::{ReadWriter, Sink, Transformer, TransformerType};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::{anyhow, bail, Result};
 use async_channel::{Receiver, Sender, TryRecvError};
@@ -85,14 +85,11 @@ impl<
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
-    pub fn process_messages(
-        &mut self,
-    ) -> Result<bool> {
+    pub fn process_messages(&mut self) -> Result<bool> {
         loop {
-
             if let Some(rx) = &self.external_receiver {
                 match rx.try_recv() {
-                    Err(TryRecvError::Empty) => {}
+                    Err(TryRecvError::Empty) => break,
                     Ok(ref msg) => match &msg {
                         &Message::FileContext(context) => {
                             self.context_queue.push_back(context.clone());
@@ -100,14 +97,27 @@ impl<
                         Message::Completed => {
                             return Ok(true);
                         }
+                        Message::Metadata(md) => {
+                            if let Some(ref notifier) = self.notifier {
+                                notifier.send_all_type(
+                                    TransformerType::FooterGenerator,
+                                    Message::Metadata(md.clone()),
+                                )?
+                            }
+                        }
                         _ => {}
                     },
                     Err(TryRecvError::Closed) => {
                         self.external_receiver = None;
-                    },
+                        break;
+                    }
                 }
+            } else {
+                break;
             }
+        }
 
+        loop {
             match self.receiver.try_recv() {
                 Err(TryRecvError::Empty) => break,
                 Ok(ref msg) => match &msg {
@@ -148,6 +158,7 @@ impl<
             .push(self.sink.take().ok_or_else(|| anyhow!("No sink!"))?);
 
         let notifier = Arc::new(Notifier::new(self.sender.clone()));
+        self.notifier = Some(notifier.clone());
         for (idx, t) in self.transformers.iter_mut().enumerate() {
             notifier.add_transformer(t.initialize(idx).await);
             t.set_notifier(notifier.clone()).await?;
@@ -192,12 +203,12 @@ impl<
 
             let completed = self.process_messages()?;
 
-            if let Some(context) = &file_ctx {  
+            if let Some(context) = &file_ctx {
                 self.size_counter += read_bytes;
                 if self.size_counter > context.input_size as usize {
                     let mut diff = if read_bytes > self.size_counter - context.input_size as usize {
                         read_bytes - (self.size_counter - context.input_size as usize)
-                    }else{
+                    } else {
                         0
                     };
                     if diff >= context.input_size as usize {

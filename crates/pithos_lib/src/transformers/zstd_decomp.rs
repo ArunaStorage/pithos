@@ -54,7 +54,9 @@ impl ZstdDec {
                 match rx.try_recv() {
                     Ok(Message::ShouldFlush) => return Ok((true, false)),
                     Ok(Message::Finished) => return Ok((false, true)),
-                    Ok(Message::FileContext(_)) => {self.probe_result = ProbeResult::Unknown;}
+                    Ok(Message::FileContext(_)) => {
+                        self.probe_result = ProbeResult::Unknown;
+                    }
                     Ok(Message::Skip) => {
                         self.skip_me = true;
                     }
@@ -72,14 +74,13 @@ impl ZstdDec {
         Ok((false, false))
     }
 
-
     #[tracing::instrument(level = "trace", skip(self))]
     async fn probe_decompression(&mut self, buf: [u8; 4]) -> Result<bool> {
         if ZSTD_MAGIC_BYTES_ALL.contains(&buf) {
             debug!("ZstdDec: Found zstd magic bytes");
             self.probe_result = ProbeResult::Compression;
             return Ok(true);
-        }else{
+        } else {
             debug!("ZstdDec: Did not find zstd magic bytes");
             self.probe_result = ProbeResult::NoCompression;
             return Ok(false);
@@ -119,8 +120,12 @@ impl Transformer for ZstdDec {
             return Ok(());
         }
         if !buf.is_empty() && self.probe_result == ProbeResult::Unknown {
-            self.probe_decompression(buf.get(0..4).ok_or_else(|| anyhow!("Missing bytes"))?.try_into()?)
-                .await?;
+            self.probe_decompression(
+                buf.get(0..4)
+                    .ok_or_else(|| anyhow!("Missing bytes"))?
+                    .try_into()?,
+            )
+            .await?;
         }
         if self.skip_me || self.probe_result == ProbeResult::NoCompression {
             debug!("skipped zstd decoder");

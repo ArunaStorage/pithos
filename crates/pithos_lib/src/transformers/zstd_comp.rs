@@ -64,7 +64,7 @@ impl ZstdEnc {
                     Ok(Message::FileContext(ctx)) => {
                         if ctx.compression {
                             self.probe_result = ProbeResult::Compression;
-                        }else{
+                        } else {
                             self.probe_result = ProbeResult::Unknown;
                         }
                     }
@@ -133,7 +133,7 @@ impl Transformer for ZstdEnc {
                     if self.probe_compression().await? {
                         buf.put(self.prev_buf.split());
                     }
-                }else if self.prev_buf.len() < 8192 {
+                } else if self.prev_buf.len() < 8192 {
                     return Ok(());
                 }
             }

@@ -173,7 +173,7 @@ mod tests {
         let file2 = File::create("test.txt.out.5").await.unwrap();
         let mut read_writer = GenericReadWriter::new_with_writer(file, file2)
             .add_transformer(ZstdEnc::new())
-            .add_transformer(ChaCha20Enc::new().unwrap())
+            .add_transformer(ChaCha20Enc::new())
             .add_transformer(ChaCha20Dec::new().unwrap())
             .add_transformer(FooterGenerator::new())
             .add_transformer(ZstdDec::new());
@@ -328,29 +328,23 @@ mod tests {
         let combined = Vec::from_iter(file1.clone().into_iter().chain(file2.clone()));
 
         let (sx, rx) = async_channel::bounded(10);
-        sx.send(
-            Message::FileContext(
-                FileContext {
-                    file_name: "file1.txt".to_string(),
-                    input_size: file1.len() as u64,
-                    file_size: file1.len() as u64,
-                    compression: true,
-                    ..Default::default()
-                }
-            ))
+        sx.send(Message::FileContext(FileContext {
+            file_name: "file1.txt".to_string(),
+            input_size: file1.len() as u64,
+            file_size: file1.len() as u64,
+            compression: true,
+            ..Default::default()
+        }))
         .await
         .unwrap();
 
-        sx.send(
-            Message::FileContext(
-                FileContext {
-                    file_name: "file2.txt".to_string(),
-                    input_size: file2.len() as u64,
-                    file_size: file2.len() as u64,
-                    compression: false,
-                    ..Default::default()
-                }
-            ))
+        sx.send(Message::FileContext(FileContext {
+            file_name: "file2.txt".to_string(),
+            input_size: file2.len() as u64,
+            file_size: file2.len() as u64,
+            compression: false,
+            ..Default::default()
+        }))
         .await
         .unwrap();
 
@@ -431,29 +425,25 @@ mod tests {
         let combined = Vec::from_iter(file1.clone().into_iter().chain(file2.clone()));
 
         let (sx, rx) = async_channel::bounded(10);
-        sx.send(Message::FileContext(
-            FileContext {
-                file_name: "file1.txt".to_string(),
-                input_size: file1.len() as u64,
-                file_size: file1.len() as u64,
-                compression: true,
-                encryption_key: Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
-                ..Default::default()
-            }
-        ))
+        sx.send(Message::FileContext(FileContext {
+            file_name: "file1.txt".to_string(),
+            input_size: file1.len() as u64,
+            file_size: file1.len() as u64,
+            compression: true,
+            encryption_key: Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+            ..Default::default()
+        }))
         .await
         .unwrap();
 
-        sx.send(Message::FileContext(
-            FileContext {
-                file_name: "file2.txt".to_string(),
-                input_size: file2.len() as u64,
-                file_size: file2.len() as u64,
-                compression: false,
-                encryption_key: Some(b"xxwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
-                ..Default::default()
-            },
-        ))
+        sx.send(Message::FileContext(FileContext {
+            file_name: "file2.txt".to_string(),
+            input_size: file2.len() as u64,
+            file_size: file2.len() as u64,
+            compression: false,
+            encryption_key: Some(b"xxwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+            ..Default::default()
+        }))
         .await
         .unwrap();
 
@@ -475,29 +465,25 @@ mod tests {
         file2.read_to_end(&mut combined).await.unwrap();
 
         let (sx, rx) = async_channel::bounded(10);
-        sx.send(Message::FileContext(
-            FileContext {
-                file_name: "file1.txt".to_string(),
-                input_size: file1.metadata().await.unwrap().len(),
-                file_size: file1.metadata().await.unwrap().len(),
-                compression: true,
-                encryption_key: Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
-                ..Default::default()
-            },
-        ))
+        sx.send(Message::FileContext(FileContext {
+            file_name: "file1.txt".to_string(),
+            input_size: file1.metadata().await.unwrap().len(),
+            file_size: file1.metadata().await.unwrap().len(),
+            compression: true,
+            encryption_key: Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+            ..Default::default()
+        }))
         .await
         .unwrap();
 
-        sx.send(Message::FileContext(
-            FileContext {
-                file_name: "file2.txt".to_string(),
-                input_size: file2.metadata().await.unwrap().len(),
-                file_size: file2.metadata().await.unwrap().len(),
-                compression: false,
-                encryption_key: Some(b"xxwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
-                ..Default::default()
-            },
-        ))
+        sx.send(Message::FileContext(FileContext {
+            file_name: "file2.txt".to_string(),
+            input_size: file2.metadata().await.unwrap().len(),
+            file_size: file2.metadata().await.unwrap().len(),
+            compression: false,
+            encryption_key: Some(b"xxwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+            ..Default::default()
+        }))
         .await
         .unwrap();
 
@@ -526,25 +512,21 @@ mod tests {
         let mut file3 = File::create("test.txt.out.10").await.unwrap();
 
         let (sx, rx) = async_channel::bounded(10);
-        sx.send(Message::FileContext(
-            FileContext {
-                file_name: "file1.txt".to_string(),
-                input_size: file1_size,
-                file_size: file1_size,
-                ..Default::default()
-            },
-        ))
+        sx.send(Message::FileContext(FileContext {
+            file_name: "file1.txt".to_string(),
+            input_size: file1_size,
+            file_size: file1_size,
+            ..Default::default()
+        }))
         .await
         .unwrap();
 
-        sx.send(Message::FileContext(
-            FileContext {
-                file_name: "file2.txt".to_string(),
-                input_size: file2_size,
-                file_size: file2_size,
-                ..Default::default()
-            },
-        ))
+        sx.send(Message::FileContext(FileContext {
+            file_name: "file2.txt".to_string(),
+            input_size: file2_size,
+            file_size: file2_size,
+            ..Default::default()
+        }))
         .await
         .unwrap();
 
@@ -573,25 +555,21 @@ mod tests {
         let mut file3 = File::create("test.txt.out.11").await.unwrap();
 
         let (sx, rx) = async_channel::bounded(10);
-        sx.send(Message::FileContext(
-            FileContext {
-                file_name: "file1.txt".to_string(),
-                input_size: file1_size,
-                file_size: file1_size,
-                ..Default::default()
-            },
-        ))
+        sx.send(Message::FileContext(FileContext {
+            file_name: "file1.txt".to_string(),
+            input_size: file1_size,
+            file_size: file1_size,
+            ..Default::default()
+        }))
         .await
         .unwrap();
 
-        sx.send(Message::FileContext(
-            FileContext {
-                file_name: "file2.txt".to_string(),
-                input_size: file2_size,
-                file_size: file2_size,
-                ..Default::default()
-            },
-        ))
+        sx.send(Message::FileContext(FileContext {
+            file_name: "file2.txt".to_string(),
+            input_size: file2_size,
+            file_size: file2_size,
+            ..Default::default()
+        }))
         .await
         .unwrap();
 
@@ -649,49 +627,41 @@ mod tests {
 
         let (sx, rx) = async_channel::bounded(10);
 
-        sx.send(Message::FileContext(
-            FileContext {
-                file_name: "blup/".to_string(),
-                input_size: 0,
-                file_size: 0,
-                is_dir: true,
-                ..Default::default()
-            },
-        ))
+        sx.send(Message::FileContext(FileContext {
+            file_name: "blup/".to_string(),
+            input_size: 0,
+            file_size: 0,
+            is_dir: true,
+            ..Default::default()
+        }))
         .await
         .unwrap();
 
-        sx.send(Message::FileContext(
-            FileContext {
-                file_name: "blup/file1.txt".to_string(),
-                input_size: file1_size,
-                file_size: file1_size,
-                ..Default::default()
-            },
-        ))
+        sx.send(Message::FileContext(FileContext {
+            file_name: "blup/file1.txt".to_string(),
+            input_size: file1_size,
+            file_size: file1_size,
+            ..Default::default()
+        }))
         .await
         .unwrap();
 
-        sx.send(Message::FileContext(
-            FileContext {
-                file_name: "blip/".to_string(),
-                input_size: 0,
-                file_size: 0,
-                is_dir: true,
-                ..Default::default()
-            },
-        ))
+        sx.send(Message::FileContext(FileContext {
+            file_name: "blip/".to_string(),
+            input_size: 0,
+            file_size: 0,
+            is_dir: true,
+            ..Default::default()
+        }))
         .await
         .unwrap();
 
-        sx.send(Message::FileContext(
-            FileContext {
-                file_name: "blip/file2.txt".to_string(),
-                input_size: file2_size,
-                file_size: file2_size,
-                ..Default::default()
-            },
-        ))
+        sx.send(Message::FileContext(FileContext {
+            file_name: "blip/file2.txt".to_string(),
+            input_size: file2_size,
+            file_size: file2_size,
+            ..Default::default()
+        }))
         .await
         .unwrap();
 

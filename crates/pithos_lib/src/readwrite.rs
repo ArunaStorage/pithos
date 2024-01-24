@@ -75,11 +75,8 @@ impl<'a, R: AsyncRead + Unpin> GenericReadWriter<'a, R> {
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
-    pub fn process_messages(
-        &mut self,
-    ) -> Result<bool> {
+    pub fn process_messages(&mut self) -> Result<bool> {
         loop {
-
             if let Some(rx) = &self.external_receiver {
                 match rx.try_recv() {
                     Err(TryRecvError::Empty) => {}
@@ -94,7 +91,7 @@ impl<'a, R: AsyncRead + Unpin> GenericReadWriter<'a, R> {
                     },
                     Err(TryRecvError::Closed) => {
                         self.external_receiver = None;
-                    },
+                    }
                 }
             }
 
@@ -162,7 +159,7 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for GenericReadWriter<'a
                 if self.size_counter > context.input_size as usize {
                     let mut diff = if read_bytes > self.size_counter - context.input_size as usize {
                         read_bytes - (self.size_counter - context.input_size as usize)
-                    }else{
+                    } else {
                         0
                     };
                     if diff >= context.input_size as usize {

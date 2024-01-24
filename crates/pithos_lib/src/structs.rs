@@ -7,6 +7,8 @@ use chacha20poly1305::aead::OsRng;
 use chacha20poly1305::{AeadCore, Nonce};
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
 use crypto_kx::{Keypair, PublicKey, SecretKey};
+use tracing::debug;
+use std::fmt::Display;
 use std::io::{Read, Write};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
@@ -53,6 +55,49 @@ impl FileContext {
     }
 }
 
+pub enum FileContextFlag {
+    IsDir = 0,
+    IsSymlink = 1,
+    HasUID = 2,
+    HasGID = 3,
+    HasMode = 4,
+    HasMtime = 5,
+    HasSha1 = 6,
+    HasMd5 = 7,
+}
+pub struct Symlink {
+    pub len: u16,
+    pub target: String,
+}
+
+pub struct FileContextHeader {
+    pub file_path_len: u16,
+    pub file_path: String, // FileName /foo/bar/
+    pub flag: u8, // is_dir, is_symlink, ...
+    pub file_start: Option<u64>, //
+    pub file_end: Option<u64>, //
+    pub symlink: Option<Symlink>, // Symlink
+    pub uid: Option<u64>, // UserId
+    pub gid: Option<u64>, // GroupId
+    pub mode: Option<u32>, // Octal like mode
+    pub mtime: Option<u64>, // Created at
+    pub expected_sha1: Option<String>, // Expected SHA1 hash
+    pub expected_md5: Option<String>, // Expected MD5 hash
+}
+
+impl FileContextHeader {
+    pub fn set_flag(&mut self, flag: FileContextFlag) {
+        flag_helpers::set_flag_bit_u8(&mut self.flag, flag as u8)
+    }
+
+    pub fn unset_flag(&mut self, flag: Flag) {
+        flag_helpers::unset_flag_bit_u8(&mut self.flag, flag as u8)
+    }
+
+    pub fn is_flag_set(&self, flag: Flag) -> bool {
+        flag_helpers::is_flag_bit_set_u8(&self.flag, flag as u8)
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub enum ProbeResult {
@@ -123,8 +168,6 @@ pub struct EndOfFileMetadata {
     pub magic_bytes: [u8; 4], // Should be 0x50, 0x2A, 0x4D, 0x18
     pub len: u32,
     pub version: u32,
-    pub file_name_length: u16,
-    pub file_name: String, // UTF-8 encoded bytes
     pub raw_file_size: u64,
     pub file_hash_sha256: [u8; 32],
     pub file_hash_md5: [u8; 16],
@@ -133,11 +176,32 @@ pub struct EndOfFileMetadata {
     pub disk_hash_sha256: [u8; 32], // Everything except disk_hash_sha1 is expected to be 0
     // Optional
     pub semantic_len: Option<u64>,
-    pub range_table_len: Option<u64>,
+    pub range_table_len: u64,
     pub blocklist_len: Option<u64>,
     pub encryption_len: Option<u64>,
     // Required
     pub eof_metadata_len: u64,
+}
+
+impl Display for EndOfFileMetadata {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "==== EndOfFileMetadata ====\n")?;
+        write!(f, "Len: {}\n", self.len)?;
+        write!(f, "Version: {}\n", self.version)?;
+        write!(f, "Raw file size: {}\n", self.raw_file_size)?;
+        write!(f, "File hash SHA256: {:?}\n", self.file_hash_sha256)?;
+        write!(f, "File hash MD5: {:?}\n", self.file_hash_md5)?;
+        write!(f, "Flags: {}\n", self.flags)?;
+        write!(f, "Disk file size: {}\n", self.disk_file_size)?;
+        write!(f, "Disk hash SHA256: {:?}\n", self.disk_hash_sha256)?;
+        write!(f, "Semantic metadata len: {:?}\n", self.semantic_len)?;
+        write!(f, "Range table len: {:?}\n", self.range_table_len)?;
+        write!(f, "Block list len: {:?}\n", self.blocklist_len)?;
+        write!(f, "Encryption meta len: {:?}\n", self.encryption_len)?;
+        write!(f, "Technical metadata len: {:?}\n", self.eof_metadata_len)?;
+
+        Ok(())
+    }
 }
 
 impl EndOfFileMetadata {
@@ -146,8 +210,6 @@ impl EndOfFileMetadata {
             magic_bytes: [0x50, 0x2A, 0x4D, 0x18],
             len: 0, // Required for zstd skippable frame
             version: 1,
-            file_name_length: 0,
-            file_name: String::new(),
             raw_file_size: 0,
             file_hash_sha256: [0; 32],
             file_hash_md5: [0; 16],
@@ -155,21 +217,11 @@ impl EndOfFileMetadata {
             disk_file_size: 0,
             disk_hash_sha256: [0; 32],
             semantic_len: None,
-            range_table_len: None,
+            range_table_len: 0,
             blocklist_len: None,
             encryption_len: None,
             eof_metadata_len: 0,
         }
-    }
-
-    pub fn update_with_file_ctx(&mut self, ctx: &FileContext) -> Result<()> {
-        if ctx.file_name.len() > 512 {
-            bail!("Filename too long");
-        }
-
-        self.file_name = ctx.file_name.clone();
-        self.file_name_length = ctx.file_name.len() as u16;
-        Ok(())
     }
 
     pub fn set_flag(&mut self, flag: Flag) {
@@ -190,7 +242,7 @@ impl EndOfFileMetadata {
 
     pub fn finalize(&mut self) {
         let mut full_size =
-            4 + 4 + 4 + 2 + self.file_name_length as usize + 8 + 32 + 16 + 8 + 8 + 32 + 8;
+            4 + 4 + 4 + 8 + 32 + 16 + 8 + 8 + 32 + 8 + 8;
         if self.semantic_len.is_some() {
             full_size += 8;
         }
@@ -213,16 +265,13 @@ impl TryFrom<&[u8]> for EndOfFileMetadata {
         let mut magic_bytes = [0; 4];
         value.read_exact(&mut magic_bytes)?;
         if magic_bytes != ZSTD_MAGIC_BYTES_SKIPPABLE_0 {
-            return Err(anyhow!("Received invalid message"));
+            return Err(anyhow!("Received invalid eof metadata message"));
         }
         let len = value.read_u32::<LittleEndian>()?;
         let version = value.read_u32::<LittleEndian>()?;
         if version != 1 {
             return Err(anyhow!("Unsupported version"));
         }
-        let file_name_length = value.read_u16::<LittleEndian>()?;
-        let mut file_name_buf = vec![0u8; file_name_length as usize];
-        value.read_exact(&mut file_name_buf)?;
         let raw_file_size = value.read_u64::<LittleEndian>()?;
         let mut file_hash_sha256 = [0; 32];
         value.read_exact(&mut file_hash_sha256)?;
@@ -237,11 +286,7 @@ impl TryFrom<&[u8]> for EndOfFileMetadata {
         } else {
             None
         };
-        let range_table_len = if Self::is_flag_set_u64(flags, Flag::HasRangeTable) {
-            Some(value.read_u64::<LittleEndian>()?)
-        } else {
-            None
-        };
+        let range_table_len = value.read_u64::<LittleEndian>()?;
         let blocklist_len = if Self::is_flag_set_u64(flags, Flag::HasBlockList) {
             Some(value.read_u64::<LittleEndian>()?)
         } else {
@@ -270,8 +315,6 @@ impl TryFrom<&[u8]> for EndOfFileMetadata {
             magic_bytes,
             len,
             version,
-            file_name_length,
-            file_name: std::str::from_utf8(&file_name_buf)?.to_string(),
             raw_file_size,
             file_hash_sha256,
             file_hash_md5,
@@ -294,8 +337,6 @@ impl TryInto<Vec<u8>> for EndOfFileMetadata {
         buffer.write_all(&self.magic_bytes)?;
         buffer.write_u32::<LittleEndian>(self.len)?;
         buffer.write_u32::<LittleEndian>(self.version)?;
-        buffer.write_u16::<LittleEndian>(self.file_name_length)?;
-        buffer.write_all(self.file_name.as_bytes())?;
         buffer.write_u64::<LittleEndian>(self.raw_file_size)?;
         buffer.write_all(&self.file_hash_sha256)?;
         buffer.write_all(&self.file_hash_md5)?;
@@ -305,9 +346,7 @@ impl TryInto<Vec<u8>> for EndOfFileMetadata {
         if let Some(semantic_len) = self.semantic_len {
             buffer.write_u64::<LittleEndian>(semantic_len)?;
         }
-        if let Some(range_table_len) = self.range_table_len {
-            buffer.write_u64::<LittleEndian>(range_table_len)?;
-        }
+        buffer.write_u64::<LittleEndian>(self.range_table_len)?;
         if let Some(blocklist_len) = self.blocklist_len {
             buffer.write_u64::<LittleEndian>(blocklist_len)?;
         }
@@ -319,11 +358,13 @@ impl TryInto<Vec<u8>> for EndOfFileMetadata {
     }
 }
 
+#[derive(Debug)]
 pub struct DecryptedKey {
     pub keys: Vec<[u8; 32]>,
     pub readers_pubkey: [u8; 32],
 }
 
+#[derive(Debug)]
 pub enum Keys {
     Encrypted(Vec<u8>),
     Decrypted(DecryptedKey),
@@ -336,6 +377,7 @@ pub enum PacketKeyFlags {
     ContainsExclusiveRangeAndMetadataKey = 2, // Index 0 is reserved for a combined range table and semantic metadata key
 }
 
+#[derive(Debug)]
 pub struct EncryptionPacket {
     pub len: u32,
     pub pubkey: [u8; 32],
@@ -368,9 +410,13 @@ impl EncryptionPacket {
                     None => Keypair::generate(&mut OsRng),
                 };
                 let session_key = keypair
-                    .session_keys_from(&PublicKey::from(keys.readers_pubkey))
-                    .tx;
+                    .session_keys_to(&PublicKey::from(keys.readers_pubkey)).tx;
+
+                let hex_key: String = session_key.as_ref().iter().map(|b| format!("{:02x}", b)).collect();
+                debug!(enc_shared_key = ?hex_key);
+
                 let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
+                debug!(?nonce);
 
                 let concatenated_keys = keys.keys.concat();
                 let data = ChaCha20Poly1305::new_from_slice(session_key.as_ref())
@@ -379,8 +425,9 @@ impl EncryptionPacket {
                     .map_err(|_| anyhow!("Error while encrypting keys"))?;
                 let (enc_keys, mac) = data.split_at(concatenated_keys.len());
 
-                self.len = (4 + 32 + 12 + enc_keys.len() + 16) as u32;
+                self.len = (4 + 32 + 1 + 12 + enc_keys.len() + 16) as u32;
                 self.pubkey = *keypair.public().as_ref();
+                self.nonce = nonce.into();
                 self.keys = Keys::Encrypted(enc_keys.to_vec());
                 self.mac = mac.try_into()?;
             }
@@ -394,13 +441,19 @@ impl EncryptionPacket {
             Keys::Encrypted(keys) => {
                 let keypair = Keypair::from(SecretKey::from(readers_secret_key));
                 let session_key = keypair.session_keys_from(&PublicKey::from(self.pubkey)).rx;
+
+                let hex_key: String = session_key.as_ref().iter().map(|b| format!("{:02x}", b)).collect();
+                debug!(dec_shared_key = ?hex_key);
+
                 let nonce = Nonce::from_slice(&self.nonce);
+                debug!(?nonce);
+
                 let dec_keys = ChaCha20Poly1305::new_from_slice(session_key.as_ref())?
                     .decrypt(
                         nonce,
                         [keys.as_slice(), self.mac.as_slice()].concat().as_slice(),
                     )
-                    .map_err(|_| anyhow!("Error while decrypting keys"))?;
+                    .map_err(|e| anyhow!("Error while decrypting keys: {e}"))?;
 
                 self.keys = Keys::Decrypted(DecryptedKey {
                     keys: dec_keys
@@ -480,7 +533,7 @@ impl EncryptionPacket {
                     ))
                 }
             }
-            (false, false, false, Keys::Decrypted(_)) => Ok((None, None, vec![])),
+            (false, false, false, Keys::Decrypted(keys)) => Ok((None, None, keys.keys.clone())),
             (_, _, _, Keys::Decrypted(_)) => {
                 Err(anyhow!("Invalid flag combination cant combine and with or"))
             }
@@ -489,6 +542,7 @@ impl EncryptionPacket {
     }
 }
 
+#[derive(Debug)]
 pub struct EncryptionMetadata {
     pub magic_bytes: [u8; 4], // Should be 0x51, 0x2A, 0x4D, 0x18
     pub len: u32,
@@ -496,11 +550,11 @@ pub struct EncryptionMetadata {
 }
 
 impl EncryptionMetadata {
-    pub fn new(_header_packets: Vec<EncryptionPacket>) -> Self {
+    pub fn new(header_packets: Vec<EncryptionPacket>) -> Self {
         Self {
             magic_bytes: ZSTD_MAGIC_BYTES_SKIPPABLE_1,
             len: 0, // (Sum of all packages len)
-            packets: vec![],
+            packets: header_packets,
         }
     }
 
@@ -508,12 +562,19 @@ impl EncryptionMetadata {
         for packet in &mut self.packets {
             packet.encrypt(writers_secret_key)?;
         }
+
+        self.packets.iter().for_each(|p| debug!(?p));
+        self.len = self.packets.iter().fold(0, |i, item| {i + item.len});
+
         Ok(())
     }
 
     pub fn decrypt(&mut self, readers_secret_key: [u8; 32]) -> Result<()> {
         for packet in &mut self.packets {
-            let _ = packet.decrypt(readers_secret_key); // Try to decrypt as many as possible
+            // Try to decrypt as many as possible
+            if let Err(e) = packet.decrypt(readers_secret_key) {
+                debug!(?e)
+            } 
         }
         Ok(())
     }
@@ -526,21 +587,22 @@ impl TryFrom<&[u8]> for EncryptionMetadata {
         let mut magic_bytes = [0; 4];
         value.read_exact(&mut magic_bytes)?;
         if magic_bytes != ZSTD_MAGIC_BYTES_SKIPPABLE_1 {
-            return Err(anyhow!("Received invalid message"));
+            return Err(anyhow!("Received invalid encryption metadata message"));
         }
         let len = value.read_u32::<LittleEndian>()?;
-        if len as usize != value[8..].len() {
-            return Err(anyhow!("Invalid blocklist length"));
+        debug!(?len, enc_meta_len = value.len());
+        if len as usize != value.len() {
+            return Err(anyhow!("Invalid encryption metadata length"));
         }
         let mut packets = Vec::new();
         while !value.is_empty() {
             let packet_len = value.read_u32::<LittleEndian>()?;
             let mut pubkey = [0; 32];
             value.read_exact(&mut pubkey)?;
-            let flags = value.read_u8()?;
             let mut nonce = [0; 12];
             value.read_exact(&mut nonce)?;
-            let mut keys = vec![0u8; packet_len as usize - 48];
+            let flags = value.read_u8()?;
+            let mut keys = vec![0u8; packet_len as usize - (4+32+12+1+16)];
             value.read_exact(&mut keys)?;
             let mut mac = [0; 16];
             value.read_exact(&mut mac)?;
@@ -574,6 +636,7 @@ impl TryInto<Vec<u8>> for EncryptionMetadata {
             buffer.write_u32::<LittleEndian>(packet.len)?;
             buffer.write_all(&packet.pubkey)?;
             buffer.write_all(&packet.nonce)?;
+            buffer.write_u8(packet.flags)?;
             match packet.keys {
                 Keys::Encrypted(keys) => buffer.write_all(&keys)?,
                 Keys::Decrypted(_) => {
@@ -609,7 +672,7 @@ impl TryFrom<&[u8]> for BlockList {
         let mut magic_bytes: [u8; 4] = [0; 4];
         value.read_exact(&mut magic_bytes)?;
         if magic_bytes != ZSTD_MAGIC_BYTES_SKIPPABLE_2 {
-            return Err(anyhow!("Received invalid message"));
+            return Err(anyhow!("Received invalid blocklist message"));
         }
         let len = value.read_u32::<LittleEndian>()?;
 
@@ -640,20 +703,37 @@ impl TryInto<Vec<u8>> for BlockList {
     }
 }
 
-pub struct RangeTable {
+pub struct TableOfContents {
     pub magic_bytes: [u8; 4], // Should be 0x53, 0x2A, 0x4D, 0x18
     pub len: u32,
-    pub sections: Vec<RangeTableEntry>,
+    pub sections: Vec<TableEntry>,
 }
 
-pub struct RangeTableEntry {
+pub struct CustomRange {
     pub tag_len: u8, // Max 255 bytes
     pub tag: String,
     pub start: u64,
     pub end: u64,
 }
 
-impl RangeTable {
+pub struct TableEntry {
+    pub variant_type: u8, // 0 = FileContextHeader, 1 = CustomRange
+    pub entry: TableEntryVariant,
+}
+pub enum TableEntryVariant {
+    FileContextHeader(FileContextHeader),
+    CustomRange(CustomRange)
+}
+
+impl TableOfContents {
+    pub fn new() -> Self {
+        TableOfContents {
+            magic_bytes: ZSTD_MAGIC_BYTES_SKIPPABLE_3,
+            len: 0,
+            sections: vec![],
+        }
+    }
+
     pub fn from_encrypted(encrypted: &[u8], key: [u8; 32]) -> Result<Self, anyhow::Error> {
         let (nonce, data) = encrypted.split_at(12);
         let decrypted = ChaCha20Poly1305::new_from_slice(&key)?
@@ -663,50 +743,182 @@ impl RangeTable {
     }
 }
 
-impl TryInto<Vec<u8>> for RangeTable {
+impl TryInto<Vec<u8>> for TableOfContents {
     type Error = anyhow::Error;
     fn try_into(self) -> Result<Vec<u8>, Self::Error> {
         let mut buffer = Vec::with_capacity(8 + self.len as usize);
         buffer.write_all(&self.magic_bytes)?;
         buffer.write_u32::<LittleEndian>(self.len)?;
+
         for section in self.sections {
-            buffer.write_u8(section.tag_len)?;
-            buffer.write_all(section.tag.as_bytes())?;
-            buffer.write_u64::<LittleEndian>(section.start)?;
-            buffer.write_u64::<LittleEndian>(section.end)?;
+            match section.entry {
+                TableEntryVariant::FileContextHeader(ctx) => {
+                    buffer.write_u16::<LittleEndian>(ctx.file_path_len)?;
+                    buffer.write_all(ctx.file_path.as_bytes())?;
+                    buffer.write_u8(ctx.flag)?;
+                    if let Some(start) = ctx.file_start {
+                        buffer.write_u64::<LittleEndian>(start)?;
+                    }
+                    if let Some(end) = ctx.file_start {
+                        buffer.write_u64::<LittleEndian>(end)?;
+                    }
+                    if let Some(symlink) = ctx.symlink {
+                        buffer.write_u16::<LittleEndian>(symlink.len)?;
+                        buffer.write_all(symlink.target.as_bytes())?;
+                    }
+                    if let Some(uid) = ctx.uid {
+                        buffer.write_u64::<LittleEndian>(uid)?;
+                    }
+                    if let Some(gid) = ctx.gid {
+                        buffer.write_u64::<LittleEndian>(gid)?;
+                    }
+                    if let Some(mode) = ctx.mode {
+                        buffer.write_u32::<LittleEndian>(mode)?;
+                    }
+                    if let Some(mtime) = ctx.mtime {
+                        buffer.write_u64::<LittleEndian>(mtime)?;
+                    }
+                    if let Some(sha1) = ctx.expected_sha1 {
+                        buffer.write_all(sha1.as_bytes())?;
+                    }
+                    if let Some(md5) = ctx.expected_md5 {
+                        buffer.write_all(md5.as_bytes())?;
+                    }
+                }
+                TableEntryVariant::CustomRange(range) => {
+                    buffer.write_u8(range.tag_len)?;
+                    buffer.write_all(range.tag.as_bytes())?;
+                    buffer.write_u64::<LittleEndian>(range.start)?;
+                    buffer.write_u64::<LittleEndian>(range.end)?;
+                }
+            }
         }
         Ok(buffer)
     }
 }
 
-impl TryFrom<&[u8]> for RangeTable {
+impl TryFrom<&[u8]> for TableOfContents {
     type Error = anyhow::Error;
 
     fn try_from(mut value: &[u8]) -> Result<Self, Self::Error> {
         let mut magic_bytes: [u8; 4] = [0; 4];
         value.read_exact(&mut magic_bytes)?;
         if magic_bytes != ZSTD_MAGIC_BYTES_SKIPPABLE_3 {
-            return Err(anyhow!("Received invalid message"));
+            return Err(anyhow!("Received invalid range table message"));
         }
         let len = value.read_u32::<LittleEndian>()?;
         if len as usize != value[8..].len() {
-            return Err(anyhow!("Invalid blocklist length"));
+            return Err(anyhow!("Invalid range table length"));
         }
         let mut sections = Vec::new();
+
         while !value.is_empty() {
-            let tag_len = value.read_u8()?;
-            let mut tag = vec![0u8; tag_len as usize];
-            value.read_exact(&mut tag)?;
-            let tag = String::from_utf8(tag)?;
-            let start = value.read_u64::<LittleEndian>()?;
-            let end = value.read_u64::<LittleEndian>()?;
-            sections.push(RangeTableEntry {
-                tag_len,
-                tag,
-                start,
-                end,
-            });
+            let variant = value.read_u8()?;
+            match variant {
+                0 => {
+                    let file_path_len = value.read_u16::<LittleEndian>()?;
+                    let mut file_path = vec![0u8; file_path_len as usize];
+                    value.read_exact(&mut file_path)?;
+                    let flag = value.read_u8()?;
+
+                    let (file_start, file_end, symlink) = if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::IsDir as u8) {
+                        // If is dir
+                        (None,None,None)
+                    } else if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::IsSymlink as u8) {
+                        // If is symlink
+                        let symlink_len = value.read_u16::<LittleEndian>()?;
+                        let mut symlink_target = vec![0u8; symlink_len as usize];
+                        value.read_exact(&mut symlink_target)?;
+                        (None,None,Some(Symlink {
+                            len: symlink_len,
+                            target: String::from_utf8(symlink_target)?
+                        }))
+                    } else {
+                        // If is file
+                        let start = value.read_u64::<LittleEndian>()?;
+                        let end = value.read_u64::<LittleEndian>()?;
+                        (Some(start), Some(end), None)
+                    };
+                    // If has uid
+                    let uid = if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasUID as u8) {
+                        Some(value.read_u64::<LittleEndian>()?)
+                    } else {
+                        None // or maybe default 1000
+                    };
+                    // If has uid
+                    let gid = if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasGID as u8) {
+                        Some(value.read_u64::<LittleEndian>()?)
+                    } else {
+                        None // or maybe default 1000
+                    };
+                    // If has mode
+                    let mode = if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasMode as u8) {
+                        Some(value.read_u32::<LittleEndian>()?)
+                    } else {
+                        None // or maybe default 33188 -> 644
+                    };
+                    // If has mtime
+                    let mtime = if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasMtime as u8) {
+                        Some(value.read_u64::<LittleEndian>()?)
+                    } else {
+                        None
+                    };
+                    // if has sha1
+                    let expected_sha1 = if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasMtime as u8) {
+                        let mut sha1 = vec![0u8; 20];
+                        value.read_exact(&mut sha1)?;
+                        Some(String::from_utf8(sha1)?)
+                    } else {
+                        None // Or maybe default 0
+                    };
+                    // If has md5
+                    let expected_md5 = if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasMtime as u8) {
+                        let mut md5 = vec![0u8; 16];
+                        value.read_exact(&mut md5)?;
+                        Some(String::from_utf8(md5)?)
+                    } else {
+                        None // Or maybe default 0
+                    };
+
+                    sections.push(TableEntry {
+                        variant_type: TableEntryVariant::FileContextHeader as u8,
+                        entry: TableEntryVariant::FileContextHeader(FileContextHeader {
+                            file_path_len,
+                            file_path: String::from_utf8(file_path)?,
+                            flag,
+                            file_start,
+                            file_end,
+                            symlink,
+                            uid,
+                            gid,
+                            mode,
+                            mtime,
+                            expected_sha1,
+                            expected_md5,
+                        }) })
+                },
+                1 => {
+                    let tag_len = value.read_u8()?;
+                    let mut tag = vec![0u8; tag_len as usize];
+                    value.read_exact(&mut tag)?;
+                    let tag = String::from_utf8(tag)?;
+                    let start = value.read_u64::<LittleEndian>()?;
+                    let end = value.read_u64::<LittleEndian>()?;
+                    sections.push(
+                        TableEntry {
+                            variant_type: TableEntryVariant::CustomRange as u8,
+                            entry: TableEntryVariant::CustomRange(CustomRange {
+                                tag_len,
+                                tag,
+                                start,
+                                end,
+                            })
+                        })
+                },
+                _ => bail!("Invalid content variant")
+            }
         }
+
         if !value.is_empty() {
             return Err(anyhow!("Invalid range table length"));
         }
@@ -718,6 +930,7 @@ impl TryFrom<&[u8]> for RangeTable {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct SemanticMetadata {
     pub magic_bytes: [u8; 4], // Should be 0x54, 0x2A, 0x4D, 0x18
     pub len: u32,
@@ -742,6 +955,12 @@ impl SemanticMetadata {
     }
 }
 
+impl Display for SemanticMetadata {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.semantic)
+    }
+}
+
 impl TryFrom<&[u8]> for SemanticMetadata {
     type Error = anyhow::Error;
 
@@ -749,12 +968,12 @@ impl TryFrom<&[u8]> for SemanticMetadata {
         let mut magic_bytes: [u8; 4] = [0; 4];
         value.read_exact(&mut magic_bytes)?;
         if magic_bytes != ZSTD_MAGIC_BYTES_SKIPPABLE_4 {
-            return Err(anyhow!("Received invalid message"));
+            return Err(anyhow!("Received invalid semantic metadata message"));
         }
 
         let len = value.read_u32::<LittleEndian>()?;
 
-        if len as usize != value[8..].len() {
+        if len as usize != value.len() {
             return Err(anyhow!("Invalid semantic length"));
         }
 
