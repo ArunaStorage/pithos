@@ -35,6 +35,7 @@ rand_core = "0.6.4"
 thiserror = "1.0.56"
 crypto_kx = "0.2.1"
 base64 = "0.21.7"
+scrypt = { version = "0.11.0" }
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["html_reports", "async_tokio"] }

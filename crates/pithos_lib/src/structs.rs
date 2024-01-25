@@ -7,9 +7,9 @@ use chacha20poly1305::aead::OsRng;
 use chacha20poly1305::{AeadCore, Nonce};
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
 use crypto_kx::{Keypair, PublicKey, SecretKey};
-use tracing::debug;
 use std::fmt::Display;
 use std::io::{Read, Write};
+use tracing::debug;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 pub struct FileContext {
@@ -72,17 +72,17 @@ pub struct Symlink {
 
 pub struct FileContextHeader {
     pub file_path_len: u16,
-    pub file_path: String, // FileName /foo/bar/
-    pub flag: u8, // is_dir, is_symlink, ...
-    pub file_start: Option<u64>, //
-    pub file_end: Option<u64>, //
-    pub symlink: Option<Symlink>, // Symlink
-    pub uid: Option<u64>, // UserId
-    pub gid: Option<u64>, // GroupId
-    pub mode: Option<u32>, // Octal like mode
-    pub mtime: Option<u64>, // Created at
+    pub file_path: String,             // FileName /foo/bar/
+    pub flag: u8,                      // is_dir, is_symlink, ...
+    pub file_start: Option<u64>,       //
+    pub file_end: Option<u64>,         //
+    pub symlink: Option<Symlink>,      // Symlink
+    pub uid: Option<u64>,              // UserId
+    pub gid: Option<u64>,              // GroupId
+    pub mode: Option<u32>,             // Octal like mode
+    pub mtime: Option<u64>,            // Created at
     pub expected_sha1: Option<String>, // Expected SHA1 hash
-    pub expected_md5: Option<String>, // Expected MD5 hash
+    pub expected_md5: Option<String>,  // Expected MD5 hash
 }
 
 impl FileContextHeader {
@@ -241,8 +241,7 @@ impl EndOfFileMetadata {
     }
 
     pub fn finalize(&mut self) {
-        let mut full_size =
-            4 + 4 + 4 + 8 + 32 + 16 + 8 + 8 + 32 + 8 + 8;
+        let mut full_size = 4 + 4 + 4 + 8 + 32 + 16 + 8 + 8 + 32 + 8 + 8;
         if self.semantic_len.is_some() {
             full_size += 8;
         }
@@ -410,9 +409,14 @@ impl EncryptionPacket {
                     None => Keypair::generate(&mut OsRng),
                 };
                 let session_key = keypair
-                    .session_keys_to(&PublicKey::from(keys.readers_pubkey)).tx;
+                    .session_keys_to(&PublicKey::from(keys.readers_pubkey))
+                    .tx;
 
-                let hex_key: String = session_key.as_ref().iter().map(|b| format!("{:02x}", b)).collect();
+                let hex_key: String = session_key
+                    .as_ref()
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect();
                 debug!(enc_shared_key = ?hex_key);
 
                 let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
@@ -442,7 +446,11 @@ impl EncryptionPacket {
                 let keypair = Keypair::from(SecretKey::from(readers_secret_key));
                 let session_key = keypair.session_keys_from(&PublicKey::from(self.pubkey)).rx;
 
-                let hex_key: String = session_key.as_ref().iter().map(|b| format!("{:02x}", b)).collect();
+                let hex_key: String = session_key
+                    .as_ref()
+                    .iter()
+                    .map(|b| format!("{:02x}", b))
+                    .collect();
                 debug!(dec_shared_key = ?hex_key);
 
                 let nonce = Nonce::from_slice(&self.nonce);
@@ -564,7 +572,7 @@ impl EncryptionMetadata {
         }
 
         self.packets.iter().for_each(|p| debug!(?p));
-        self.len = self.packets.iter().fold(0, |i, item| {i + item.len});
+        self.len = self.packets.iter().fold(0, |i, item| i + item.len);
 
         Ok(())
     }
@@ -574,7 +582,7 @@ impl EncryptionMetadata {
             // Try to decrypt as many as possible
             if let Err(e) = packet.decrypt(readers_secret_key) {
                 debug!(?e)
-            } 
+            }
         }
         Ok(())
     }
@@ -602,7 +610,7 @@ impl TryFrom<&[u8]> for EncryptionMetadata {
             let mut nonce = [0; 12];
             value.read_exact(&mut nonce)?;
             let flags = value.read_u8()?;
-            let mut keys = vec![0u8; packet_len as usize - (4+32+12+1+16)];
+            let mut keys = vec![0u8; packet_len as usize - (4 + 32 + 12 + 1 + 16)];
             value.read_exact(&mut keys)?;
             let mut mac = [0; 16];
             value.read_exact(&mut mac)?;
@@ -722,7 +730,7 @@ pub struct TableEntry {
 }
 pub enum TableEntryVariant {
     FileContextHeader(FileContextHeader),
-    CustomRange(CustomRange)
+    CustomRange(CustomRange),
 }
 
 impl TableOfContents {
@@ -821,64 +829,83 @@ impl TryFrom<&[u8]> for TableOfContents {
                     value.read_exact(&mut file_path)?;
                     let flag = value.read_u8()?;
 
-                    let (file_start, file_end, symlink) = if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::IsDir as u8) {
-                        // If is dir
-                        (None,None,None)
-                    } else if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::IsSymlink as u8) {
-                        // If is symlink
-                        let symlink_len = value.read_u16::<LittleEndian>()?;
-                        let mut symlink_target = vec![0u8; symlink_len as usize];
-                        value.read_exact(&mut symlink_target)?;
-                        (None,None,Some(Symlink {
-                            len: symlink_len,
-                            target: String::from_utf8(symlink_target)?
-                        }))
-                    } else {
-                        // If is file
-                        let start = value.read_u64::<LittleEndian>()?;
-                        let end = value.read_u64::<LittleEndian>()?;
-                        (Some(start), Some(end), None)
-                    };
+                    let (file_start, file_end, symlink) =
+                        if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::IsDir as u8) {
+                            // If is dir
+                            (None, None, None)
+                        } else if flag_helpers::is_flag_bit_set_u8(
+                            &flag,
+                            FileContextFlag::IsSymlink as u8,
+                        ) {
+                            // If is symlink
+                            let symlink_len = value.read_u16::<LittleEndian>()?;
+                            let mut symlink_target = vec![0u8; symlink_len as usize];
+                            value.read_exact(&mut symlink_target)?;
+                            (
+                                None,
+                                None,
+                                Some(Symlink {
+                                    len: symlink_len,
+                                    target: String::from_utf8(symlink_target)?,
+                                }),
+                            )
+                        } else {
+                            // If is file
+                            let start = value.read_u64::<LittleEndian>()?;
+                            let end = value.read_u64::<LittleEndian>()?;
+                            (Some(start), Some(end), None)
+                        };
                     // If has uid
-                    let uid = if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasUID as u8) {
-                        Some(value.read_u64::<LittleEndian>()?)
-                    } else {
-                        None // or maybe default 1000
-                    };
+                    let uid =
+                        if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasUID as u8) {
+                            Some(value.read_u64::<LittleEndian>()?)
+                        } else {
+                            None // or maybe default 1000
+                        };
                     // If has uid
-                    let gid = if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasGID as u8) {
-                        Some(value.read_u64::<LittleEndian>()?)
-                    } else {
-                        None // or maybe default 1000
-                    };
+                    let gid =
+                        if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasGID as u8) {
+                            Some(value.read_u64::<LittleEndian>()?)
+                        } else {
+                            None // or maybe default 1000
+                        };
                     // If has mode
-                    let mode = if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasMode as u8) {
+                    let mode = if flag_helpers::is_flag_bit_set_u8(
+                        &flag,
+                        FileContextFlag::HasMode as u8,
+                    ) {
                         Some(value.read_u32::<LittleEndian>()?)
                     } else {
                         None // or maybe default 33188 -> 644
                     };
                     // If has mtime
-                    let mtime = if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasMtime as u8) {
-                        Some(value.read_u64::<LittleEndian>()?)
-                    } else {
-                        None
-                    };
+                    let mtime =
+                        if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasMtime as u8)
+                        {
+                            Some(value.read_u64::<LittleEndian>()?)
+                        } else {
+                            None
+                        };
                     // if has sha1
-                    let expected_sha1 = if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasMtime as u8) {
-                        let mut sha1 = vec![0u8; 20];
-                        value.read_exact(&mut sha1)?;
-                        Some(String::from_utf8(sha1)?)
-                    } else {
-                        None // Or maybe default 0
-                    };
+                    let expected_sha1 =
+                        if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasMtime as u8)
+                        {
+                            let mut sha1 = vec![0u8; 20];
+                            value.read_exact(&mut sha1)?;
+                            Some(String::from_utf8(sha1)?)
+                        } else {
+                            None // Or maybe default 0
+                        };
                     // If has md5
-                    let expected_md5 = if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasMtime as u8) {
-                        let mut md5 = vec![0u8; 16];
-                        value.read_exact(&mut md5)?;
-                        Some(String::from_utf8(md5)?)
-                    } else {
-                        None // Or maybe default 0
-                    };
+                    let expected_md5 =
+                        if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasMtime as u8)
+                        {
+                            let mut md5 = vec![0u8; 16];
+                            value.read_exact(&mut md5)?;
+                            Some(String::from_utf8(md5)?)
+                        } else {
+                            None // Or maybe default 0
+                        };
 
                     sections.push(TableEntry {
                         variant_type: TableEntryVariant::FileContextHeader as u8,
@@ -895,8 +922,9 @@ impl TryFrom<&[u8]> for TableOfContents {
                             mtime,
                             expected_sha1,
                             expected_md5,
-                        }) })
-                },
+                        }),
+                    })
+                }
                 1 => {
                     let tag_len = value.read_u8()?;
                     let mut tag = vec![0u8; tag_len as usize];
@@ -904,18 +932,17 @@ impl TryFrom<&[u8]> for TableOfContents {
                     let tag = String::from_utf8(tag)?;
                     let start = value.read_u64::<LittleEndian>()?;
                     let end = value.read_u64::<LittleEndian>()?;
-                    sections.push(
-                        TableEntry {
-                            variant_type: TableEntryVariant::CustomRange as u8,
-                            entry: TableEntryVariant::CustomRange(CustomRange {
-                                tag_len,
-                                tag,
-                                start,
-                                end,
-                            })
-                        })
-                },
-                _ => bail!("Invalid content variant")
+                    sections.push(TableEntry {
+                        variant_type: TableEntryVariant::CustomRange as u8,
+                        entry: TableEntryVariant::CustomRange(CustomRange {
+                            tag_len,
+                            tag,
+                            start,
+                            end,
+                        }),
+                    })
+                }
+                _ => bail!("Invalid content variant"),
             }
         }
 

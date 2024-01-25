@@ -86,9 +86,7 @@ impl<
 
         let (sender, receiver) = async_channel::bounded(10);
         for context in file_contexts {
-            sender
-                .send(Message::FileContext(context))
-                .await?;
+            sender.send(Message::FileContext(context)).await?;
         }
 
         if let Some(md) = metadata {

@@ -2,7 +2,10 @@ use crate::notifications::{HashType, Message, Notifier};
 use crate::structs::Flag::{
     Compressed, Encrypted, HasBlockList, HasEncryptionMetadata, HasSemanticMetadata,
 };
-use crate::structs::{BlockList, EncryptionMetadata, EncryptionPacket, EndOfFileMetadata, FileContext, SemanticMetadata, TableOfContents};
+use crate::structs::{
+    BlockList, EncryptionMetadata, EncryptionPacket, EndOfFileMetadata, FileContext,
+    SemanticMetadata, TableOfContents,
+};
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use crate::transformers::encrypt::encrypt_chunk;
@@ -12,10 +15,10 @@ use async_channel::{Receiver, Sender, TryRecvError};
 use bytes::{BufMut, Bytes};
 use digest::Digest;
 use sha2::Sha256;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::debug;
 use tracing::error;
-use std::collections::HashMap;
 
 pub struct FooterGenerator {
     hasher: Sha256,
@@ -54,14 +57,13 @@ impl FooterGenerator {
     }
 
     pub fn new_with_ctx(ctx: FileContext) -> FooterGenerator {
-
         let map = if let Some(readers_key) = ctx.owners_pubkey {
             if let Some(enc_key) = ctx.encryption_key {
                 HashMap::from([(readers_key, vec![enc_key])])
-            }else{
+            } else {
                 HashMap::new()
             }
-        }else{
+        } else {
             HashMap::new()
         };
         FooterGenerator {
@@ -188,8 +190,7 @@ impl Transformer for FooterGenerator {
                         let encryption_data_bytes: Vec<u8> = encryption_metadata.try_into()?;
                         debug!(encryption_bytes_len = encryption_data_bytes.len());
                         self.hasher.update(encryption_data_bytes.as_slice());
-                        self.eof_metadata.encryption_len =
-                            Some(encryption_data_bytes.len() as u64);
+                        self.eof_metadata.encryption_len = Some(encryption_data_bytes.len() as u64);
                         self.counter += encryption_data_bytes.len() as u64;
                         buf.put(encryption_data_bytes.as_slice());
                     }
@@ -197,7 +198,8 @@ impl Transformer for FooterGenerator {
 
                 // Technical Metadata
                 self.eof_metadata.finalize();
-                self.eof_metadata.disk_file_size = self.counter + self.eof_metadata.eof_metadata_len;
+                self.eof_metadata.disk_file_size =
+                    self.counter + self.eof_metadata.eof_metadata_len;
 
                 let encoded_technical_metadata: Vec<u8> = self.eof_metadata.clone().try_into()?;
                 self.hasher.update(encoded_technical_metadata.as_slice());
