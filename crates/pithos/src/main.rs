@@ -2,6 +2,7 @@ mod io;
 mod structs;
 mod utils;
 
+use crate::io::utils::{load_private_key_from_pem, load_private_key_from_string};
 use anyhow::{anyhow, Result};
 use base64::engine::general_purpose;
 use base64::Engine;
@@ -19,7 +20,6 @@ use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt}; // for write_all()
 use tracing::debug;
 use utils::conversion::evaluate_log_level;
-use crate::io::utils::{load_private_key_from_pem, load_private_key_from_string};
 
 use crate::utils::conversion::to_hex_string;
 
@@ -203,17 +203,19 @@ async fn main() -> Result<()> {
             }
             ReadCommands::RangeList { .. } => todo!(""),
             ReadCommands::Metadata { reader_private_key } => {
-
                 // Load readers secret key
                 let sec_key = if let Some(key) = dotenvy::var("MY_PRIVATE_KEY")? {
                     load_private_key_from_string(key.to_bytes())?
                 } else {
-                    if let Ok(key_bytes) = load_private_key_from_pem(&PathBuf::from("~/.pithos/sec_key.pem")) {
+                    if let Ok(key_bytes) =
+                        load_private_key_from_pem(&PathBuf::from("~/.pithos/sec_key.pem"))
+                    {
                         key_bytes
                     } else {
                         if let Some(key_path) = reader_private_key {
                             let sec_key = load_private_key_from_pem(key_path)?;
-                            let hex_key: String = sec_key.iter().map(|b| format!("{:02x}", b)).collect();
+                            let hex_key: String =
+                                sec_key.iter().map(|b| format!("{:02x}", b)).collect();
                             debug!(?hex_key);
                             sec_key
                         } else {
@@ -225,14 +227,16 @@ async fn main() -> Result<()> {
                 // Open file
                 let mut input_file = File::open(file).await?;
 
-                let footer_prediction = if input_file.metadata()?.len() < 65536*2 {
+                let footer_prediction = if input_file.metadata()?.len() < 65536 * 2 {
                     input_file.metadata()?.len()
                 } else {
-                    65536*2
+                    65536 * 2
                 };
 
                 // Read footer bytes in FooterParser
-                input_file.seek(tokio::io::SeekFrom::End(-footer_prediction)).await?;
+                input_file
+                    .seek(tokio::io::SeekFrom::End(-footer_prediction))
+                    .await?;
                 let buf: &mut [u8; 65536] = &mut [0; 65536]; // ToDo
                 input_file.read_exact(buf).await.unwrap();
                 let mut parser = FooterParser::new(buf);
@@ -253,7 +257,6 @@ async fn main() -> Result<()> {
             file,
             output,
         }) => {
-
             // Ranges as JSON (or CSV) file or 'Tag1,0,12;Tag2,13,38; ...'
             // Metadata as JSON file or '{"key": "value"}' | validate schema
 
@@ -343,7 +346,7 @@ async fn main() -> Result<()> {
             let mut target_file = File::create(if let Some(destination) = output {
                 destination.clone()
             } else {
-                PathBuf::from("./keypair.dude")
+                PathBuf::from("./keypair.pem")
             })
             .await
             .unwrap();

@@ -1,7 +1,7 @@
-use byteorder::{BigEndian, ReadBytesExt};
-use std::{fs::File, io::Read, path::PathBuf};
 use anyhow::{anyhow, Result};
 use base64::prelude::*;
+use byteorder::{BigEndian, ReadBytesExt};
+use std::{fs::File, io::Read, path::PathBuf};
 
 pub const MAGIC_BYTES: &[u8; 7] = b"c4gh-v1";
 pub const KDF_NAMES: [&[u8]; 4] = [b"scrypt", b"pbkdf2_hmac_sha256", b"bcrypt", b"none"];
@@ -42,7 +42,7 @@ impl TryFrom<&[u8]> for RoundsWithSalt {
 }
 
 pub struct C4ghKey {
-    pub magic:[u8; 7],
+    pub magic: [u8; 7],
     pub kdf_len: u16,
     pub kdf_name: Vec<u8>,
     pub rounds_salt_len: Option<u16>,
@@ -65,13 +65,14 @@ impl C4ghKey {
         if lines.len() != 3 {
             return Err(anyhow!("Invalid Line count != 3"));
         }
-        if !lines[0].starts_with("-----BEGIN CRYPT4GH") || !lines[2].starts_with("-----END CRYPT4GH") {
+        if !lines[0].starts_with("-----BEGIN CRYPT4GH")
+            || !lines[2].starts_with("-----END CRYPT4GH")
+        {
             return Err(anyhow!("Invalid PEM header/footer"));
         }
         let bytes = BASE64_STANDARD.decode(&lines[1])?;
         Ok(C4ghKey::try_from(bytes.as_slice())?)
     }
-    
 }
 
 impl TryFrom<&[u8]> for C4ghKey {
@@ -94,7 +95,7 @@ impl TryFrom<&[u8]> for C4ghKey {
             let mut salt = vec![0; rounds_salt_len as usize - 4];
             value.read_exact(&mut salt)?;
             (Some(rounds_salt_len), Some(rounds), Some(salt))
-        }else{
+        } else {
             (None, None, None)
         };
         let cipher_len = value.read_u16::<BigEndian>()?;
@@ -111,7 +112,7 @@ impl TryFrom<&[u8]> for C4ghKey {
             let mut comment = vec![0; comment_len as usize];
             value.read_exact(&mut comment)?;
             (Some(comment_len), Some(comment))
-        }else{
+        } else {
             (None, None)
         };
         Ok(C4ghKey {

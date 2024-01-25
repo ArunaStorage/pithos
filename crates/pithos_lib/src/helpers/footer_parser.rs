@@ -3,8 +3,8 @@ use crate::structs::EncryptionMetadata;
 use crate::structs::EndOfFileMetadata;
 use crate::structs::Flag;
 use crate::structs::Keys as EncryptionKeys;
-use crate::structs::TableOfContents;
 use crate::structs::SemanticMetadata;
+use crate::structs::TableOfContents;
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Result;
@@ -205,15 +205,11 @@ impl FooterParser<'_> {
             } else {
                 None
             };
-            Some(self.parse_range_table(
-                start_location,
-                eof_md.range_table_len.unwrap_or_default(),
-                enc_key,
-            )?)
+            Some(self.parse_range_table(start_location, eof_md.range_table_len, enc_key)?)
         } else {
             None
         };
-        start_location += eof_md.range_table_len.unwrap_or_default();
+        start_location += eof_md.range_table_len;
         let semantic_metadata = if eof_md.is_flag_set(Flag::HasSemanticMetadata) {
             let enc_key = if eof_md.is_flag_set(Flag::SemanticMetadataEncrypted) {
                 let encryption_keys = match self
