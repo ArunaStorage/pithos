@@ -6,6 +6,10 @@ use crate::structs::{
     BlockList, EncryptionMetadata, EncryptionPacket, EndOfFileMetadata, FileContext,
     SemanticMetadata, TableOfContents,
 };
+use crate::structs::{
+    BlockList, EncryptionMetadata, EncryptionPacket, EndOfFileMetadata, FileContext,
+    SemanticMetadata, TableOfContents,
+};
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use crate::transformers::encrypt::encrypt_chunk;
@@ -15,6 +19,7 @@ use async_channel::{Receiver, Sender, TryRecvError};
 use bytes::{BufMut, Bytes};
 use digest::Digest;
 use sha2::Sha256;
+use std::collections::HashMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::debug;

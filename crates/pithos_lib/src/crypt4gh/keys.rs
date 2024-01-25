@@ -1,10 +1,11 @@
 use anyhow::{anyhow, Result};
 use base64::prelude::*;
 use byteorder::{BigEndian, ReadBytesExt};
+use scrypt::password_hash::{PasswordHasher, SaltString};
 use std::{fs::File, io::Read, path::PathBuf};
 
 pub const MAGIC_BYTES: &[u8; 7] = b"c4gh-v1";
-pub const KDF_NAMES: [&[u8]; 4] = [b"scrypt", b"pbkdf2_hmac_sha256", b"bcrypt", b"none"];
+pub const KDF_NAMES: [&[u8]; 3] = [b"scrypt", b"bcrypt", b"none"];
 
 pub struct LengthEncodedString {
     pub length: u16,
@@ -61,7 +62,11 @@ impl C4ghKey {
         let mut file = File::open(path)?;
         let mut contents = String::new();
         file.read_to_string(&mut contents)?;
-        let lines = contents.lines().collect::<Vec<_>>();
+        Self::from_string(&contents)
+    }
+
+    pub fn from_string(c4gh_file_content: &str) -> Result<Self> {
+        let lines = c4gh_file_content.lines().collect::<Vec<_>>();
         if lines.len() != 3 {
             return Err(anyhow!("Invalid Line count != 3"));
         }
@@ -72,6 +77,40 @@ impl C4ghKey {
         }
         let bytes = BASE64_STANDARD.decode(&lines[1])?;
         Ok(C4ghKey::try_from(bytes.as_slice())?)
+    }
+
+    pub fn decrypt(&self, passkey: Option<String>) -> Result<[u8; 32]> {
+        let key = match (std::str::from_utf8(&self.kdf_name), passkey) {
+            (Ok("none"), _) => None,
+            (Ok("scrypt"), Some(passkey)) => {
+                let salt = SaltString::from_b64(&BASE64_STANDARD.encode(
+                    self.salt.as_ref().ok_or_else(|| anyhow!("No salt"))?,
+                ))?;
+
+                let hasher = scrypt::Scrypt {};
+                let password_hash = hasher.hash_password_customized(
+                    passkey.as_bytes(),
+                    None,
+                    None,
+                    scrypt::Params::new(14, 8, 1, 32)?,
+                    &salt,
+                )?;
+                let key = password_hash
+                    .hash
+                    .ok_or_else(|| anyhow!("No hash"))?
+                    .as_bytes();
+                let result: [u8; 32] = key.try_into()?;
+                Some(result)
+            }
+            (Ok("bcrypt"), Some(key)) => {
+                todo!()
+            }
+            _ => {
+                return Err(anyhow!("Invalid KDF name"));
+            }
+        };
+
+        Ok([0; 32])
     }
 }
 
@@ -129,5 +168,20 @@ impl TryFrom<&[u8]> for C4ghKey {
             comment_len,
             comment,
         })
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_key() {
+        let key = "-----BEGIN CRYPT4GH PRIVATE KEY-----
+        YzRnaC12MQAGc2NyeXB0ABQAAAAAr3pX96oPff2/UdadCKHrEgARY2hhY2hhMjBfcG9seTEzMDUAPCgPmYBf3Tc6r54U254IHuo4kjJ86XxBsNhTkFfu+awzY2QFEZKzynlVgLo9H5BrVr8neP3APu3SF51nNg==
+        -----END CRYPT4GH PRIVATE KEY-----
+        ";
+
+
+        
     }
 }
