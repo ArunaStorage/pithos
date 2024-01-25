@@ -1,4 +1,4 @@
-use crate::helpers::flag_helpers;
+use crate::helpers::flag_helpers::{self, set_flag_bit_u8};
 use anyhow::{anyhow, bail, Result};
 use byteorder::LittleEndian;
 use byteorder::{ReadBytesExt, WriteBytesExt};
@@ -7,9 +7,10 @@ use chacha20poly1305::aead::OsRng;
 use chacha20poly1305::{AeadCore, Nonce};
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
 use crypto_kx::{Keypair, PublicKey, SecretKey};
-use tracing::debug;
 use std::fmt::Display;
 use std::io::{Read, Write};
+use std::path::PathBuf;
+use tracing::debug;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 pub struct FileContext {
@@ -72,20 +73,37 @@ pub struct Symlink {
 
 pub struct FileContextHeader {
     pub file_path_len: u16,
-    pub file_path: String, // FileName /foo/bar/
-    pub flag: u8, // is_dir, is_symlink, ...
-    pub file_start: Option<u64>, //
-    pub file_end: Option<u64>, //
-    pub symlink: Option<Symlink>, // Symlink
-    pub uid: Option<u64>, // UserId
-    pub gid: Option<u64>, // GroupId
-    pub mode: Option<u32>, // Octal like mode
-    pub mtime: Option<u64>, // Created at
+    pub file_path: String,             // FileName /foo/bar/
+    pub flag: u8,                      // is_dir, is_symlink, ...
+    pub file_start: Option<u64>,       //
+    pub file_end: Option<u64>,         //
+    pub symlink: Option<Symlink>,      // Symlink
+    pub uid: Option<u64>,              // UserId
+    pub gid: Option<u64>,              // GroupId
+    pub mode: Option<u32>,             // Octal like mode
+    pub mtime: Option<u64>,            // Created at
     pub expected_sha1: Option<String>, // Expected SHA1 hash
-    pub expected_md5: Option<String>, // Expected MD5 hash
+    pub expected_md5: Option<String>,  // Expected MD5 hash
 }
 
 impl FileContextHeader {
+    pub fn new() -> Self {
+        FileContextHeader {
+            file_path_len: 0,
+            file_path: "".to_string(),
+            flag: 0,
+            file_start: None,
+            file_end: None,
+            symlink: None,
+            uid: None,
+            gid: None,
+            mode: None,
+            mtime: None,
+            expected_sha1: None,
+            expected_md5: None,
+        }
+    }
+
     pub fn set_flag(&mut self, flag: FileContextFlag) {
         flag_helpers::set_flag_bit_u8(&mut self.flag, flag as u8)
     }
@@ -926,6 +944,77 @@ impl TryFrom<&[u8]> for TableOfContents {
             magic_bytes,
             len,
             sections,
+        })
+    }
+}
+
+impl TryFrom<FileContext> for TableEntry {
+    type Error = anyhow::Error;
+
+    fn try_from(value: FileContext) -> Result<Self> {
+        let mut ctx_header = FileContextHeader::new();
+
+        if let Some(path) = value.file_path {
+            let mut path = PathBuf::from(path);
+            path.push(value.file_name);
+            let file_path = path
+                .into_os_string()
+                .to_str()
+                .ok_or_else(|| anyhow!("Invalid path"))?
+                .to_string();
+
+            ctx_header.file_path_len = file_path.len().try_into()?;
+            ctx_header.file_path = file_path;
+        } else {
+            ctx_header.file_path_len = value.file_name.len().try_into()?;
+            ctx_header.file_path = value.file_name;
+        };
+
+        let mut flag = 0;
+        if value.is_dir {
+            set_flag_bit_u8(&mut flag, FileContextFlag::IsDir as u8);
+            ctx_header.file_start = None;
+            ctx_header.file_end = None;
+        } else if value.is_symlink {
+            set_flag_bit_u8(&mut flag, FileContextFlag::IsSymlink as u8);
+            ctx_header.file_start = None;
+            ctx_header.file_end = None;
+            ctx_header.symlink = Some(Symlink {
+                len: ctx_header.file_path_len,
+                target: ctx_header.file_path,
+            });
+        } else {
+            ctx_header.file_start = Some(0); // ???
+            ctx_header.file_end = Some(value.file_size);
+        }
+        if let Some(uid) = value.uid {
+            set_flag_bit_u8(&mut flag, FileContextFlag::HasUID as u8);
+            ctx_header.uid = Some(uid);
+        }
+        if let Some(gid) = value.gid {
+            set_flag_bit_u8(&mut flag, FileContextFlag::HasGID as u8);
+            ctx_header.gid = Some(gid);
+        }
+        if let Some(mode) = value.mode {
+            set_flag_bit_u8(&mut flag, FileContextFlag::HasMode as u8);
+            ctx_header.mode = Some(mode);
+        }
+        if let Some(mtime) = value.mtime {
+            set_flag_bit_u8(&mut flag, FileContextFlag::HasMtime as u8);
+            ctx_header.mtime = Some(mtime);
+        }
+        if let Some(sha1) = value.expected_sha1 {
+            set_flag_bit_u8(&mut flag, FileContextFlag::HasSha1 as u8);
+            ctx_header.expected_sha1 = Some(sha1);
+        }
+        if let Some(md5) = value.expected_md5 {
+            set_flag_bit_u8(&mut flag, FileContextFlag::HasSha1 as u8);
+            ctx_header.expected_sha1 = Some(md5);
+        }
+
+        Ok(TableEntry {
+            variant_type: TableEntryVariant::FileContextHeader as u8,
+            entry: TableEntryVariant::FileContextHeader(ctx_header),
         })
     }
 }
