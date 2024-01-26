@@ -2,20 +2,19 @@ mod io;
 mod structs;
 mod utils;
 
-use crate::io::utils::{load_private_key_from_pem, load_private_key_from_string};
-use anyhow::{anyhow, Result};
-use base64::engine::general_purpose;
-use base64::Engine;
+use crate::io::utils::{load_private_key_from_env, load_private_key_from_pem};
+use anyhow::{bail, Result};
 use chacha20poly1305::aead::OsRng;
 use clap::{Parser, Subcommand};
-use crypto_kx::{Keypair, SecretKey};
-use futures::TryStreamExt;
+use crypto_kx::Keypair;
+use futures::StreamExt;
 use pithos_lib::helpers::footer_parser::FooterParser;
 use pithos_lib::pithoswriter::PithosWriter;
 use pithos_lib::structs::{EndOfFileMetadata, FileContext};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-use std::{os::unix::fs::MetadataExt, path::PathBuf};
+use std::os::unix::fs::MetadataExt;
+use std::path::PathBuf;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt}; // for write_all()
 use tracing::debug;
@@ -42,18 +41,22 @@ struct Cli {
 enum PithosCommands {
     /// Create a Pithos file from some input
     Create {
+        /// Metadata in JSON format
         #[arg(short, long)]
         metadata: Option<String>,
+        /// Custom ranges e.g. 'Tag-Name,0,1234;Tag-Name,1235,2345'
         #[arg(short, long)]
         ranges: Option<String>,
+        /// Private key used to create session keys for encryption
         #[arg(long)]
         writer_private_key: Option<PathBuf>, // Env var -> Default file: ~/.pithos/sec_key.pem -> CLI parameter file path
+        /// Public keys of recipients
         #[arg(long)]
         reader_public_keys: Option<Vec<PathBuf>>, // Iterate files and parse all keys
 
         /// Input file
         #[arg(value_name = "FILE")]
-        file: Vec<PathBuf>,
+        files: Vec<PathBuf>,
         /// Output destination; Default is stdout or ./<filename>.pto (?)
         #[arg(value_name = "OUTPUT")]
         output: Option<PathBuf>,
@@ -63,10 +66,6 @@ enum PithosCommands {
         /// Subcommands
         #[command(subcommand)]
         read_command: ReadCommands,
-
-        /// Input file
-        #[arg(value_name = "FILE")]
-        file: PathBuf,
     },
 
     /// Create custom transformer order or something like that
@@ -80,7 +79,7 @@ enum PithosCommands {
     Modify {
         /// Subcommands
         #[command(subcommand)]
-        command: Option<ModifyCommmands>,
+        command: Option<ModifyCommands>,
     },
 
     /// Export a Pithos into another compatible file format
@@ -95,35 +94,51 @@ enum PithosCommands {
 #[derive(Subcommand)]
 enum ReadCommands {
     /// Read the technical metadata of the file
-    Info {},
+    Info {
+        /// Input file
+        #[arg(value_name = "FILE")]
+        file: PathBuf,
+    },
     /// Read the complete file
     All {
         /// Private key for decryption
         #[arg(long)]
         reader_private_key: Option<String>,
+        /// Input file
+        #[arg(value_name = "FILE")]
+        file: PathBuf,
     },
     /// Read the data
     Data {
         /// Private key for decryption
         #[arg(long)]
         reader_private_key: Option<String>,
+        /// Input file
+        #[arg(value_name = "FILE")]
+        file: PathBuf,
     },
     /// Read the range list if present
     RangeList {
         /// Private key for decryption
         #[arg(long)]
         reader_private_key: Option<String>,
+        /// Input file
+        #[arg(value_name = "FILE")]
+        file: PathBuf,
     },
     /// Read the semantic metadata if present
     Metadata {
         /// Private key for decryption
         #[arg(long)]
         reader_private_key: Option<PathBuf>,
+        /// Input file
+        #[arg(value_name = "FILE")]
+        file: PathBuf,
     },
 }
 
 #[derive(Subcommand)]
-enum ModifyCommmands {
+enum ModifyCommands {
     /// Add a reader to the encryption metadata
     AddReader {
         // Private key for decryption and shared key generation
@@ -171,8 +186,8 @@ async fn main() -> Result<()> {
     // Execute subcommand
     match &cli.command {
         None => {}
-        Some(PithosCommands::Read { read_command, file }) => match read_command {
-            ReadCommands::Info {} => {
+        Some(PithosCommands::Read { read_command }) => match read_command {
+            ReadCommands::Info { file } => {
                 // Open file
                 let mut input_file = File::open(file).await?;
 
@@ -202,33 +217,33 @@ async fn main() -> Result<()> {
                 //let reader = PithosReader::new_with_writer(input_stream, sink, filecontext, metadata);
             }
             ReadCommands::RangeList { .. } => todo!(""),
-            ReadCommands::Metadata { reader_private_key } => {
+            ReadCommands::Metadata {
+                reader_private_key,
+                file,
+            } => {
                 // Load readers secret key
-                let sec_key = if let Some(key) = dotenvy::var("MY_PRIVATE_KEY")? {
-                    load_private_key_from_string(key.to_bytes())?
+                let (sec_key, _) = if let Ok(key) = load_private_key_from_env() {
+                    key
                 } else {
                     if let Ok(key_bytes) =
-                        load_private_key_from_pem(&PathBuf::from("~/.pithos/sec_key.pem"))
+                        load_private_key_from_pem(&PathBuf::from("~/.pithos/private_key.pem"))
                     {
                         key_bytes
                     } else {
                         if let Some(key_path) = reader_private_key {
-                            let sec_key = load_private_key_from_pem(key_path)?;
-                            let hex_key: String =
-                                sec_key.iter().map(|b| format!("{:02x}", b)).collect();
-                            debug!(?hex_key);
-                            sec_key
+                            load_private_key_from_pem(key_path)?
                         } else {
-                            vec![] //
+                            bail!("No private key provided")
                         }
                     }
                 };
 
                 // Open file
                 let mut input_file = File::open(file).await?;
+                let mut file_meta = input_file.metadata().await?;
 
-                let footer_prediction = if input_file.metadata()?.len() < 65536 * 2 {
-                    input_file.metadata()?.len()
+                let footer_prediction = if file_meta.len() < 65536 * 2 {
+                    file_meta.len() as i64 // 131072 always fits in i64 ...
                 } else {
                     65536 * 2
                 };
@@ -237,16 +252,16 @@ async fn main() -> Result<()> {
                 input_file
                     .seek(tokio::io::SeekFrom::End(-footer_prediction))
                     .await?;
-                let buf: &mut [u8; 65536] = &mut [0; 65536]; // ToDo
-                input_file.read_exact(buf).await.unwrap();
-                let mut parser = FooterParser::new(buf);
+                let buf: &mut [u8; 65536 * 2] = &mut [0; 65536 * 2]; // ToDo
+                input_file.read_exact(buf).await?;
 
-                parser.add_recipient_key(sec_key.to_bytes());
+                // Init footer parser with provided private key
+                let mut parser = FooterParser::new(buf);
+                parser.add_recipient_key(sec_key);
 
                 // Parse the footer bytes and display technical metadata info
                 parser.parse()?;
-                println!("{}", parser.get_eof_metadata()?);
-                println!("{}", parser.get_semantic_metadata()?);
+                serde_json::to_string_pretty(&parser.get_semantic_metadata()?.semantic);
             }
         },
         Some(PithosCommands::Create {
@@ -254,30 +269,31 @@ async fn main() -> Result<()> {
             ranges,
             writer_private_key,
             reader_public_keys,
-            file,
+            files,
             output,
         }) => {
             // Ranges as JSON (or CSV) file or 'Tag1,0,12;Tag2,13,38; ...'
             // Metadata as JSON file or '{"key": "value"}' | validate schema
 
             // Parse writer key to validate format and generate public key
-            //ToDo: Support keys in pem format
-            //Note: This currently only works for asn.1 formatted x25519 private keys
-            let writer_public_key = if let Some(secret_key) = writer_private_key {
-                let base64_bytes = secret_key.as_bytes();
-                let key_bytes = general_purpose::STANDARD
-                    .decode(base64_bytes)
-                    .map_err(|e| anyhow!("Base64 decoding failed: {e}"))?;
-                let key: [u8; 32] = key_bytes[key_bytes.len() - 32..].try_into()?;
-
-                debug!(writer_private_key = to_hex_string(key.to_vec()));
-
-                let sec_key = SecretKey::from(key);
-                Some(*sec_key.public_key().as_ref())
+            // Load readers secret key
+            let (sec_key, pub_key) = if let Ok(key) = load_private_key_from_env() {
+                key
             } else {
-                None
+                if let Ok(key_bytes) =
+                    load_private_key_from_pem(&PathBuf::from("~/.pithos/private_key.pem"))
+                {
+                    key_bytes
+                } else {
+                    if let Some(key_path) = writer_private_key {
+                        load_private_key_from_pem(key_path)?
+                    } else {
+                        bail!("No private key provided")
+                    }
+                }
             };
 
+            // Generate random symmetric "key" for encryption
             let key: String = thread_rng()
                 .sample_iter(&Alphanumeric)
                 .take(32)
@@ -286,36 +302,41 @@ async fn main() -> Result<()> {
                 .to_ascii_lowercase();
 
             // Parse file metadata
-            let input_file = File::open(file).await?;
-            let file_metadata = input_file.metadata().await?;
+            let mut file_ctxs = vec![];
+            let mut my_streams = vec![];
 
-            let file_context = FileContext {
-                file_name: file.file_name().unwrap().to_str().unwrap().to_string(),
-                input_size: file_metadata.len(),
-                file_size: file_metadata.len(),
-                file_path: Some(file.to_str().unwrap().to_string()),
-                uid: Some(file_metadata.uid().into()),
-                gid: Some(file_metadata.gid().into()),
-                mode: Some(file_metadata.mode()),
-                mtime: Some(file_metadata.mtime() as u64),
-                compression: false,
-                encryption_key: Some(key.as_bytes().to_vec()),
-                owners_pubkey: writer_public_key,
-                is_dir: file_metadata.file_type().is_dir(),
-                is_symlink: file_metadata.file_type().is_symlink(),
-                expected_sha1: None, //ToDo
-                expected_md5: None,  //ToDo
-            };
+            for file_path in files {
+                let input_file = File::open(file_path).await?;
+                let file_metadata = input_file.metadata().await?;
 
-            // Read file content as stream
-            let stream = tokio_util::io::ReaderStream::new(input_file).map_err(|_| {
-                Box::<(dyn std::error::Error + Send + Sync + 'static)>::from("a_str_error")
-            });
+                let file_context = FileContext {
+                    file_name: file_path.file_name().unwrap().to_str().unwrap().to_string(),
+                    uncompressed_size: file_metadata.len(),
+                    compressed_size: file_metadata.len(),
+                    file_path: Some(file_path.to_str().unwrap().to_string()),
+                    uid: Some(file_metadata.uid().into()),
+                    gid: Some(file_metadata.gid().into()),
+                    mode: Some(file_metadata.mode()),
+                    mtime: Some(file_metadata.mtime() as u64),
+                    compression: false,
+                    encryption_key: Some(key.as_bytes().to_vec()),
+                    owners_pubkey: Some(pub_key),
+                    is_dir: file_metadata.file_type().is_dir(),
+                    is_symlink: file_metadata.file_type().is_symlink(),
+                    expected_sha1: None, //ToDo
+                    expected_md5: None,  //ToDo
+                };
+
+                file_ctxs.push(file_context);
+                my_streams.push(tokio_util::io::ReaderStream::new(input_file));
+            }
+
+            let input_stream = ::futures::stream::iter(my_streams).flatten();
 
             // Init default PithosWriter with standard Transformers
             let mut writer = if let Some(output_path) = output {
                 PithosWriter::new_with_writer(
-                    stream,
+                    input_stream,
                     File::create(output_path).await?,
                     file_context,
                     metadata.clone(),
@@ -323,7 +344,7 @@ async fn main() -> Result<()> {
                 .await?
             } else {
                 PithosWriter::new_with_writer(
-                    stream,
+                    input_stream,
                     tokio::io::stdout(),
                     file_context,
                     metadata.clone(),
