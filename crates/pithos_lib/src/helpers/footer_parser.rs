@@ -431,7 +431,7 @@ impl FooterParser<'_> {
     pub fn get_semantic_metadata(&self) -> Result<SemanticMetadata> {
         match &self.state {
             FooterParserState::Empty => bail!("Footer is empty"),
-            FooterParserState::Raw(_) => bail!("Footer not  "),
+            FooterParserState::Raw(_) => bail!("Footer not parsed"),
             FooterParserState::Decoded(footer) => {
                 debug!(?footer.semantic_metadata);
                 Ok(footer
