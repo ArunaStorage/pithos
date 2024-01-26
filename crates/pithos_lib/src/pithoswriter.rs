@@ -47,7 +47,7 @@ impl<
     pub async fn new_with_writer<W: AsyncWrite + Send + Sync + 'a>(
         input_stream: R,
         writer: W,
-        file_context: FileContext,
+        file_contexts: Vec<FileContext>,
         metadata: Option<String>,
     ) -> Result<Self> {
         let mut stream_read_writer = GenericStreamReadWriter::new_with_writer(input_stream, writer)
@@ -57,10 +57,13 @@ impl<
             .add_transformer(ChaCha20Enc::new())
             .add_transformer(FooterGenerator::new());
 
-        let (sender, receiver) = async_channel::bounded(10);
-        sender
+        // Send all FileContext into GenericStreamReadWriter message queue
+        let (sender, receiver) = async_channel::unbounded();
+        for file_context in file_contexts {
+            sender
             .send(Message::FileContext(file_context.clone()))
             .await?;
+        }
         if let Some(md) = metadata {
             sender.send(Message::Metadata((None, md))).await?;
         }
