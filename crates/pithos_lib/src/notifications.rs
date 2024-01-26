@@ -22,7 +22,6 @@ pub enum Message {
     SizeInfo(u64),
     Compression(bool),
     EditList(Vec<u64>),
-    Blocklist(Vec<u8>),
     ShouldFlush,
     Skip,
     Custom((String, Vec<u8>)),

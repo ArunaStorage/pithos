@@ -47,7 +47,7 @@ impl TryFrom<FileContext> for Header {
         }));
         header.set_uid(value.gid.unwrap_or(1000));
         header.set_gid(value.gid.unwrap_or(1000));
-        header.set_size(value.compressed_size);
+        header.set_size(value.file_size);
         header.set_cksum();
         Ok(header)
     }
@@ -80,7 +80,7 @@ impl TarEnc {
                             if ctx.is_dir || ctx.is_symlink {
                                 self.padding = 0;
                             } else {
-                                self.padding = 512 - ctx.compressed_size as usize % 512;
+                                self.padding = 512 - ctx.file_size as usize % 512;
                             }
                             self.header = Some(TryInto::<Header>::try_into(ctx.clone())?);
                         } else {

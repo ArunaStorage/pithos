@@ -58,7 +58,7 @@ pub struct C4ghKey {
     pub comment: Option<Vec<u8>>,
 }
 
-/* 
+/*
 impl Debug for C4ghKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("C4ghKey")
@@ -77,7 +77,7 @@ impl Debug for C4ghKey {
             .finish()
     }
 }
- */
+*/
 
 impl C4ghKey {
     pub fn from_pem(path: PathBuf) -> Result<Self> {

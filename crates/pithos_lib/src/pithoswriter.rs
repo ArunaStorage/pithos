@@ -61,8 +61,8 @@ impl<
         let (sender, receiver) = async_channel::unbounded();
         for file_context in file_contexts {
             sender
-            .send(Message::FileContext(file_context.clone()))
-            .await?;
+                .send(Message::FileContext(file_context.clone()))
+                .await?;
         }
         if let Some(md) = metadata {
             sender.send(Message::Metadata((None, md))).await?;

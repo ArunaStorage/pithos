@@ -110,10 +110,6 @@ impl FooterGenerator {
                             self.eof_metadata.unset_flag(Compressed);
                         }
                     }
-                    Ok(Message::Blocklist(bl)) => {
-                        self.blocklist = Some(bl);
-                        self.eof_metadata.set_flag(HasBlockList);
-                    }
                     Ok(Message::Metadata(md)) => {
                         debug!("Received metadata");
                         self.metadata = Some(md);
@@ -179,7 +175,7 @@ impl Transformer for FooterGenerator {
                 */
 
                 todo!("Write TableOfContents");
-                /* 
+                /*
                 // (optional) Blocklist
                 if let Some(blocklist) = &self.blocklist {
                     let encoded_blocklist: Vec<u8> =

@@ -181,8 +181,8 @@ mod tests {
         read_writer
             .set_file_ctx(FileContext {
                 file_name: "test.txt".to_string(),
-                uncompressed_size: size,
-                compressed_size: 0,
+                input_size: size,
+                file_size: 0,
                 encryption_key: Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
                 ..Default::default()
             })
@@ -336,8 +336,8 @@ mod tests {
         let (sx, rx) = async_channel::bounded(10);
         sx.send(Message::FileContext(FileContext {
             file_name: "file1.txt".to_string(),
-            uncompressed_size: file1.len() as u64,
-            compressed_size: file1.len() as u64,
+            input_size: file1.len() as u64,
+            file_size: file1.len() as u64,
             compression: true,
             ..Default::default()
         }))
@@ -346,8 +346,8 @@ mod tests {
 
         sx.send(Message::FileContext(FileContext {
             file_name: "file2.txt".to_string(),
-            uncompressed_size: file2.len() as u64,
-            compressed_size: file2.len() as u64,
+            input_size: file2.len() as u64,
+            file_size: file2.len() as u64,
             compression: false,
             ..Default::default()
         }))
@@ -433,8 +433,8 @@ mod tests {
         let (sx, rx) = async_channel::bounded(10);
         sx.send(Message::FileContext(FileContext {
             file_name: "file1.txt".to_string(),
-            uncompressed_size: file1.len() as u64,
-            compressed_size: file1.len() as u64,
+            input_size: file1.len() as u64,
+            file_size: file1.len() as u64,
             compression: true,
             encryption_key: Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
             ..Default::default()
@@ -444,8 +444,8 @@ mod tests {
 
         sx.send(Message::FileContext(FileContext {
             file_name: "file2.txt".to_string(),
-            uncompressed_size: file2.len() as u64,
-            compressed_size: file2.len() as u64,
+            input_size: file2.len() as u64,
+            file_size: file2.len() as u64,
             compression: false,
             encryption_key: Some(b"xxwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
             ..Default::default()
@@ -473,8 +473,8 @@ mod tests {
         let (sx, rx) = async_channel::bounded(10);
         sx.send(Message::FileContext(FileContext {
             file_name: "file1.txt".to_string(),
-            uncompressed_size: file1.metadata().await.unwrap().len(),
-            compressed_size: file1.metadata().await.unwrap().len(),
+            input_size: file1.metadata().await.unwrap().len(),
+            file_size: file1.metadata().await.unwrap().len(),
             compression: true,
             encryption_key: Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
             ..Default::default()
@@ -484,8 +484,8 @@ mod tests {
 
         sx.send(Message::FileContext(FileContext {
             file_name: "file2.txt".to_string(),
-            uncompressed_size: file2.metadata().await.unwrap().len(),
-            compressed_size: file2.metadata().await.unwrap().len(),
+            input_size: file2.metadata().await.unwrap().len(),
+            file_size: file2.metadata().await.unwrap().len(),
             compression: false,
             encryption_key: Some(b"xxwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
             ..Default::default()
@@ -520,8 +520,8 @@ mod tests {
         let (sx, rx) = async_channel::bounded(10);
         sx.send(Message::FileContext(FileContext {
             file_name: "file1.txt".to_string(),
-            uncompressed_size: file1_size,
-            compressed_size: file1_size,
+            input_size: file1_size,
+            file_size: file1_size,
             ..Default::default()
         }))
         .await
@@ -529,8 +529,8 @@ mod tests {
 
         sx.send(Message::FileContext(FileContext {
             file_name: "file2.txt".to_string(),
-            uncompressed_size: file2_size,
-            compressed_size: file2_size,
+            input_size: file2_size,
+            file_size: file2_size,
             ..Default::default()
         }))
         .await
@@ -563,8 +563,8 @@ mod tests {
         let (sx, rx) = async_channel::bounded(10);
         sx.send(Message::FileContext(FileContext {
             file_name: "file1.txt".to_string(),
-            uncompressed_size: file1_size,
-            compressed_size: file1_size,
+            input_size: file1_size,
+            file_size: file1_size,
             ..Default::default()
         }))
         .await
@@ -572,8 +572,8 @@ mod tests {
 
         sx.send(Message::FileContext(FileContext {
             file_name: "file2.txt".to_string(),
-            uncompressed_size: file2_size,
-            compressed_size: file2_size,
+            input_size: file2_size,
+            file_size: file2_size,
             ..Default::default()
         }))
         .await
@@ -635,8 +635,8 @@ mod tests {
 
         sx.send(Message::FileContext(FileContext {
             file_name: "blup/".to_string(),
-            uncompressed_size: 0,
-            compressed_size: 0,
+            input_size: 0,
+            file_size: 0,
             is_dir: true,
             ..Default::default()
         }))
@@ -645,8 +645,8 @@ mod tests {
 
         sx.send(Message::FileContext(FileContext {
             file_name: "blup/file1.txt".to_string(),
-            uncompressed_size: file1_size,
-            compressed_size: file1_size,
+            input_size: file1_size,
+            file_size: file1_size,
             ..Default::default()
         }))
         .await
@@ -654,8 +654,8 @@ mod tests {
 
         sx.send(Message::FileContext(FileContext {
             file_name: "blip/".to_string(),
-            uncompressed_size: 0,
-            compressed_size: 0,
+            input_size: 0,
+            file_size: 0,
             is_dir: true,
             ..Default::default()
         }))
@@ -664,8 +664,8 @@ mod tests {
 
         sx.send(Message::FileContext(FileContext {
             file_name: "blip/file2.txt".to_string(),
-            uncompressed_size: file2_size,
-            compressed_size: file2_size,
+            input_size: file2_size,
+            file_size: file2_size,
             ..Default::default()
         }))
         .await

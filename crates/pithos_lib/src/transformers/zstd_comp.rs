@@ -196,11 +196,6 @@ impl Transformer for ZstdEnc {
                     self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
                     Message::Finished,
                 )?;
-                notifier.send_next_type(
-                    self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
-                    TransformerType::FooterGenerator,
-                    Message::Blocklist(self.chunks.clone()),
-                )?;
             }
             self.finished = true;
             return Ok(());

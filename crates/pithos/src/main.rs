@@ -3,11 +3,11 @@ mod structs;
 mod utils;
 
 use crate::io::utils::{load_private_key_from_env, load_private_key_from_pem};
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use chacha20poly1305::aead::OsRng;
 use clap::{Parser, Subcommand};
 use crypto_kx::Keypair;
-use futures::StreamExt;
+use futures_util::StreamExt;
 use pithos_lib::helpers::footer_parser::FooterParser;
 use pithos_lib::pithoswriter::PithosWriter;
 use pithos_lib::structs::{EndOfFileMetadata, FileContext};
@@ -303,7 +303,8 @@ async fn main() -> Result<()> {
 
             // Parse file metadata
             let mut file_ctxs = vec![];
-            let mut my_streams = vec![];
+            let mut init_stream = None;
+            let mut input_streams = vec![];
 
             for file_path in files {
                 let input_file = File::open(file_path).await?;
@@ -311,8 +312,8 @@ async fn main() -> Result<()> {
 
                 let file_context = FileContext {
                     file_name: file_path.file_name().unwrap().to_str().unwrap().to_string(),
-                    uncompressed_size: file_metadata.len(),
-                    compressed_size: file_metadata.len(),
+                    input_size: file_metadata.len(),
+                    file_size: file_metadata.len(),
                     file_path: Some(file_path.to_str().unwrap().to_string()),
                     uid: Some(file_metadata.uid().into()),
                     gid: Some(file_metadata.gid().into()),
@@ -327,11 +328,22 @@ async fn main() -> Result<()> {
                     expected_md5: None,  //ToDo
                 };
 
+                if init_stream.is_none() {
+                    init_stream = Some(tokio_util::io::ReaderStream::new(input_file));
+                } else {
+                    input_streams.push(tokio_util::io::ReaderStream::new(input_file));
+                }
+
                 file_ctxs.push(file_context);
-                my_streams.push(tokio_util::io::ReaderStream::new(input_file));
             }
 
-            let input_stream = ::futures::stream::iter(my_streams).flatten();
+            /*
+            let input_stream = input_streams[1..].into_iter().fold(
+                init_stream.ok_or_else(|| anyhow!("No init stream"))?,
+                |s1, s2| s1.chain(*s2),
+            );
+
+            //let input_stream = ::futures::stream::iter(input_streams).flatten();
 
             // Init default PithosWriter with standard Transformers
             let mut writer = if let Some(output_path) = output {
@@ -353,6 +365,7 @@ async fn main() -> Result<()> {
             };
 
             writer.process_bytes().await?;
+             */
         }
         Some(PithosCommands::CreateKeypair { output }) => {
             let keypair = Keypair::generate(&mut OsRng);

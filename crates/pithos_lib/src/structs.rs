@@ -9,6 +9,7 @@ use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
 use crypto_kx::{Keypair, PublicKey, SecretKey};
 use std::fmt::Display;
 use std::io::{Read, Write};
+use std::ops::{Range, RangeFrom, RangeTo};
 use std::path::PathBuf;
 use tracing::debug;
 
@@ -17,9 +18,9 @@ pub struct FileContext {
     // FileName
     pub file_name: String,
     // Input size
-    pub uncompressed_size: u64,
+    pub input_size: u64,
     // Filesize
-    pub compressed_size: u64,
+    pub file_size: u64,
     // FileSubpath without filename
     pub file_path: Option<String>,
     // UserId
@@ -57,14 +58,17 @@ impl FileContext {
 }
 
 pub enum FileContextFlag {
-    IsDir = 0,
-    IsSymlink = 1,
-    HasUID = 2,
-    HasGID = 3,
-    HasMode = 4,
-    HasMtime = 5,
-    HasSha1 = 6,
-    HasMd5 = 7,
+    Encrypted = 0,
+    Compressed = 1,
+    Dir = 2,
+    Symlink = 3,
+    UID = 4,
+    GID = 5,
+    Mode = 6,
+    Mtime = 7,
+    Sha256 = 8,
+    Md5 = 9,
+    Metadata = 10,
 }
 pub struct Symlink {
     pub len: u16,
@@ -74,9 +78,10 @@ pub struct Symlink {
 pub struct FileContextHeader {
     pub file_path_len: u16,
     pub file_path: String,             // FileName /foo/bar/
-    pub flag: u8,                      // is_dir, is_symlink, ...
-    pub file_start: Option<u64>,       // 0 if is_dir
-    pub file_end: Option<u64>,         // 0 if is_dir
+    pub flags: u16,                    // is_dir, is_symlink, ...
+    pub disk_size: Option<u64>,        // None if is_dir || is_symlink
+    pub file_start: Option<u64>,       // None if is_dir || is_symlink
+    pub file_end: Option<u64>,         // None if is_dir || is_symlink
     pub symlink: Option<Symlink>,      // Symlink
     pub uid: Option<u64>,              // UserId
     pub gid: Option<u64>,              // GroupId
@@ -84,6 +89,7 @@ pub struct FileContextHeader {
     pub mtime: Option<u64>,            // Created at
     pub expected_sha1: Option<String>, // Expected SHA1 hash
     pub expected_md5: Option<String>,  // Expected MD5 hash
+    pub metadata: Option<String>, // Contains its len as its first 8 bytes in its serialized form
 }
 
 impl FileContextHeader {
@@ -91,7 +97,8 @@ impl FileContextHeader {
         FileContextHeader {
             file_path_len: 0,
             file_path: "".to_string(),
-            flag: 0,
+            flags: 0,
+            disk_size: None,
             file_start: None,
             file_end: None,
             symlink: None,
@@ -101,19 +108,20 @@ impl FileContextHeader {
             mtime: None,
             expected_sha1: None,
             expected_md5: None,
+            metadata: None,
         }
     }
 
     pub fn set_flag(&mut self, flag: FileContextFlag) {
-        flag_helpers::set_flag_bit_u8(&mut self.flag, flag as u8)
+        flag_helpers::set_flag_bit_u16(&mut self.flags, flag as u16)
     }
 
     pub fn unset_flag(&mut self, flag: Flag) {
-        flag_helpers::unset_flag_bit_u8(&mut self.flag, flag as u8)
+        flag_helpers::unset_flag_bit_u16(&mut self.flags, flag as u16)
     }
 
     pub fn is_flag_set(&self, flag: Flag) -> bool {
-        flag_helpers::is_flag_bit_set_u8(&self.flag, flag as u8)
+        flag_helpers::is_flag_bit_set_u16(&self.flags, flag as u16)
     }
 }
 
@@ -171,14 +179,12 @@ pub const ZSTD_MAGIC_BYTES_ALL: [[u8; 4]; 17] = [
 // 0000 0000 0001 0000 -> Has encryption metadata
 
 pub enum Flag {
-    Encrypted = 0,
-    Compressed = 1,
-    HasEncryptionMetadata = 2,
-    HasBlockList = 3,
-    HasRangeTable = 4,
-    RangeTableEncrypted = 5,
-    HasSemanticMetadata = 6,
-    SemanticMetadataEncrypted = 7,
+    HasEncryptionMetadata = 0,
+    HasBlockList = 1,
+    HasRangeTable = 2,
+    RangeTableEncrypted = 3,
+    HasSemanticMetadata = 4,
+    SemanticMetadataEncrypted = 5,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -375,10 +381,125 @@ impl TryInto<Vec<u8>> for EndOfFileMetadata {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum PithosRange {
+    // Applies for everything
+    All,
+    // Exact index
+    Index(u64),
+    // From start_index to end
+    Start(RangeFrom<u64>),
+    // From 0 to end_index
+    End(RangeTo<u64>),
+    // From start_index to end_index
+    IndexRange(Range<u64>),
+}
+
+#[derive(Clone, Debug)]
+pub enum Dingens {
+    Data(PithosRange),
+    Metadata(PithosRange),
+    Both(PithosRange),
+}
+
+impl TryInto<Vec<u8>> for PithosRange {
+    type Error = anyhow::Error;
+
+    fn try_into(self) -> std::prelude::v1::Result<Vec<u8>, Self::Error> {
+        let mut buffer: Vec<_> = Vec::with_capacity(24);
+        match self {
+            PithosRange::All => buffer.write_u8(0)?,
+            PithosRange::Index(index) => {
+                buffer.write_u8(1)?;
+                buffer.write_u64::<LittleEndian>(index)?
+            }
+            PithosRange::Start(start) => {
+                buffer.write_u8(2)?;
+                buffer.write_u64::<LittleEndian>(start.start)?
+            }
+            PithosRange::End(end) => {
+                buffer.write_u8(3)?;
+                buffer.write_u64::<LittleEndian>(end.end)?
+            }
+            PithosRange::IndexRange(range) => {
+                buffer.write_u8(4)?;
+                buffer.write_u64::<LittleEndian>(range.start)?;
+                buffer.write_u64::<LittleEndian>(range.end)?
+            }
+        }
+
+        Ok(buffer)
+    }
+}
+
+impl TryFrom<&[u8]> for PithosRange {
+    type Error = anyhow::Error;
+
+    fn try_from(mut value: &[u8]) -> Result<Self, Self::Error> {
+        Ok(match value.read_u8()? {
+            0 => PithosRange::All,
+            1 => PithosRange::Index(value.read_u64::<LittleEndian>()?),
+            2 => PithosRange::Start(value.read_u64::<LittleEndian>()?..),
+            3 => PithosRange::End(..value.read_u64::<LittleEndian>()?),
+            4 => {
+                let start = value.read_u64::<LittleEndian>()?;
+                let end = value.read_u64::<LittleEndian>()?;
+                PithosRange::IndexRange(start..end)
+            }
+            _ => bail!("Invalid range variant"),
+        })
+    }
+}
+
 #[derive(Debug)]
 pub struct DecryptedKey {
-    pub keys: Vec<[u8; 32]>,
+    pub keys: Vec<([u8; 32], Vec<Dingens>)>,
     pub readers_pubkey: [u8; 32],
+}
+
+impl DecryptedKey {
+    pub fn keys_into_bytes(&self) -> Result<Vec<u8>> {
+        let mut buf = vec![];
+        for (key, ranges) in self.keys {
+            buf.write_all(&key);
+            buf.write_u32::<LittleEndian>(ranges.len() as u32);
+            for range in ranges {
+                buf.write_all(TryInto::<Vec<u8>>::try_into(range)?.as_slice());
+            }
+        }
+
+        Ok(buf)
+    }
+
+    pub fn from_bytes_with_pubkey(mut bytes: &[u8], pubkey: [u8; 32]) -> Result<Self> {
+        let mut keys = vec![];
+        while bytes.len() > 0 {
+            let mut key: [u8; 32];
+            bytes.read_exact(&mut key)?;
+            let mut ranges = vec![];
+            for index in 0..bytes.read_u32::<LittleEndian>()? {
+                let range = match bytes.read_u8()? {
+                    0 => PithosRange::All,
+                    1 => PithosRange::Index(bytes.read_u64::<LittleEndian>()?),
+                    2 => PithosRange::Start(bytes.read_u64::<LittleEndian>()?..),
+                    3 => PithosRange::End(..bytes.read_u64::<LittleEndian>()?),
+                    4 => {
+                        let start = bytes.read_u64::<LittleEndian>()?;
+                        let end = bytes.read_u64::<LittleEndian>()?;
+                        PithosRange::IndexRange(start..end)
+                    }
+                    _ => bail!("Invalid range variant"),
+                };
+                ranges.push(range)
+            }
+            keys.push((key, ranges))
+        }
+
+        Ok(Self {
+            keys,
+            readers_pubkey: pubkey,
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -390,7 +511,7 @@ pub enum Keys {
 #[repr(u8)]
 pub enum PacketKeyFlags {
     ContainsExclusiveRangeTableKey = 0, // Index 0 is reserved for range table key
-    ContainsExclusiveSemanticMetadataKey = 1, // Index 0 or 1 is reserved for semantic metadata key
+
     ContainsExclusiveRangeAndMetadataKey = 2, // Index 0 is reserved for a combined range table and semantic metadata key
 }
 
@@ -405,7 +526,10 @@ pub struct EncryptionPacket {
 }
 
 impl EncryptionPacket {
-    pub fn new(unencrypted_keys: Vec<[u8; 32]>, readers_pubkey: [u8; 32]) -> Self {
+    pub fn new(
+        unencrypted_keys: Vec<([u8; 32], Vec<PithosRange>)>,
+        readers_pubkey: [u8; 32],
+    ) -> Self {
         Self {
             len: 0,
             pubkey: [0; 32],
@@ -440,7 +564,7 @@ impl EncryptionPacket {
                 let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
                 debug!(?nonce);
 
-                let concatenated_keys = keys.keys.concat();
+                let concatenated_keys = keys.keys_into_bytes()?;
                 let data = ChaCha20Poly1305::new_from_slice(session_key.as_ref())
                     .map_err(|_| anyhow!("Invalid key length"))?
                     .encrypt(&nonce, concatenated_keys.as_slice())
@@ -481,13 +605,10 @@ impl EncryptionPacket {
                     )
                     .map_err(|e| anyhow!("Error while decrypting keys: {e}"))?;
 
-                self.keys = Keys::Decrypted(DecryptedKey {
-                    keys: dec_keys
-                        .chunks_exact(32)
-                        .map(<[u8; 32]>::try_from)
-                        .collect::<Result<Vec<_>, _>>()?,
-                    readers_pubkey: *keypair.public().as_ref(),
-                });
+                self.keys = Keys::Decrypted(DecryptedKey::from_bytes_with_pubkey(
+                    &dec_keys,
+                    *keypair.public().as_ref(),
+                )?);
             }
             Keys::Decrypted(_) => return Err(anyhow!("Keys already decrypted")),
         }
@@ -675,60 +796,6 @@ impl TryInto<Vec<u8>> for EncryptionMetadata {
     }
 }
 
-pub struct BlockList {
-    pub magic_bytes: [u8; 4], // Should be 0x52, 0x2A, 0x4D, 0x18
-    pub len: u32,
-    pub blocklist: Vec<u8>,
-}
-
-impl BlockList {
-    pub fn new(blocklist: Vec<u8>) -> Self {
-        Self {
-            magic_bytes: ZSTD_MAGIC_BYTES_SKIPPABLE_2,
-            len: blocklist.len() as u32,
-            blocklist,
-        }
-    }
-}
-
-impl TryFrom<&[u8]> for BlockList {
-    type Error = anyhow::Error;
-
-    fn try_from(mut value: &[u8]) -> Result<Self, Self::Error> {
-        let mut magic_bytes: [u8; 4] = [0; 4];
-        value.read_exact(&mut magic_bytes)?;
-        if magic_bytes != ZSTD_MAGIC_BYTES_SKIPPABLE_2 {
-            return Err(anyhow!("Received invalid blocklist message"));
-        }
-        let len = value.read_u32::<LittleEndian>()?;
-
-        if len as usize != value.len() {
-            return Err(anyhow!("Invalid blocklist length"));
-        }
-        let mut blocklist = Vec::new();
-        value.read_to_end(&mut blocklist)?;
-        if !value.is_empty() {
-            return Err(anyhow!("Invalid blocklist length"));
-        }
-        Ok(Self {
-            magic_bytes,
-            len,
-            blocklist,
-        })
-    }
-}
-
-impl TryInto<Vec<u8>> for BlockList {
-    type Error = anyhow::Error;
-    fn try_into(self) -> Result<Vec<u8>, Self::Error> {
-        let mut buffer = Vec::with_capacity(8 + self.len as usize);
-        buffer.write_all(&self.magic_bytes)?;
-        buffer.write_u32::<LittleEndian>(self.len)?;
-        buffer.write_all(&self.blocklist)?;
-        Ok(buffer)
-    }
-}
-
 pub struct TableOfContents {
     pub magic_bytes: [u8; 4], // Should be 0x53, 0x2A, 0x4D, 0x18
     pub len: u32,
@@ -781,7 +848,11 @@ impl TryInto<Vec<u8>> for TableOfContents {
                 TableEntryVariant::FileContextHeader(ctx) => {
                     buffer.write_u16::<LittleEndian>(ctx.file_path_len)?;
                     buffer.write_all(ctx.file_path.as_bytes())?;
-                    buffer.write_u8(ctx.flag)?;
+                    buffer.write_u16::<LittleEndian>(ctx.flags)?;
+
+                    if let Some(disk_size) = ctx.disk_size {
+                        buffer.write_u64::<LittleEndian>(disk_size)?;
+                    }
                     if let Some(start) = ctx.file_start {
                         buffer.write_u64::<LittleEndian>(start)?;
                     }
@@ -845,21 +916,21 @@ impl TryFrom<&[u8]> for TableOfContents {
                     let file_path_len = value.read_u16::<LittleEndian>()?;
                     let mut file_path = vec![0u8; file_path_len as usize];
                     value.read_exact(&mut file_path)?;
-                    let flag = value.read_u8()?;
-
-                    let (file_start, file_end, symlink) =
-                        if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::IsDir as u8) {
+                    let flags = value.read_u16::<LittleEndian>()?;
+                    let (disk_size, file_start, file_end, symlink) =
+                        if flag_helpers::is_flag_bit_set_u16(&flags, FileContextFlag::Dir as u16) {
                             // If is dir
-                            (None, None, None)
-                        } else if flag_helpers::is_flag_bit_set_u8(
-                            &flag,
-                            FileContextFlag::IsSymlink as u8,
+                            (None, None, None, None)
+                        } else if flag_helpers::is_flag_bit_set_u16(
+                            &flags,
+                            FileContextFlag::Symlink as u16,
                         ) {
                             // If is symlink
                             let symlink_len = value.read_u16::<LittleEndian>()?;
                             let mut symlink_target = vec![0u8; symlink_len as usize];
                             value.read_exact(&mut symlink_target)?;
                             (
+                                None,
                                 None,
                                 None,
                                 Some(Symlink {
@@ -869,28 +940,29 @@ impl TryFrom<&[u8]> for TableOfContents {
                             )
                         } else {
                             // If is file
+                            let disk_size = value.read_u64::<LittleEndian>()?;
                             let start = value.read_u64::<LittleEndian>()?;
                             let end = value.read_u64::<LittleEndian>()?;
-                            (Some(start), Some(end), None)
+                            (Some(disk_size), Some(start), Some(end), None)
                         };
                     // If has uid
                     let uid =
-                        if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasUID as u8) {
+                        if flag_helpers::is_flag_bit_set_u16(&flags, FileContextFlag::UID as u16) {
                             Some(value.read_u64::<LittleEndian>()?)
                         } else {
                             None // or maybe default 1000
                         };
                     // If has uid
                     let gid =
-                        if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasGID as u8) {
+                        if flag_helpers::is_flag_bit_set_u16(&flags, FileContextFlag::GID as u16) {
                             Some(value.read_u64::<LittleEndian>()?)
                         } else {
                             None // or maybe default 1000
                         };
                     // If has mode
-                    let mode = if flag_helpers::is_flag_bit_set_u8(
-                        &flag,
-                        FileContextFlag::HasMode as u8,
+                    let mode = if flag_helpers::is_flag_bit_set_u16(
+                        &flags,
+                        FileContextFlag::Mode as u16,
                     ) {
                         Some(value.read_u32::<LittleEndian>()?)
                     } else {
@@ -898,7 +970,7 @@ impl TryFrom<&[u8]> for TableOfContents {
                     };
                     // If has mtime
                     let mtime =
-                        if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasMtime as u8)
+                        if flag_helpers::is_flag_bit_set_u16(&flags, FileContextFlag::Mtime as u16)
                         {
                             Some(value.read_u64::<LittleEndian>()?)
                         } else {
@@ -906,7 +978,7 @@ impl TryFrom<&[u8]> for TableOfContents {
                         };
                     // if has sha1
                     let expected_sha1 =
-                        if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasMtime as u8)
+                        if flag_helpers::is_flag_bit_set_u16(&flags, FileContextFlag::Mtime as u16)
                         {
                             let mut sha1 = vec![0u8; 20];
                             value.read_exact(&mut sha1)?;
@@ -916,7 +988,7 @@ impl TryFrom<&[u8]> for TableOfContents {
                         };
                     // If has md5
                     let expected_md5 =
-                        if flag_helpers::is_flag_bit_set_u8(&flag, FileContextFlag::HasMtime as u8)
+                        if flag_helpers::is_flag_bit_set_u16(&flags, FileContextFlag::Mtime as u16)
                         {
                             let mut md5 = vec![0u8; 16];
                             value.read_exact(&mut md5)?;
@@ -930,7 +1002,8 @@ impl TryFrom<&[u8]> for TableOfContents {
                         entry: TableEntryVariant::FileContextHeader(FileContextHeader {
                             file_path_len,
                             file_path: String::from_utf8(file_path)?,
-                            flag,
+                            flags,
+                            disk_size,
                             file_start,
                             file_end,
                             symlink,
@@ -999,11 +1072,11 @@ impl TryFrom<FileContext> for TableEntry {
 
         let mut flag = 0;
         if value.is_dir {
-            set_flag_bit_u8(&mut flag, FileContextFlag::IsDir as u8);
+            set_flag_bit_u8(&mut flag, FileContextFlag::Dir as u8);
             ctx_header.file_start = None;
             ctx_header.file_end = None;
         } else if value.is_symlink {
-            set_flag_bit_u8(&mut flag, FileContextFlag::IsSymlink as u8);
+            set_flag_bit_u8(&mut flag, FileContextFlag::Symlink as u8);
             ctx_header.file_start = None;
             ctx_header.file_end = None;
             ctx_header.symlink = Some(Symlink {
@@ -1012,30 +1085,30 @@ impl TryFrom<FileContext> for TableEntry {
             });
         } else {
             ctx_header.file_start = Some(0); // ???
-            ctx_header.file_end = Some(value.compressed_size);
+            ctx_header.file_end = Some(value.file_size);
         }
         if let Some(uid) = value.uid {
-            set_flag_bit_u8(&mut flag, FileContextFlag::HasUID as u8);
+            set_flag_bit_u8(&mut flag, FileContextFlag::UID as u8);
             ctx_header.uid = Some(uid);
         }
         if let Some(gid) = value.gid {
-            set_flag_bit_u8(&mut flag, FileContextFlag::HasGID as u8);
+            set_flag_bit_u8(&mut flag, FileContextFlag::GID as u8);
             ctx_header.gid = Some(gid);
         }
         if let Some(mode) = value.mode {
-            set_flag_bit_u8(&mut flag, FileContextFlag::HasMode as u8);
+            set_flag_bit_u8(&mut flag, FileContextFlag::Mode as u8);
             ctx_header.mode = Some(mode);
         }
         if let Some(mtime) = value.mtime {
-            set_flag_bit_u8(&mut flag, FileContextFlag::HasMtime as u8);
+            set_flag_bit_u8(&mut flag, FileContextFlag::Mtime as u8);
             ctx_header.mtime = Some(mtime);
         }
         if let Some(sha1) = value.expected_sha1 {
-            set_flag_bit_u8(&mut flag, FileContextFlag::HasSha1 as u8);
+            set_flag_bit_u8(&mut flag, FileContextFlag::Sha256 as u8);
             ctx_header.expected_sha1 = Some(sha1);
         }
         if let Some(md5) = value.expected_md5 {
-            set_flag_bit_u8(&mut flag, FileContextFlag::HasSha1 as u8);
+            set_flag_bit_u8(&mut flag, FileContextFlag::Sha256 as u8);
             ctx_header.expected_sha1 = Some(md5);
         }
 
