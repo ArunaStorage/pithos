@@ -17,9 +17,9 @@ pub struct FileContext {
     // FileName
     pub file_name: String,
     // Input size
-    pub input_size: u64,
+    pub uncompressed_size: u64,
     // Filesize
-    pub file_size: u64,
+    pub compressed_size: u64,
     // FileSubpath without filename
     pub file_path: Option<String>,
     // UserId
@@ -75,8 +75,8 @@ pub struct FileContextHeader {
     pub file_path_len: u16,
     pub file_path: String,             // FileName /foo/bar/
     pub flag: u8,                      // is_dir, is_symlink, ...
-    pub file_start: Option<u64>,       //
-    pub file_end: Option<u64>,         //
+    pub file_start: Option<u64>,       // 0 if is_dir
+    pub file_end: Option<u64>,         // 0 if is_dir
     pub symlink: Option<Symlink>,      // Symlink
     pub uid: Option<u64>,              // UserId
     pub gid: Option<u64>,              // GroupId
@@ -1008,11 +1008,11 @@ impl TryFrom<FileContext> for TableEntry {
             ctx_header.file_end = None;
             ctx_header.symlink = Some(Symlink {
                 len: ctx_header.file_path_len,
-                target: ctx_header.file_path,
+                target: ctx_header.file_path.clone(),
             });
         } else {
             ctx_header.file_start = Some(0); // ???
-            ctx_header.file_end = Some(value.file_size);
+            ctx_header.file_end = Some(value.compressed_size);
         }
         if let Some(uid) = value.uid {
             set_flag_bit_u8(&mut flag, FileContextFlag::HasUID as u8);

@@ -6,10 +6,6 @@ use crate::structs::{
     BlockList, EncryptionMetadata, EncryptionPacket, EndOfFileMetadata, FileContext,
     SemanticMetadata, TableOfContents,
 };
-use crate::structs::{
-    BlockList, EncryptionMetadata, EncryptionPacket, EndOfFileMetadata, FileContext,
-    SemanticMetadata, TableOfContents,
-};
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use crate::transformers::encrypt::encrypt_chunk;
@@ -19,7 +15,6 @@ use async_channel::{Receiver, Sender, TryRecvError};
 use bytes::{BufMut, Bytes};
 use digest::Digest;
 use sha2::Sha256;
-use std::collections::HashMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::debug;
@@ -61,17 +56,23 @@ impl FooterGenerator {
         }
     }
 
-    pub fn new_with_ctx(ctx: FileContext) -> FooterGenerator {
+    pub fn new_with_ctx(ctx: FileContext) -> Result<FooterGenerator> {
         let map = if let Some(readers_key) = ctx.owners_pubkey {
             if let Some(enc_key) = ctx.encryption_key {
-                HashMap::from([(readers_key, vec![enc_key.try_into()?])])
+                HashMap::from([(
+                    readers_key,
+                    vec![enc_key
+                        .try_into()
+                        .map_err(|_| anyhow!("Vec<u8> to [u8;32] conversion failed"))?],
+                )])
             } else {
                 HashMap::new()
             }
         } else {
             HashMap::new()
         };
-        FooterGenerator {
+
+        Ok(FooterGenerator {
             hasher: Sha256::new(),
             counter: 0,
             eof_metadata: EndOfFileMetadata::init(),
@@ -84,7 +85,7 @@ impl FooterGenerator {
             notifier: None,
             msg_receiver: None,
             idx: None,
-        }
+        })
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
@@ -155,6 +156,9 @@ impl Transformer for FooterGenerator {
         self.counter += buf.len() as u64;
         if let Ok(finished) = self.process_messages() {
             if finished {
+                // Write semantic metadata
+                todo!();
+                /*
                 if let Some((encryption_key, metadata)) = &self.metadata {
                     let encoded_metadata: Vec<u8> =
                         SemanticMetadata::new(metadata.clone()).try_into()?;
@@ -172,7 +176,10 @@ impl Transformer for FooterGenerator {
                     self.counter += metadata_bytes.len() as u64;
                     buf.put(metadata_bytes);
                 }
+                */
 
+                todo!("Write TableOfContents");
+                /* 
                 // (optional) Blocklist
                 if let Some(blocklist) = &self.blocklist {
                     let encoded_blocklist: Vec<u8> =
@@ -182,7 +189,10 @@ impl Transformer for FooterGenerator {
                     self.counter += encoded_blocklist.len() as u64;
                     buf.put(encoded_blocklist.as_slice());
                 }
+                */
 
+                todo!();
+                /*
                 // (optional) Encryption
                 if let Some(key) = &file_ctx.encryption_key {
                     if let Some(pk) = &file_ctx.owners_pubkey {
@@ -202,6 +212,7 @@ impl Transformer for FooterGenerator {
                         buf.put(encryption_data_bytes.as_slice());
                     }
                 }
+                */
 
                 // Technical Metadata
                 self.eof_metadata.finalize();
@@ -226,7 +237,7 @@ impl Transformer for FooterGenerator {
                         Message::Finished,
                     )?;
                 }
-                self.filectx = None;
+                //self.filectx = None;
             }
         } else {
             return Err(anyhow!("Error processing messages"));
