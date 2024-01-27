@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use base64::prelude::*;
 use byteorder::{BigEndian, ReadBytesExt};
-use scrypt::password_hash::{PasswordHasher, SaltString};
+use scrypt::password_hash::{PasswordHasher, Salt, SaltString};
 use std::fmt::Debug;
 use std::{fs::File, io::Read, path::PathBuf};
 
@@ -112,21 +112,13 @@ impl C4ghKey {
         let key = match (std::str::from_utf8(&self.kdf_name), passkey) {
             (Ok("none"), _) => None,
             (Ok("scrypt"), Some(passkey)) => {
-                let salt = SaltString::from_b64(
-                    &BASE64_STANDARD.encode(self.salt.as_ref().ok_or_else(|| anyhow!("No salt"))?),
-                )?;
-
-                let hasher = scrypt::Scrypt {};
-                let password_hash = hasher.hash_password_customized(
+                let mut result: [u8; 32] = [0; 32];
+                scrypt::scrypt(
                     passkey.as_bytes(),
-                    None,
-                    None,
-                    scrypt::Params::new(14, 8, 1, 32)?,
-                    &salt,
+                    self.salt.as_ref().ok_or_else(|| anyhow!("No salt"))?,
+                    &scrypt::Params::new(14, 8, 1, 32)?,
+                    &mut result,
                 )?;
-                let pw_hash = password_hash.hash.ok_or_else(|| anyhow!("No hash"))?;
-                let key = pw_hash.as_bytes();
-                let result: [u8; 32] = key.try_into()?;
                 Some(result)
             }
             (Ok("bcrypt"), Some(key)) => {
@@ -137,7 +129,7 @@ impl C4ghKey {
             }
         };
 
-        Ok([0; 32])
+        Ok(key.ok_or_else(|| anyhow!("No key"))?)
     }
 }
 
@@ -208,9 +200,13 @@ mod tests {
 
         // Parse pem key
         let key = C4ghKey::from_string(key).unwrap();
+        let res = key.decrypt(Some("12345".to_string())).unwrap();
 
-        dbg!(key);
-
-        // C4gh load from pem and assert?
+        assert!(
+            res == [
+                244, 169, 234, 69, 56, 160, 188, 24, 80, 91, 176, 222, 106, 44, 34, 216, 52, 194,
+                112, 70, 127, 198, 83, 247, 34, 188, 166, 106, 240, 56, 81, 221,
+            ]
+        )
     }
 }
