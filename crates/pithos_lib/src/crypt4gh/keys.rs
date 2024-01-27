@@ -1,26 +1,11 @@
 use anyhow::{anyhow, Result};
 use base64::prelude::*;
 use byteorder::{BigEndian, ReadBytesExt};
-use scrypt::password_hash::{PasswordHasher, Salt, SaltString};
 use std::fmt::Debug;
 use std::{fs::File, io::Read, path::PathBuf};
 
 pub const MAGIC_BYTES: &[u8; 7] = b"c4gh-v1";
 pub const KDF_NAMES: [&[u8]; 3] = [b"scrypt", b"bcrypt", b"none"];
-
-pub struct LengthEncodedString {
-    pub length: u16,
-    pub string: Vec<u8>,
-}
-
-impl LengthEncodedString {
-    pub fn new(string: Vec<u8>) -> Self {
-        LengthEncodedString {
-            length: string.len() as u16,
-            string,
-        }
-    }
-}
 
 pub struct RoundsWithSalt {
     pub length: u16,
@@ -202,8 +187,9 @@ mod tests {
         let key = C4ghKey::from_string(key).unwrap();
         let res = key.decrypt(Some("12345".to_string())).unwrap();
 
-        assert!(
-            res == [
+        assert_eq!(
+            res,
+            [
                 244, 169, 234, 69, 56, 160, 188, 24, 80, 91, 176, 222, 106, 44, 34, 216, 52, 194,
                 112, 70, 127, 198, 83, 247, 34, 188, 166, 106, 240, 56, 81, 221,
             ]

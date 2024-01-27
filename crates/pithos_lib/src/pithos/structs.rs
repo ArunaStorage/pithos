@@ -78,7 +78,7 @@ impl EndOfFileMetadata {
     pub fn init() -> Self {
         Self {
             magic_bytes: ZSTD_MAGIC_BYTES_SKIPPABLE_0,
-            len: 0,
+            len: 73,
             version: 1,
             raw_file_size: 0,
             disk_file_size: 0,
@@ -91,14 +91,14 @@ impl EndOfFileMetadata {
 
 // -------------- EncryptionMetadata --------------
 
-#[derive(Debug)]
+#[derive(Debug, BorshSerialize, BorshDeserialize)]
 pub struct EncryptionMetadata {
     pub magic_bytes: [u8; 4], // Should be 0x51, 0x2A, 0x4D, 0x18
     pub len: u32,             // Required for zstd skippable frame
     pub packets: Vec<EncryptionPacket>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub enum EncryptionTarget {
     FileData(PithosRange),     // File Data
     FileMetadata(PithosRange), // Full TableOfContents entry
@@ -112,6 +112,14 @@ pub struct DecryptedKey {
     pub readers_pubkey: [u8; 32],
 }
 
+#[derive(Debug, BorshSerialize, BorshDeserialize)]
+pub struct EncryptionPacket {
+    pub pubkey: [u8; 32],
+    pub nonce: [u8; 12],
+    pub keys: Vec<u8>,
+    pub mac: [u8; 16],
+}
+
 // impl DecryptedKey into EncryptionPacket
 // Auto encrypt DecryptedKey with recipient PubKey into EncryptionPacket
 impl TryInto<EncryptionPacket> for DecryptedKey {
@@ -122,15 +130,7 @@ impl TryInto<EncryptionPacket> for DecryptedKey {
     }
 }
 
-#[derive(Debug)]
-pub struct EncryptionPacket {
-    pub pubkey: [u8; 32],
-    pub nonce: [u8; 12],
-    pub keys: Vec<u8>,
-    pub mac: [u8; 16],
-}
-
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub enum PithosRange {
     // Applies for everything
     All,
@@ -181,6 +181,8 @@ pub struct FileContextHeader {
     pub file_end: u64,
     pub compressed: bool,
     pub encrypted: bool,
+    pub block_scale: u32, // ChaCha / Compression block scale, should be a multiple of 65536 (default = 1)
+    pub index_list: Option<Vec<u32>>, // Raw size of every chunk in order (only if compressed)
     pub file_info: Option<FileInfo>,
     pub hashes: Option<Hashes>,
     pub metadata: Option<String>,
