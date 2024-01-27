@@ -3,14 +3,12 @@ mod structs;
 mod utils;
 
 use crate::io::utils::{load_private_key_from_env, load_private_key_from_pem};
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use chacha20poly1305::aead::OsRng;
 use clap::{Parser, Subcommand};
 use crypto_kx::Keypair;
-use futures_util::StreamExt;
-use pithos_lib::helpers::footer_parser::FooterParser;
-use pithos_lib::pithoswriter::PithosWriter;
-use pithos_lib::structs::{EndOfFileMetadata, FileContext};
+use pithos_lib::helpers::structs::FileContext;
+use pithos_lib::pithos::structs::EndOfFileMetadata;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::os::unix::fs::MetadataExt;
@@ -203,8 +201,8 @@ async fn main() -> Result<()> {
                 input_file.read_exact(&mut eof_metadata).await?;
 
                 // Try to parse EndOfFileMetadata
-                let eof_block = EndOfFileMetadata::try_from(eof_metadata.as_slice())?;
-                debug!(?eof_block)
+                //let eof_block = EndOfFileMetadata::try_from(eof_metadata.as_slice())?;
+                //debug!(?eof_block)
 
                 //ToDo: OutputWriter
             }
@@ -256,12 +254,12 @@ async fn main() -> Result<()> {
                 input_file.read_exact(buf).await?;
 
                 // Init footer parser with provided private key
-                let mut parser = FooterParser::new(buf);
-                parser.add_recipient_key(sec_key);
+                //let mut parser = FooterParser::new(buf);
+                //parser.add_recipient_key(sec_key);
 
                 // Parse the footer bytes and display technical metadata info
-                parser.parse()?;
-                serde_json::to_string_pretty(&parser.get_semantic_metadata()?.semantic);
+                //parser.parse()?;
+                //serde_json::to_string_pretty(&parser.get_semantic_metadata()?.semantic);
             }
         },
         Some(PithosCommands::Create {

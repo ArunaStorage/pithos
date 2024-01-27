@@ -1,5 +1,5 @@
+use crate::helpers::structs::FileContext;
 use crate::notifications::{Message, Notifier};
-use crate::structs::FileContext;
 use crate::transformer::{ReadWriter, Sink, Transformer, TransformerType};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::{anyhow, bail, Result};

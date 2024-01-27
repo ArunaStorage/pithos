@@ -1,7 +1,7 @@
-use std::sync::RwLock;
-
-use crate::{structs::FileContext, transformer::TransformerType};
+use crate::helpers::structs::FileContext;
+use crate::transformer::TransformerType;
 use async_channel::Sender;
+use std::sync::RwLock;
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]

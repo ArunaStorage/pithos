@@ -1,9 +1,5 @@
-use crate::structs::BlockList;
-use crate::structs::EncryptionMetadata;
+/* use crate::structs::EncryptionMetadata;
 use crate::structs::EndOfFileMetadata;
-use crate::structs::Flag;
-use crate::structs::Keys as EncryptionKeys;
-use crate::structs::SemanticMetadata;
 use crate::structs::TableOfContents;
 use anyhow::anyhow;
 use anyhow::bail;
@@ -124,12 +120,6 @@ pub struct Footer {
     pub blocklist: Option<BlockList>,
     pub range_table: Option<TableOfContents>,
     pub semantic_metadata: Option<SemanticMetadata>,
-}
-
-#[derive(Eq, PartialEq, PartialOrd, Ord, Clone, Copy, Debug)]
-pub struct Range {
-    pub from: u64,
-    pub to: u64,
 }
 
 impl FooterParser<'_> {
@@ -442,56 +432,6 @@ impl FooterParser<'_> {
             }
         }
     }
-
-    // #[tracing::instrument(level = "trace", skip(self, range))]
-    // pub fn get_offsets_by_range(&self, range: Range) -> Result<(Range, Range)> {
-    //     let from_chunk = range.from / 5_242_880;
-    //     let to_chunk = range.to / 5_242_880;
-
-    //     let mut from_block: u64 = 0;
-    //     let mut to_block: u64 = 0;
-
-    //     if from_chunk > to_chunk {
-    //         error!(
-    //             from_chunk = from_chunk,
-    //             to_chunk = to_chunk,
-    //             "From must be smaller than to"
-    //         );
-    //         return Err(anyhow!("From must be smaller than to"));
-    //     }
-
-    //     // 0 - 1 - [2 - 3] - 4
-    //     // Want 2, 3
-
-    //     for (index, block) in self.blocklist.iter().enumerate() {
-    //         if (index as u64) < from_chunk {
-    //             from_block += *block as u64;
-    //         }
-    //         if index as u64 <= to_chunk {
-    //             to_block += *block as u64;
-    //         } else {
-    //             break;
-    //         }
-    //     }
-
-    //     Ok((
-    //         if self.is_encrypted {
-    //             Range {
-    //                 from: from_block * (65536 + 28),
-    //                 to: to_block * (65536 + 28),
-    //             }
-    //         } else {
-    //             Range {
-    //                 from: from_block * 65536,
-    //                 to: to_block * 65536,
-    //             }
-    //         },
-    //         Range {
-    //             from: range.from % 5_242_880,
-    //             to: range.to % 5_242_880 + (to_chunk - from_chunk) * 5_242_880,
-    //         },
-    //     ))
-    // }
 }
 
 #[tracing::instrument(level = "trace", skip(chunk, decryption_key))]
@@ -522,3 +462,4 @@ pub fn decrypt_chunks(chunk: &[u8; (65536 + 28) * 2], decryption_key: &[u8]) -> 
     );
     Ok(first_dec.into())
 }
+ */

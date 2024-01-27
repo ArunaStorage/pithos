@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use crate::helpers::structs::ProbeResult;
 use crate::notifications::Message;
 use crate::notifications::Notifier;
-use crate::structs::ProbeResult;
-use crate::structs::ZSTD_MAGIC_BYTES_SKIPPABLE_15;
+use crate::pithos::structs::ZSTD_MAGIC_BYTES_SKIPPABLE_15;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::anyhow;

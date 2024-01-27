@@ -1,6 +1,6 @@
+use crate::helpers::structs::FileContext;
 use crate::notifications::Message;
 use crate::notifications::Notifier;
-use crate::structs::FileContext;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::anyhow;

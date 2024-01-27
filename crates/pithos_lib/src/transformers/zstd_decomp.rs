@@ -1,9 +1,7 @@
-use std::sync::Arc;
-
+use crate::helpers::structs::ProbeResult;
 use crate::notifications::Message;
 use crate::notifications::Notifier;
-use crate::structs::ProbeResult;
-use crate::structs::ZSTD_MAGIC_BYTES_ALL;
+use crate::pithos::structs::ZSTD_MAGIC_BYTES_ALL;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::{anyhow, Result};
@@ -13,6 +11,7 @@ use async_channel::TryRecvError;
 use async_compression::tokio::write::ZstdDecoder;
 use bytes::BufMut;
 use bytes::BytesMut;
+use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tracing::debug;
 use tracing::error;

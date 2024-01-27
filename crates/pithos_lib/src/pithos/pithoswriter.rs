@@ -1,6 +1,6 @@
+use crate::helpers::structs::FileContext;
 use crate::notifications::Message;
 use crate::streamreadwrite::GenericStreamReadWriter;
-use crate::structs::FileContext;
 use crate::transformer::{ReadWriter, Sink, Transformer};
 use crate::transformers::encrypt::ChaCha20Enc;
 use crate::transformers::footer::FooterGenerator;

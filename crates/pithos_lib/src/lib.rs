@@ -1,21 +1,19 @@
 mod crypt4gh;
 pub mod helpers;
 pub mod notifications;
-pub mod pithosreader;
-pub mod pithoswriter;
+pub mod pithos;
 pub mod readwrite;
 pub mod streamreadwrite;
-pub mod structs;
 pub mod transformer;
 pub mod transformers;
 
 #[cfg(test)]
 mod tests {
-    use crate::helpers::footer_parser::{FooterParser, Range};
+    //use crate::helpers::footer_parser::{FooterParser, Range};
+    use crate::helpers::structs::{FileContext, Range};
     use crate::notifications::Message;
     use crate::readwrite::GenericReadWriter;
     use crate::streamreadwrite::GenericStreamReadWriter;
-    use crate::structs::FileContext;
     use crate::transformer::ReadWriter;
     use crate::transformers::decrypt::ChaCha20Dec;
     use crate::transformers::encrypt::ChaCha20Enc;
@@ -225,9 +223,9 @@ mod tests {
         let buf: &mut [u8; 65536 * 2] = &mut [0; 65536 * 2];
         file2.read_exact(buf).await.unwrap();
 
-        let mut fp = FooterParser::new(buf);
+        //let mut fp = FooterParser::new(buf);
 
-        fp.parse().unwrap();
+        //fp.parse().unwrap();
 
         // let (a, b) = fp
         //     .get_offsets_by_range(Range { from: 0, to: 1000 })
@@ -275,8 +273,8 @@ mod tests {
         let buf: &mut [u8; (65536 + 28) * 2] = &mut [0; (65536 + 28) * 2];
         file2.read_exact(buf).await.unwrap();
 
-        let mut fp = FooterParser::new(buf);
-        fp.parse().unwrap();
+        // let mut fp = FooterParser::new(buf);
+        // fp.parse().unwrap();
 
         // let (a, b) = fp
         //     .get_offsets_by_range(Range { from: 0, to: 1000 })

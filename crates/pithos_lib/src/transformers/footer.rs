@@ -1,24 +1,17 @@
-use crate::notifications::{HashType, Message, Notifier};
-use crate::structs::Flag::{
-    Compressed, Encrypted, HasBlockList, HasEncryptionMetadata, HasSemanticMetadata,
-};
-use crate::structs::{
-    BlockList, EncryptionMetadata, EncryptionPacket, EndOfFileMetadata, FileContext,
-    SemanticMetadata, TableOfContents,
-};
+use crate::helpers::structs::FileContext;
+use crate::notifications::{Message, Notifier};
+use crate::pithos::structs::{EndOfFileMetadata, TableOfContents};
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
-use crate::transformers::encrypt::encrypt_chunk;
 use anyhow::anyhow;
 use anyhow::Result;
-use async_channel::{Receiver, Sender, TryRecvError};
-use bytes::{BufMut, Bytes};
+use async_channel::{Receiver, Sender};
+use bytes::BufMut;
 use digest::Digest;
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::debug;
-use tracing::error;
 
 pub struct FooterGenerator {
     hasher: Sha256,
@@ -91,45 +84,45 @@ impl FooterGenerator {
     #[tracing::instrument(level = "trace", skip(self))]
     fn process_messages(&mut self) -> Result<bool> {
         if let Some(rx) = &self.msg_receiver {
-            loop {
-                match rx.try_recv() {
-                    Ok(Message::Finished) | Ok(Message::ShouldFlush) => return Ok(true),
-                    Ok(Message::FileContext(ctx)) => {
-                        todo!();
-                        if ctx.encryption_key.is_some() {
-                            self.eof_metadata.set_flag(Encrypted);
-                            self.eof_metadata.set_flag(HasEncryptionMetadata);
-                        }
+            // loop {
+            //     match rx.try_recv() {
+            //         Ok(Message::Finished) | Ok(Message::ShouldFlush) => return Ok(true),
+            //         Ok(Message::FileContext(ctx)) => {
+            //             todo!();
+            //             if ctx.encryption_key.is_some() {
+            //                 self.eof_metadata.set_flag(Encrypted);
+            //                 self.eof_metadata.set_flag(HasEncryptionMetadata);
+            //             }
 
-                        //self.filectx = Some(ctx);
-                    }
-                    Ok(Message::Compression(is_compressed)) => {
-                        if is_compressed {
-                            self.eof_metadata.set_flag(Compressed);
-                        } else {
-                            self.eof_metadata.unset_flag(Compressed);
-                        }
-                    }
-                    Ok(Message::Metadata(md)) => {
-                        debug!("Received metadata");
-                        self.metadata = Some(md);
-                        self.eof_metadata.set_flag(HasSemanticMetadata);
-                    }
-                    Ok(Message::Hash((hash_type, hash))) => match hash_type {
-                        HashType::Md5 => self.md5_hash = Some(hash),
-                        HashType::Sha1 => self.sha1_hash = Some(hash),
-                        _ => {}
-                    },
-                    Ok(_) => {}
-                    Err(TryRecvError::Empty) => {
-                        break;
-                    }
-                    Err(TryRecvError::Closed) => {
-                        error!("Message receiver closed");
-                        return Err(anyhow!("Message receiver closed"));
-                    }
-                }
-            }
+            //             //self.filectx = Some(ctx);
+            //         }
+            //         Ok(Message::Compression(is_compressed)) => {
+            //             if is_compressed {
+            //                 self.eof_metadata.set_flag(Compressed);
+            //             } else {
+            //                 self.eof_metadata.unset_flag(Compressed);
+            //             }
+            //         }
+            //         Ok(Message::Metadata(md)) => {
+            //             debug!("Received metadata");
+            //             self.metadata = Some(md);
+            //             self.eof_metadata.set_flag(HasSemanticMetadata);
+            //         }
+            //         Ok(Message::Hash((hash_type, hash))) => match hash_type {
+            //             HashType::Md5 => self.md5_hash = Some(hash),
+            //             HashType::Sha1 => self.sha1_hash = Some(hash),
+            //             _ => {}
+            //         },
+            //         Ok(_) => {}
+            //         Err(TryRecvError::Empty) => {
+            //             break;
+            //         }
+            //         Err(TryRecvError::Closed) => {
+            //             error!("Message receiver closed");
+            //             return Err(anyhow!("Message receiver closed"));
+            //         }
+            //     }
+            // }
         }
         Ok(false)
     }
@@ -211,28 +204,28 @@ impl Transformer for FooterGenerator {
                 */
 
                 // Technical Metadata
-                self.eof_metadata.finalize();
-                self.eof_metadata.disk_file_size =
-                    self.counter + self.eof_metadata.eof_metadata_len;
+                // self.eof_metadata.finalize();
+                // self.eof_metadata.disk_file_size =
+                //     self.counter + self.eof_metadata.eof_metadata_len;
 
-                let encoded_technical_metadata: Vec<u8> = self.eof_metadata.clone().try_into()?;
-                self.hasher.update(encoded_technical_metadata.as_slice());
-                self.eof_metadata.disk_hash_sha256 =
-                    self.hasher.finalize_reset().as_slice().try_into()?;
+                // let encoded_technical_metadata: Vec<u8> = self.eof_metadata.clone().try_into()?;
+                // self.hasher.update(encoded_technical_metadata.as_slice());
+                // self.eof_metadata.disk_hash_sha256 =
+                //     self.hasher.finalize_reset().as_slice().try_into()?;
 
-                let final_data: Vec<u8> = self.eof_metadata.clone().try_into()?;
-                buf.put(final_data.as_slice());
+                // let final_data: Vec<u8> = self.eof_metadata.clone().try_into()?;
+                // buf.put(final_data.as_slice());
 
-                // Reset counter & hasher
-                self.counter = 0;
-                self.hasher.reset();
+                // // Reset counter & hasher
+                // self.counter = 0;
+                // self.hasher.reset();
 
-                if let Some(notifier) = &self.notifier {
-                    notifier.send_next(
-                        self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
-                        Message::Finished,
-                    )?;
-                }
+                // if let Some(notifier) = &self.notifier {
+                //     notifier.send_next(
+                //         self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
+                //         Message::Finished,
+                //     )?;
+                // }
                 //self.filectx = None;
             }
         } else {

@@ -58,18 +58,26 @@ pub struct C4ghKey {
     pub comment: Option<Vec<u8>>,
 }
 
-/*
 impl Debug for C4ghKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("C4ghKey")
-            .field("magic", &std::string::String::from_utf8(self.magic.to_vec()))
+            .field(
+                "magic",
+                &std::string::String::from_utf8(self.magic.to_vec()),
+            )
             .field("kdf_len", &self.kdf_len)
-            .field("kdf_name", &std::string::String::from_utf8(self.kdf_name.clone()))
+            .field(
+                "kdf_name",
+                &std::string::String::from_utf8(self.kdf_name.clone()),
+            )
             .field("rounds_salt_len", &self.rounds_salt_len)
             .field("rounds", &self.rounds)
             .field("salt", &self.salt)
             .field("cipher_len", &self.cipher_len)
-            .field("cipher_name", &std::string::String::from_utf8(self.cipher_name.clone()))
+            .field(
+                "cipher_name",
+                &std::string::String::from_utf8(self.cipher_name.clone()),
+            )
             .field("blop_len", &self.blop_len)
             .field("blop", &self.blop)
             .field("comment_len", &self.comment_len)
@@ -77,7 +85,6 @@ impl Debug for C4ghKey {
             .finish()
     }
 }
-*/
 
 impl C4ghKey {
     pub fn from_pem(path: PathBuf) -> Result<Self> {

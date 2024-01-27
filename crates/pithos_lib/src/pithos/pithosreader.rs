@@ -4,9 +4,9 @@ use bytes::Bytes;
 use futures::Stream;
 use tokio::io::AsyncWrite;
 
+use crate::helpers::structs::FileContext;
 use crate::{
     notifications::Message,
-    structs::FileContext,
     transformer::{Sink, Transformer, TransformerType},
 };
 
