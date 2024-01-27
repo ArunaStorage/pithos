@@ -31,6 +31,8 @@ pub struct FileContext {
     pub mtime: Option<u64>,
     // Should this file be skipped by decompressors
     pub compression: bool,
+    // ChunkMultiplier num or 1
+    pub chunk_multiplier: Option<u32>, 
     // Encryption key
     pub encryption_key: Option<Vec<u8>>,
     // Owners pubkey

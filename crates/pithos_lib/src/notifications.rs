@@ -12,6 +12,13 @@ pub enum HashType {
 }
 
 #[derive(Clone, Debug)]
+pub struct CompressionInfo {
+    pub path: String,
+    pub compression: bool,
+    pub chunk_infos: Option<Vec<u32>>,
+}
+
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum Message {
     Completed,
@@ -20,7 +27,7 @@ pub enum Message {
     Hash((HashType, String)),
     Metadata((Option<Vec<u8>>, String)), // Optional different Key, JSON Metadata value
     SizeInfo(u64),
-    Compression(bool),
+    CompressionInfo(CompressionInfo),
     EditList(Vec<u64>),
     ShouldFlush,
     Skip,
