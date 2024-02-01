@@ -13,7 +13,7 @@ pub enum HashType {
 
 #[derive(Clone, Debug)]
 pub struct CompressionInfo {
-    pub path: String,
+    pub idx: usize,
     pub size: u64,
     pub compression: bool,
     pub chunk_infos: Option<Vec<u32>>,
@@ -25,7 +25,7 @@ pub enum Message {
     Completed,
     Finished,
     FileContext(FileContext),
-    Hash((HashType, String)),
+    Hash((HashType, String, Option<usize>)), // HashType, Hash, Optional idx of file
     Metadata((Option<Vec<u8>>, String)), // Optional different Key, JSON Metadata value
     SizeInfo(u64),
     CompressionInfo(CompressionInfo),

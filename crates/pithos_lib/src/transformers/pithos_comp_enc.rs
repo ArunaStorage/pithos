@@ -22,7 +22,7 @@ use crate::helpers::frames::create_skippable_padding_frame;
 const CHUNK: u32 = 65_536;
 
 struct CurrentFile {
-    name: String,
+    idx: usize,
     expected_size: Option<u64>,
     raw_size_full: u64,
     multiplier: u32,
@@ -35,7 +35,7 @@ struct CurrentFile {
 impl Default for CurrentFile {
     fn default() -> Self {
         CurrentFile {
-            name: String::new(),
+            idx: 0,
             expected_size: None,
             raw_size_full: 0,
             multiplier: 1,
@@ -50,7 +50,7 @@ impl Default for CurrentFile {
 impl Into<CompressionInfo> for CurrentFile {
     fn into(self) -> CompressionInfo {
         CompressionInfo {
-            path: self.name,
+            idx: self.idx,
             size: self.raw_size_full,
             compression: self.compression == ProbeResult::Compression,
             chunk_infos: Some(self.chunk_sizes),
@@ -73,7 +73,7 @@ impl CurrentFile {
 impl From<FileContext> for CurrentFile {
     fn from(ctx: FileContext) -> Self {
         CurrentFile {
-            name: ctx.get_path(),
+            idx: ctx.idx,
             expected_size: Some(ctx.file_size),
             raw_size_full: 0,
             multiplier: ctx.chunk_multiplier.unwrap_or(1),

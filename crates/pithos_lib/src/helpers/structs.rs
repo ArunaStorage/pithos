@@ -14,6 +14,7 @@ pub struct Range {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 pub struct FileContext {
+    pub idx: usize,
     // FileName
     pub file_name: String,
     // Input size

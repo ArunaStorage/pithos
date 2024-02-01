@@ -28,6 +28,8 @@ pub struct GenericStreamReadWriter<
     sender: Sender<Message>,
     size_counter: usize,
     external_receiver: Option<Receiver<Message>>,
+    file_counter: usize,
+    dir_counter: usize,
 }
 
 impl<
@@ -54,6 +56,8 @@ impl<
             receiver: rx,
             size_counter: 0,
             external_receiver: None,
+            file_counter: 0,
+            dir_counter: 0,
         }
     }
 
@@ -70,6 +74,8 @@ impl<
             receiver: rx,
             size_counter: 0,
             external_receiver: None,
+            file_counter: 0,
+            dir_counter: 0,
         }
     }
 
@@ -80,7 +86,14 @@ impl<
     }
 
     #[tracing::instrument(level = "trace", skip(self, file_ctx))]
-    pub async fn set_file_ctx(&mut self, file_ctx: FileContext) {
+    pub async fn set_file_ctx(&mut self, mut file_ctx: FileContext) {
+        if file_ctx.is_dir {
+            file_ctx.idx = self.dir_counter;
+            self.dir_counter += 1;
+        }else if !file_ctx.is_symlink {
+            file_ctx.idx = self.file_counter;
+            self.file_counter += 1;
+        }
         self.context_queue.push_back(file_ctx)
     }
 
@@ -92,7 +105,15 @@ impl<
                     Err(TryRecvError::Empty) => break,
                     Ok(ref msg) => match &msg {
                         &Message::FileContext(context) => {
-                            self.context_queue.push_back(context.clone());
+                            let mut context = context.clone();
+                            if context.is_dir {
+                                context.idx = self.dir_counter;
+                                self.dir_counter += 1;
+                            }else if !context.is_symlink {
+                                context.idx = self.file_counter;
+                                self.file_counter += 1;
+                            }
+                            self.context_queue.push_back(context);
                         }
                         Message::Completed => {
                             return Ok(true);
@@ -122,6 +143,14 @@ impl<
                 Err(TryRecvError::Empty) => break,
                 Ok(ref msg) => match &msg {
                     &Message::FileContext(context) => {
+                        let mut context = context.clone();
+                        if context.is_dir {
+                            context.idx = self.dir_counter;
+                            self.dir_counter += 1;
+                        }else if !context.is_symlink {
+                            context.idx = self.file_counter;
+                            self.file_counter += 1;
+                        }
                         self.context_queue.push_back(context.clone());
                     }
                     Message::Completed => {

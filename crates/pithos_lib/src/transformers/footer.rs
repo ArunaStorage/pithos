@@ -1,12 +1,11 @@
 use crate::helpers::notifications::{Message, Notifier};
 use crate::helpers::structs::FileContext;
-use crate::pithos::structs::{EndOfFileMetadata, TableOfContents};
+use crate::pithos::structs::{DirContextHeader, EncryptionTarget, EndOfFileMetadata, FileContextHeader, TableOfContents};
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::anyhow;
 use anyhow::Result;
 use async_channel::{Receiver, Sender};
-use bytes::BufMut;
 use digest::Digest;
 use sha2::Sha256;
 use std::collections::HashMap;
@@ -16,13 +15,10 @@ use tracing::debug;
 pub struct FooterGenerator {
     hasher: Sha256,
     counter: u64,
-    eof_metadata: EndOfFileMetadata,
-    ranges: TableOfContents,
-    blocklist: Option<Vec<u8>>,
-    encryption_keys: HashMap<[u8; 32], Vec<[u8; 32]>>, // <Reader PubKey, List of encryption keys>
-    metadata: Option<(Option<Vec<u8>>, String)>, // (Dedicated encryption key, Semantic metadata)
-    sha1_hash: Option<String>,
-    md5_hash: Option<String>,
+    directories: Vec<DirContextHeader>,
+    files: Vec<FileContextHeader>,
+    encryption_keys: HashMap<[u8; 32], Vec<([u8; 32], EncryptionTarget)>>, // <Reader PubKey, List of encryption keys>
+    sha256_hash: Option<String>,
     notifier: Option<Arc<Notifier>>,
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
@@ -36,13 +32,8 @@ impl FooterGenerator {
         FooterGenerator {
             hasher: Sha256::new(),
             counter: 0,
-            eof_metadata: EndOfFileMetadata::init(),
-            ranges: TableOfContents::new(),
-            blocklist: None,
             encryption_keys: HashMap::new(),
-            metadata: None,
-            sha1_hash: None,
-            md5_hash: None,
+            sha256_hash: None,
             notifier: None,
             msg_receiver: None,
             idx: None,
@@ -68,13 +59,7 @@ impl FooterGenerator {
         Ok(FooterGenerator {
             hasher: Sha256::new(),
             counter: 0,
-            eof_metadata: EndOfFileMetadata::init(),
-            ranges: TableOfContents::new(),
-            blocklist: None,
             encryption_keys: map,
-            metadata: None,
-            sha1_hash: None,
-            md5_hash: None,
             notifier: None,
             msg_receiver: None,
             idx: None,
@@ -145,88 +130,9 @@ impl Transformer for FooterGenerator {
         self.counter += buf.len() as u64;
         if let Ok(finished) = self.process_messages() {
             if finished {
-                // Write semantic metadata
-                todo!();
-                /*
-                if let Some((encryption_key, metadata)) = &self.metadata {
-                    let encoded_metadata: Vec<u8> =
-                        SemanticMetadata::new(metadata.clone()).try_into()?;
-                    let metadata_bytes = if let Some(key) =
-                        encryption_key.clone().or(file_ctx.encryption_key.clone())
-                    {
-                        self.eof_metadata
-                            .set_flag(crate::structs::Flag::SemanticMetadataEncrypted);
-                        encrypt_chunk(&encoded_metadata, &[], key.as_slice(), false)?
-                    } else {
-                        Bytes::from(encoded_metadata)
-                    };
-                    self.eof_metadata.semantic_len = Some(metadata_bytes.len() as u64);
-                    self.hasher.update(&metadata_bytes);
-                    self.counter += metadata_bytes.len() as u64;
-                    buf.put(metadata_bytes);
-                }
-                */
+                // Write TableOfContents
 
-                todo!("Write TableOfContents");
-                /*
-                // (optional) Blocklist
-                if let Some(blocklist) = &self.blocklist {
-                    let encoded_blocklist: Vec<u8> =
-                        BlockList::new(blocklist.clone()).try_into()?;
-                    self.eof_metadata.blocklist_len = Some(encoded_blocklist.len() as u64);
-                    self.hasher.update(encoded_blocklist.as_slice());
-                    self.counter += encoded_blocklist.len() as u64;
-                    buf.put(encoded_blocklist.as_slice());
-                }
-                */
-
-                todo!();
-                /*
-                // (optional) Encryption
-                if let Some(key) = &file_ctx.encryption_key {
-                    if let Some(pk) = &file_ctx.owners_pubkey {
-                        debug!(?pk, "Create encryption metadata");
-                        let mut encryption_metadata =
-                            EncryptionMetadata::new(vec![EncryptionPacket::new(
-                                vec![key.as_slice().try_into()?],
-                                *pk,
-                            )]);
-                        encryption_metadata.encrypt_all(None)?;
-                        debug!(?encryption_metadata);
-                        let encryption_data_bytes: Vec<u8> = encryption_metadata.try_into()?;
-                        debug!(encryption_bytes_len = encryption_data_bytes.len());
-                        self.hasher.update(encryption_data_bytes.as_slice());
-                        self.eof_metadata.encryption_len = Some(encryption_data_bytes.len() as u64);
-                        self.counter += encryption_data_bytes.len() as u64;
-                        buf.put(encryption_data_bytes.as_slice());
-                    }
-                }
-                */
-
-                // Technical Metadata
-                // self.eof_metadata.finalize();
-                // self.eof_metadata.disk_file_size =
-                //     self.counter + self.eof_metadata.eof_metadata_len;
-
-                // let encoded_technical_metadata: Vec<u8> = self.eof_metadata.clone().try_into()?;
-                // self.hasher.update(encoded_technical_metadata.as_slice());
-                // self.eof_metadata.disk_hash_sha256 =
-                //     self.hasher.finalize_reset().as_slice().try_into()?;
-
-                // let final_data: Vec<u8> = self.eof_metadata.clone().try_into()?;
-                // buf.put(final_data.as_slice());
-
-                // // Reset counter & hasher
-                // self.counter = 0;
-                // self.hasher.reset();
-
-                // if let Some(notifier) = &self.notifier {
-                //     notifier.send_next(
-                //         self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
-                //         Message::Finished,
-                //     )?;
-                // }
-                //self.filectx = None;
+                // Write
             }
         } else {
             return Err(anyhow!("Error processing messages"));

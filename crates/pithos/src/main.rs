@@ -318,6 +318,7 @@ async fn main() -> Result<()> {
                     mode: Some(file_metadata.mode()),
                     mtime: Some(file_metadata.mtime() as u64),
                     compression: false,
+                    chunk_multiplier: None,
                     encryption_key: Some(key.as_bytes().to_vec()),
                     owners_pubkey: Some(pub_key),
                     is_dir: file_metadata.file_type().is_dir(),
