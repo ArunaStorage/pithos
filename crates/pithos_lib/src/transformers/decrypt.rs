@@ -76,7 +76,7 @@ impl ChaCha20Dec {
             loop {
                 match rx.try_recv() {
                     Ok(Message::FileContext(ctx)) => {
-                        if !self.key_is_fixed && !ctx.is_dir && !ctx.is_symlink {
+                        if !self.key_is_fixed && !ctx.is_dir && !ctx.symlink_info {
                             self.decryption_key = ctx.encryption_key;
                         }
                     }

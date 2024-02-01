@@ -13,6 +13,7 @@ use futures::Stream;
 use md5::Md5;
 use sha1::Sha1;
 use tokio::io::AsyncWrite;
+use crate::transformers::pithos_comp_enc::PithosTransformer;
 
 pub struct PithosWriter<
     'a,
@@ -64,9 +65,7 @@ impl<
                 .send(Message::FileContext(file_context.clone()))
                 .await?;
         }
-        if let Some(md) = metadata {
-            sender.send(Message::Metadata((None, md))).await?;
-        }
+
         stream_read_writer.add_message_receiver(receiver).await?;
 
         // Return default PithosWriter
@@ -78,13 +77,11 @@ impl<
         input_stream: R,
         writer: W,
         file_contexts: Vec<FileContext>,
-        metadata: Option<String>,
     ) -> Result<Self> {
         let mut stream_read_writer = GenericStreamReadWriter::new_with_writer(input_stream, writer)
             .add_transformer(HashingTransformer::new(Md5::new(), "md5".to_string()))
             .add_transformer(HashingTransformer::new(Sha1::new(), "sha1".to_string()))
-            .add_transformer(ZstdEnc::new())
-            .add_transformer(ChaCha20Enc::new())
+            .add_transformer(PithosTransformer::new())
             .add_transformer(FooterGenerator::new());
 
         let (sender, receiver) = async_channel::bounded(10);
@@ -92,9 +89,6 @@ impl<
             sender.send(Message::FileContext(context)).await?;
         }
 
-        if let Some(md) = metadata {
-            sender.send(Message::Metadata((None, md))).await?;
-        }
         stream_read_writer.add_message_receiver(receiver).await?;
 
         // Return default multifile PithosWriter

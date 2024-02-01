@@ -310,8 +310,8 @@ async fn main() -> Result<()> {
 
                 let file_context = FileContext {
                     file_name: file_path.file_name().unwrap().to_str().unwrap().to_string(),
-                    input_size: file_metadata.len(),
-                    file_size: file_metadata.len(),
+                    compressed_size: file_metadata.len(),
+                    decompressed_size: file_metadata.len(),
                     file_path: Some(file_path.to_str().unwrap().to_string()),
                     uid: Some(file_metadata.uid().into()),
                     gid: Some(file_metadata.gid().into()),
@@ -322,8 +322,8 @@ async fn main() -> Result<()> {
                     encryption_key: Some(key.as_bytes().to_vec()),
                     owners_pubkey: Some(pub_key),
                     is_dir: file_metadata.file_type().is_dir(),
-                    is_symlink: file_metadata.file_type().is_symlink(),
-                    expected_sha1: None, //ToDo
+                    symlink_info: file_metadata.file_type().is_symlink(),
+                    expected_sha256: None, //ToDo
                     expected_md5: None,  //ToDo
                 };
 

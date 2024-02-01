@@ -7,6 +7,7 @@ use chacha20poly1305::{
     ChaCha20Poly1305,
 };
 use std::fmt::Display;
+use crate::helpers::structs::{EncryptionKey, FileContext};
 
 pub const ZSTD_MAGIC_BYTES: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
 pub const ZSTD_MAGIC_BYTES_SKIPPABLE_0: [u8; 4] = [0x50, 0x2A, 0x4D, 0x18];
@@ -166,7 +167,7 @@ pub struct SymlinkContextHeader {
     pub file_info: Option<FileInfo>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Clone, Eq, PartialOrd, Ord, PartialEq, Debug)]
 pub struct CustomRange {
     pub tag: String,
     pub start: u64,
@@ -190,11 +191,43 @@ pub struct FileContextHeader {
     pub custom_ranges: Option<Vec<CustomRange>>,
 }
 
+impl From<FileContext> for FileContextHeader {
+    fn from(ctx: FileContext) -> Self {
+        Self {
+            file_path: ctx.get_path(),
+            disk_size: ctx.decompressed_size,
+            file_start: 0,
+            file_end: 0,
+            compressed: ctx.compression,
+            encrypted: ctx.encryption_key.data_encrypted(),
+            block_scale: ctx.chunk_multiplier.unwrap_or(1),
+            index_list: None,
+            file_info: ctx.into(),
+            hashes: ctx.get_hashes(),
+            metadata: ctx.semantic_metadata,
+            symlinks: None,
+            custom_ranges: ctx.custom_ranges,
+        }
+    }
+}
+
 #[derive(BorshDeserialize, BorshSerialize, Debug)]
 pub struct DirContextHeader {
     pub file_path: String, // FileName /foo/bar/
     pub file_info: Option<FileInfo>,
+    pub symlinks: Option<Vec<SymlinkContextHeader>>,
     pub metadata: Option<String>,
+}
+
+impl From<FileContext> for DirContextHeader {
+    fn from(ctx: FileContext) -> Self {
+        Self {
+            file_path: ctx.get_path(),
+            file_info: ctx.into(),
+            symlinks: None,
+            metadata: ctx.semantic_metadata,
+        }
+    }
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Debug)]

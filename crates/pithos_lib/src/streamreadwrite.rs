@@ -90,7 +90,7 @@ impl<
         if file_ctx.is_dir {
             file_ctx.idx = self.dir_counter;
             self.dir_counter += 1;
-        }else if !file_ctx.is_symlink {
+        } else if file_ctx.symlink_target.is_none() {
             file_ctx.idx = self.file_counter;
             self.file_counter += 1;
         }
@@ -109,7 +109,7 @@ impl<
                             if context.is_dir {
                                 context.idx = self.dir_counter;
                                 self.dir_counter += 1;
-                            }else if !context.is_symlink {
+                            } else if context.symlink_target.is_none() {
                                 context.idx = self.file_counter;
                                 self.file_counter += 1;
                             }
@@ -117,14 +117,6 @@ impl<
                         }
                         Message::Completed => {
                             return Ok(true);
-                        }
-                        Message::Metadata(md) => {
-                            if let Some(ref notifier) = self.notifier {
-                                notifier.send_all_type(
-                                    TransformerType::FooterGenerator,
-                                    Message::Metadata(md.clone()),
-                                )?
-                            }
                         }
                         _ => {}
                     },
@@ -147,7 +139,7 @@ impl<
                         if context.is_dir {
                             context.idx = self.dir_counter;
                             self.dir_counter += 1;
-                        }else if !context.is_symlink {
+                        }else if file_ctx.symlink_target.is_none() {
                             context.idx = self.file_counter;
                             self.file_counter += 1;
                         }
@@ -235,20 +227,20 @@ impl<
 
             if let Some(context) = &file_ctx {
                 self.size_counter += read_bytes;
-                if self.size_counter > context.input_size as usize {
-                    let mut diff = if read_bytes > self.size_counter - context.input_size as usize {
-                        read_bytes - (self.size_counter - context.input_size as usize)
+                if self.size_counter > context.compressed_size as usize {
+                    let mut diff = if read_bytes > self.size_counter - context.compressed_size as usize {
+                        read_bytes - (self.size_counter - context.compressed_size as usize)
                     } else {
                         0
                     };
-                    if diff >= context.input_size as usize {
-                        diff = context.input_size as usize
+                    if diff >= context.compressed_size as usize {
+                        diff = context.compressed_size as usize
                     }
                     hold_buffer = read_buf.split_to(diff);
                     mem::swap(&mut read_buf, &mut hold_buffer);
-                    self.size_counter -= context.input_size as usize;
+                    self.size_counter -= context.compressed_size as usize;
                     file_ctx = self.context_queue.pop_front();
-                } else if self.size_counter == context.input_size as usize && hold_buffer.is_empty()
+                } else if self.size_counter == context.compressed_size as usize && hold_buffer.is_empty()
                 {
                     file_ctx = self.context_queue.pop_front();
                 }

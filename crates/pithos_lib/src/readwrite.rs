@@ -156,20 +156,20 @@ impl<'a, R: AsyncRead + Unpin + Send + Sync> ReadWriter for GenericReadWriter<'a
 
             if let Some(context) = &file_ctx {
                 self.size_counter += read_bytes;
-                if self.size_counter > context.input_size as usize {
-                    let mut diff = if read_bytes > self.size_counter - context.input_size as usize {
-                        read_bytes - (self.size_counter - context.input_size as usize)
+                if self.size_counter > context.compressed_size as usize {
+                    let mut diff = if read_bytes > self.size_counter - context.compressed_size as usize {
+                        read_bytes - (self.size_counter - context.compressed_size as usize)
                     } else {
                         0
                     };
-                    if diff >= context.input_size as usize {
-                        diff = context.input_size as usize
+                    if diff >= context.compressed_size as usize {
+                        diff = context.compressed_size as usize
                     }
                     hold_buffer = read_buf.split_to(diff);
                     mem::swap(&mut read_buf, &mut hold_buffer);
-                    self.size_counter -= context.input_size as usize;
+                    self.size_counter -= context.compressed_size as usize;
                     file_ctx = self.context_queue.pop_front();
-                } else if self.size_counter == context.input_size as usize && hold_buffer.is_empty()
+                } else if self.size_counter == context.compressed_size as usize && hold_buffer.is_empty()
                 {
                     file_ctx = self.context_queue.pop_front();
                 }

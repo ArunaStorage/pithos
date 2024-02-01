@@ -74,10 +74,10 @@ impl From<FileContext> for CurrentFile {
     fn from(ctx: FileContext) -> Self {
         CurrentFile {
             idx: ctx.idx,
-            expected_size: Some(ctx.file_size),
+            expected_size: Some(ctx.decompressed_size),
             raw_size_full: 0,
             multiplier: ctx.chunk_multiplier.unwrap_or(1),
-            encryption_key: ctx.encryption_key,
+            encryption_key: ctx.encryption_key.get_data_key(),
             compression: ProbeResult::Unknown,
             raw_size_current_chunk: 0,
             chunk_sizes: Vec::new(),

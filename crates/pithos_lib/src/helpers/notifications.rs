@@ -20,13 +20,18 @@ pub struct CompressionInfo {
 }
 
 #[derive(Clone, Debug)]
+pub enum DirOrFileIdx {
+    Dir(usize),
+    File(usize),
+}
+
+#[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum Message {
     Completed,
     Finished,
     FileContext(FileContext),
     Hash((HashType, String, Option<usize>)), // HashType, Hash, Optional idx of file
-    Metadata((Option<Vec<u8>>, String)), // Optional different Key, JSON Metadata value
     SizeInfo(u64),
     CompressionInfo(CompressionInfo),
     EditList(Vec<u64>),

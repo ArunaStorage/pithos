@@ -32,12 +32,7 @@ impl TryFrom<FileContext> for Header {
     #[tracing::instrument(level = "trace", skip(value))]
     fn try_from(value: FileContext) -> Result<Self> {
         let mut header = Header::new_gnu();
-
-        let path = match value.file_path {
-            Some(p) => p + &value.file_name,
-            None => value.file_name,
-        };
-        header.set_path(path)?;
+        header.set_path(value.file_path)?;
         header.set_mode(value.mode.unwrap_or(0o644));
         header.set_mtime(value.mtime.unwrap_or_else(|| {
             SystemTime::now()
@@ -47,7 +42,10 @@ impl TryFrom<FileContext> for Header {
         }));
         header.set_uid(value.gid.unwrap_or(1000));
         header.set_gid(value.gid.unwrap_or(1000));
-        header.set_size(value.file_size);
+        header.set_size(value.decompressed_size);
+        if let Some(symlink) = value.symlink_target {
+            header.set_link_name(symlink)?;
+        }
         header.set_cksum();
         Ok(header)
     }
@@ -77,10 +75,10 @@ impl TarEnc {
                 match rx.try_recv() {
                     Ok(Message::FileContext(ctx)) => {
                         if self.header.is_none() {
-                            if ctx.is_dir || ctx.is_symlink {
+                            if ctx.is_dir || ctx.symlink_target.is_some() {
                                 self.padding = 0;
                             } else {
-                                self.padding = 512 - ctx.file_size as usize % 512;
+                                self.padding = 512 - ctx.decompressed_size as usize % 512;
                             }
                             self.header = Some(TryInto::<Header>::try_into(ctx.clone())?);
                         } else {
