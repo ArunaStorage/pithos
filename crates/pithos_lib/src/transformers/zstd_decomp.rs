@@ -1,6 +1,6 @@
+use crate::helpers::notifications::Message;
+use crate::helpers::notifications::Notifier;
 use crate::helpers::structs::ProbeResult;
-use crate::notifications::Message;
-use crate::notifications::Notifier;
 use crate::pithos::structs::ZSTD_MAGIC_BYTES_ALL;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;

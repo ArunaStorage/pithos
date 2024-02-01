@@ -4,11 +4,9 @@ use bytes::Bytes;
 use futures::Stream;
 use tokio::io::AsyncWrite;
 
+use crate::helpers::notifications::Message;
 use crate::helpers::structs::FileContext;
-use crate::{
-    notifications::Message,
-    transformer::{Sink, Transformer, TransformerType},
-};
+use crate::transformer::{Sink, Transformer, TransformerType};
 
 pub struct PithosReader<
     'a,

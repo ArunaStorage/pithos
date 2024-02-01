@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use crate::notifications::Message;
-use crate::notifications::Notifier;
+use crate::helpers::notifications::Message;
+use crate::helpers::notifications::Notifier;
 use crate::transformer::Sink;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;

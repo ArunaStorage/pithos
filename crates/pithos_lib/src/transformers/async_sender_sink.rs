@@ -1,4 +1,4 @@
-use crate::notifications::{Message, Notifier};
+use crate::helpers::notifications::{Message, Notifier};
 use crate::transformer::Sink;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;

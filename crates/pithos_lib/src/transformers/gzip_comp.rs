@@ -1,5 +1,5 @@
-use crate::notifications::Message;
-use crate::notifications::Notifier;
+use crate::helpers::notifications::Message;
+use crate::helpers::notifications::Notifier;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::{anyhow, Result};

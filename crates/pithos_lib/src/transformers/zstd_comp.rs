@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use crate::helpers::notifications::Message;
+use crate::helpers::notifications::Notifier;
 use crate::helpers::structs::ProbeResult;
-use crate::notifications::Message;
-use crate::notifications::Notifier;
-use crate::pithos::structs::ZSTD_MAGIC_BYTES_SKIPPABLE_15;
+use crate::helpers::frames::create_skippable_padding_frame;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::anyhow;
@@ -12,10 +12,8 @@ use async_channel::Receiver;
 use async_channel::Sender;
 use async_channel::TryRecvError;
 use async_compression::tokio::write::ZstdEncoder;
-use byteorder::LittleEndian;
-use byteorder::WriteBytesExt;
 use bytes::BufMut;
-use bytes::{Bytes, BytesMut};
+use bytes::BytesMut;
 use tokio::io::AsyncWriteExt;
 use tracing::debug;
 use tracing::error;
@@ -229,21 +227,6 @@ impl ZstdEnc {
             ));
         }
     }
-}
-
-#[tracing::instrument(level = "trace", skip(size))]
-#[inline]
-fn create_skippable_padding_frame(size: usize) -> Result<Bytes> {
-    if size < 8 {
-        error!(size = size, "Size too small");
-        return Err(anyhow!("{size} is too small, minimum is 8 bytes"));
-    }
-    // Add frame_header
-    let mut frame = ZSTD_MAGIC_BYTES_SKIPPABLE_15.to_vec();
-    // 4 Bytes (little-endian) for size
-    WriteBytesExt::write_u32::<LittleEndian>(&mut frame, size as u32 - 8)?;
-    frame.extend(vec![0; size - 8]);
-    Ok(Bytes::from(frame))
 }
 
 #[cfg(test)]

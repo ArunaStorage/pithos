@@ -1,6 +1,5 @@
 mod crypt4gh;
 pub mod helpers;
-pub mod notifications;
 pub mod pithos;
 pub mod readwrite;
 pub mod streamreadwrite;
@@ -10,8 +9,8 @@ pub mod transformers;
 #[cfg(test)]
 mod tests {
     //use crate::helpers::footer_parser::{FooterParser, Range};
+    use crate::helpers::notifications::Message;
     use crate::helpers::structs::{FileContext, Range};
-    use crate::notifications::Message;
     use crate::readwrite::GenericReadWriter;
     use crate::streamreadwrite::GenericStreamReadWriter;
     use crate::transformer::ReadWriter;

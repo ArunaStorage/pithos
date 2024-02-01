@@ -1,4 +1,4 @@
-use crate::notifications::{HashType, Message, Notifier};
+use crate::helpers::notifications::{HashType, Message, Notifier};
 use crate::transformer::{Transformer, TransformerType};
 use anyhow::anyhow;
 use anyhow::Result;

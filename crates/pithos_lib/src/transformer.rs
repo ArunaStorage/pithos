@@ -1,4 +1,4 @@
-use crate::notifications::{Message, Notifier};
+use crate::helpers::notifications::{Message, Notifier};
 use anyhow::Result;
 use async_channel::{Receiver, Sender};
 use std::sync::Arc;

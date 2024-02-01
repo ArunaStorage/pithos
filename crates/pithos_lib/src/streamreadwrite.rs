@@ -1,5 +1,5 @@
+use crate::helpers::notifications::{Message, Notifier};
 use crate::helpers::structs::FileContext;
-use crate::notifications::{Message, Notifier};
 use crate::transformer::{ReadWriter, Sink, Transformer, TransformerType};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::{anyhow, bail, Result};
@@ -194,6 +194,7 @@ impl<
                 mem::swap(&mut hold_buffer, &mut read_buf);
                 if let Some(ctx) = &file_ctx {
                     notifier.send_all(Message::FileContext(ctx.clone()))?;
+                    notifier.send_all(Message::ShouldFlush)?;
                 }
             }
 

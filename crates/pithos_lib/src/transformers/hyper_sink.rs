@@ -1,4 +1,4 @@
-use crate::notifications::{Message, Notifier};
+use crate::helpers::notifications::{Message, Notifier};
 use crate::transformer::{Sink, Transformer, TransformerType};
 use anyhow::{anyhow, Result};
 use async_channel::{Receiver, Sender as AsyncSender, TryRecvError};

@@ -181,8 +181,8 @@ pub struct FileContextHeader {
     pub file_end: u64,
     pub compressed: bool,
     pub encrypted: bool,
-    pub block_scale: u32, // ChaCha / Compression block scale, should be a multiple of 65536 (default = 1)
-    pub index_list: Option<Vec<u32>>, // Raw size of every chunk in order (only if compressed)
+    pub block_scale: u32, // ChaCha / Compression block scale, should be a multiple of 65536 (default = 1);
+    pub index_list: Option<Vec<u32>>, // Raw size of every chunk in order (only if compressed); MAX: 83_886_080, Max raw Blocksize 4GiB
     pub file_info: Option<FileInfo>,
     pub hashes: Option<Hashes>,
     pub metadata: Option<String>,

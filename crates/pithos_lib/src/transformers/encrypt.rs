@@ -1,4 +1,4 @@
-use crate::notifications::{Message, Notifier};
+use crate::helpers::notifications::{Message, Notifier};
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::anyhow;
@@ -102,7 +102,6 @@ impl Transformer for ChaCha20Enc {
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut BytesMut) -> Result<()> {
         // Only write if the buffer contains data and the current process is not finished
-
         if !buf.is_empty() {
             self.input_buf.put(buf.split());
         }
