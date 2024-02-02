@@ -5,7 +5,7 @@ use anyhow::{anyhow, Result};
 use async_channel::{Receiver, Sender, TryRecvError};
 use bytes::{Buf, BufMut, BytesMut};
 use std::sync::Arc;
-use tracing::{error, warn};
+use tracing::error;
 
 #[derive(Debug, PartialEq, Clone, Eq, PartialOrd, Ord)]
 pub enum FilterParam {

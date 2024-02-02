@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use anyhow::Result;
 use async_channel::{Receiver, Sender, TryRecvError};
 use digest::{Digest, FixedOutputReset};
+use std::collections::VecDeque;
 use std::sync::Arc;
 use tracing::error;
 
@@ -11,6 +12,8 @@ pub struct HashingTransformer<T: Digest + Send + FixedOutputReset> {
     idx: Option<usize>,
     hasher: T,
     hasher_type: String,
+    counter: u64,
+    file_queue: Option<VecDeque<(usize, u64)>>,
     msg_receiver: Option<Receiver<Message>>,
     notifier: Option<Arc<Notifier>>,
 }
@@ -21,11 +24,19 @@ where
 {
     #[tracing::instrument(level = "trace", skip(hasher))]
     #[allow(dead_code)]
-    pub fn new(hasher: T, hasher_type: String) -> HashingTransformer<T> {
+    pub fn new(hasher: T, hasher_type: String, file_specific: bool) -> HashingTransformer<T> {
+        let file_queue = if file_specific {
+            Some(VecDeque::new())
+        } else {
+            None
+        };
+
         HashingTransformer {
             idx: None,
             hasher,
             hasher_type,
+            counter: 0,
+            file_queue,
             msg_receiver: None,
             notifier: None,
         }
@@ -37,6 +48,16 @@ where
             loop {
                 match rx.try_recv() {
                     Ok(Message::Finished) | Ok(Message::ShouldFlush) => return Ok(true),
+                    Ok(Message::FileContext(ctx)) => {
+                        if !ctx.is_dir && ctx.symlink_target.is_none() {
+                            if let Some(queue) = self.file_queue.as_mut() {
+                                queue.push_back((ctx.idx, ctx.decompressed_size));
+                                if self.counter <= 0 {
+                                    self.counter = ctx.decompressed_size;
+                                }
+                            }
+                        }
+                    }
                     Ok(_) => {}
                     Err(TryRecvError::Empty) => {
                         break;
@@ -49,6 +70,36 @@ where
             }
         }
         Ok(false)
+    }
+
+    async fn next_file(&mut self, init_next: &[u8]) -> Result<()> {
+        if let Some(queue) = self.file_queue.as_mut() {
+            if let Some((idx, _)) = queue.pop_front() {
+                let finished_hash = hex::encode(self.hasher.finalize_reset()).to_string();
+                let hashertype = match self.hasher_type.as_str() {
+                    "sha1" => HashType::Sha1,
+                    "md5" => HashType::Md5,
+                    a => HashType::Other(a.to_string()),
+                };
+                if let Some(notifier) = &self.notifier {
+                    notifier.send_all_type(
+                        TransformerType::FooterGenerator,
+                        Message::Hash((hashertype.clone(), finished_hash.clone(), Some(idx))),
+                    )?;
+                    notifier.send_next(
+                        idx,
+                        Message::Hash((hashertype.clone(), finished_hash.clone(), Some(idx))),
+                    )?;
+                }
+            }
+            if let Some((_, size)) = queue.front() {
+                self.counter = *size;
+            }
+            if !init_next.is_empty() {
+                Digest::update(&mut self.hasher, init_next);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -67,16 +118,25 @@ where
 
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
-        Digest::update(&mut self.hasher, &buf);
+        let Ok(finished) = self.process_messages() else {
+            return Err(anyhow!("HashingTransformer: Error processing messages"));
+        };
 
-        if buf.is_empty() {
-            let Ok(finished) = self.process_messages() else {
-                return Err(anyhow!("HashingTransformer: Error processing messages"));
-            };
+        self.counter = self.counter - buf.len() as u64;
+        if self.counter <= 0 {
+            let to_keep = buf.len() + self.counter as usize;
+            Digest::update(&mut self.hasher, buf.get(0..to_keep).unwrap_or_default());
+            self.next_file(buf.get(to_keep..).unwrap_or_default())
+                .await?;
+        } else {
+            Digest::update(&mut self.hasher, &buf);
+        }
 
-            if finished {
-                dbg!(finished);
-                if let Some(notifier) = &self.notifier {
+        if buf.is_empty() && finished {
+            if let Some(notifier) = &self.notifier {
+                if self.file_queue.is_some() {
+                    self.next_file(&[]).await?;
+                } else {
                     let finished_hash = hex::encode(self.hasher.finalize_reset()).to_string();
                     let hashertype = match self.hasher_type.as_str() {
                         "sha1" => HashType::Sha1,
@@ -85,16 +145,15 @@ where
                     };
                     notifier.send_all_type(
                         TransformerType::FooterGenerator,
-                        Message::Hash((hashertype.clone(), finished_hash.clone(), todo!())),
-                    )?;
-                    //notifier.send_read_writer(Message::Hash((hashertype, finished_hash)))?; // No need to send out anymore?
-                    notifier.send_next(
-                        self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
-                        Message::Finished,
+                        Message::Hash((hashertype.clone(), finished_hash.clone(), None)),
                     )?;
                 }
+                //notifier.send_read_writer(Message::Hash((hashertype, finished_hash)))?; // No need to send out anymore?
+                notifier.send_next(
+                    self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
+                    Message::Finished,
+                )?;
             }
-            return Ok(());
         }
         Ok(())
     }
