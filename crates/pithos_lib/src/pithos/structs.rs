@@ -1,4 +1,4 @@
-use crate::helpers::structs::FileContext;
+use crate::helpers::structs::{EncryptionKey, FileContext};
 use anyhow::{anyhow, Result};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chacha20poly1305::aead::OsRng;
@@ -133,14 +133,8 @@ impl TryInto<EncryptionPacket> for DecryptedKey {
 
 #[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub enum PithosRange {
-    // Applies for everything
-    All,
     // Exact index
     Index(u64),
-    // From start_index to end
-    Start(u64),
-    // From 0 to end_index
-    End(u64),
     // From start_index to end_index
     IndexRange((u64, u64)),
 }
@@ -288,5 +282,24 @@ impl TableOfContents {
             directories: Vec::new(),
             files: Vec::new(),
         }
+    }
+
+    pub fn finalize(&mut self, keys: Vec<EncryptionKey>) {
+        /*
+        match keys {
+            EncryptionKey::None => {
+                // Do nothing
+            }
+            EncryptionKey::Same(key) => {
+
+            }
+            EncryptionKey::DataOnly(_) => {
+                // Do nothing
+            }
+            EncryptionKey::Individual((_, metadata_key)) => {
+
+            }
+        }
+        */
     }
 }

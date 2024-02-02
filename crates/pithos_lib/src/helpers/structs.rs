@@ -1,6 +1,6 @@
 use std::num::ParseIntError;
 
-use crate::pithos::structs::{CustomRange, FileInfo, Hashes};
+use crate::pithos::structs::{CustomRange, EncryptionTarget, FileInfo, Hashes, PithosRange};
 use anyhow::{anyhow, bail, Result};
 
 #[derive(Debug, PartialEq, Default, Clone)]
@@ -42,6 +42,28 @@ impl EncryptionKey {
             EncryptionKey::Same(key) => Some(key.clone()),
             EncryptionKey::DataOnly(key) => Some(key.clone()),
             EncryptionKey::Individual((key, _)) => Some(key.clone()),
+        }
+    }
+
+    pub fn as_encryption_target(&self, idx: usize, is_dir: bool) -> Vec<EncryptionTarget> {
+        match (self, is_dir) {
+            (EncryptionKey::Same(key), false) => vec![EncryptionTarget::FileDataAndMetadata(
+                PithosRange::Index(idx as u64),
+            )],
+            (EncryptionKey::DataOnly(key), false) => {
+                vec![EncryptionTarget::FileData(PithosRange::Index(idx as u64))]
+            }
+            (EncryptionKey::Individual((data_key, pub_key)), false) => vec![
+                EncryptionTarget::FileData(PithosRange::Index(idx as u64)),
+                EncryptionTarget::FileMetadata(PithosRange::Index(idx as u64)),
+            ],
+            (
+                EncryptionKey::Same(key)
+                | EncryptionKey::DataOnly(key)
+                | EncryptionKey::Individual((key, _)),
+                true,
+            ) => vec![EncryptionTarget::Dir(PithosRange::Index(idx as u64))],
+            _ => vec![],
         }
     }
 }
@@ -118,16 +140,6 @@ impl From<&FileContext> for Option<FileInfo> {
 }
 
 impl FileContext {
-    /*
-    #[tracing::instrument(level = "trace", skip(self))]
-    pub fn get_path(&self) -> String {
-        match &self.file_path {
-            Some(p) => p.clone() + "/" + &self.file_name,
-            None => self.file_name.clone(),
-        }
-    }
-    */
-
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn get_hashes(&self) -> Result<Option<Hashes>> {
         if self.expected_sha256.is_none() && self.expected_sha256.is_none() {
@@ -155,6 +167,18 @@ impl FileContext {
         }
 
         Ok(Some(hashes))
+    }
+
+    pub fn get_keys(&self) -> Result<([u8; 32], Vec<EncryptionTarget>)> {
+        if let Some(pubkey) = self.owners_pubkey {
+            Ok((
+                pubkey,
+                self.encryption_key
+                    .as_encryption_target(self.idx, self.is_dir),
+            ))
+        } else {
+            bail!("No pubkey found for file")
+        }
     }
 }
 

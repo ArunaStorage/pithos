@@ -75,19 +75,15 @@ where
     async fn next_file(&mut self, init_next: &[u8]) -> Result<()> {
         if let Some(queue) = self.file_queue.as_mut() {
             if let Some((idx, _)) = queue.pop_front() {
-                let finished_hash = hex::encode(self.hasher.finalize_reset()).to_string();
+                let finished_hash = self.hasher.finalize_reset().to_vec();
                 let hashertype = match self.hasher_type.as_str() {
-                    "sha1" => HashType::Sha1,
+                    "sha1" => HashType::Sha256,
                     "md5" => HashType::Md5,
                     a => HashType::Other(a.to_string()),
                 };
                 if let Some(notifier) = &self.notifier {
                     notifier.send_all_type(
                         TransformerType::FooterGenerator,
-                        Message::Hash((hashertype.clone(), finished_hash.clone(), Some(idx))),
-                    )?;
-                    notifier.send_next(
-                        idx,
                         Message::Hash((hashertype.clone(), finished_hash.clone(), Some(idx))),
                     )?;
                 }
@@ -137,9 +133,9 @@ where
                 if self.file_queue.is_some() {
                     self.next_file(&[]).await?;
                 } else {
-                    let finished_hash = hex::encode(self.hasher.finalize_reset()).to_string();
+                    let finished_hash = self.hasher.finalize_reset().to_vec();
                     let hashertype = match self.hasher_type.as_str() {
-                        "sha1" => HashType::Sha1,
+                        "sha256" => HashType::Sha256,
                         "md5" => HashType::Md5,
                         a => HashType::Other(a.to_string()),
                     };

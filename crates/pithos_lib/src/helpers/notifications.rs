@@ -6,7 +6,7 @@ use std::sync::RwLock;
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum HashType {
-    Sha1,
+    Sha256,
     Md5,
     Other(String),
 }
@@ -31,7 +31,7 @@ pub enum Message {
     Completed,
     Finished,
     FileContext(FileContext),
-    Hash((HashType, String, Option<usize>)), // HashType, Hash, Optional idx of file
+    Hash((HashType, Vec<u8>, Option<usize>)), // HashType, Hash, Optional idx of file
     SizeInfo(u64),
     CompressionInfo(CompressionInfo),
     EditList(Vec<u64>),

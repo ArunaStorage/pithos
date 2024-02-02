@@ -13,6 +13,7 @@ use digest::Digest;
 use futures::Stream;
 use md5::Md5;
 use sha1::Sha1;
+use sha2::Sha256;
 use tokio::io::AsyncWrite;
 
 pub struct PithosWriter<
@@ -44,34 +45,36 @@ impl<
         todo!();
     }
 
-    #[tracing::instrument(level = "trace", skip(input_stream, writer))]
-    pub async fn new_with_writer<W: AsyncWrite + Send + Sync + 'a>(
-        input_stream: R,
-        writer: W,
-        file_contexts: Vec<FileContext>,
-        metadata: Option<String>,
-    ) -> Result<Self> {
-        let mut stream_read_writer = GenericStreamReadWriter::new_with_writer(input_stream, writer)
-            .add_transformer(HashingTransformer::new(Md5::new(), "md5".to_string()))
-            .add_transformer(HashingTransformer::new(Sha1::new(), "sha1".to_string()))
-            .add_transformer(ZstdEnc::new())
-            .add_transformer(ChaCha20Enc::new())
-            .add_transformer(FooterGenerator::new());
+    /*
+        #[tracing::instrument(level = "trace", skip(input_stream, writer))]
+        pub async fn new_with_writer<W: AsyncWrite + Send + Sync + 'a>(
+            input_stream: R,
+            writer: W,
+            file_contexts: Vec<FileContext>,
+            metadata: Option<String>,
+        ) -> Result<Self> {
 
-        // Send all FileContext into GenericStreamReadWriter message queue
-        let (sender, receiver) = async_channel::unbounded();
-        for file_context in file_contexts {
-            sender
-                .send(Message::FileContext(file_context.clone()))
-                .await?;
+            let mut stream_read_writer = GenericStreamReadWriter::new_with_writer(input_stream, writer)
+                .add_transformer(HashingTransformer::new(Md5::new(), "md5".to_string()))
+                .add_transformer(HashingTransformer::new(Sha256::new(), "sha256".to_string()))
+                .add_transformer(ZstdEnc::new())
+                .add_transformer(ChaCha20Enc::new())
+                .add_transformer(FooterGenerator::new());
+
+            // Send all FileContext into GenericStreamReadWriter message queue
+            let (sender, receiver) = async_channel::unbounded();
+            for file_context in file_contexts {
+                sender
+                    .send(Message::FileContext(file_context.clone()))
+                    .await?;
+            }
+
+            stream_read_writer.add_message_receiver(receiver).await?;
+
+            // Return default PithosWriter
+            Ok(PithosWriter { stream_read_writer })
         }
-
-        stream_read_writer.add_message_receiver(receiver).await?;
-
-        // Return default PithosWriter
-        Ok(PithosWriter { stream_read_writer })
-    }
-
+    */
     #[tracing::instrument(level = "trace", skip(input_stream, writer))]
     pub async fn new_multi_with_writer<W: AsyncWrite + Send + Sync + 'a>(
         input_stream: R,
@@ -79,8 +82,12 @@ impl<
         file_contexts: Vec<FileContext>,
     ) -> Result<Self> {
         let mut stream_read_writer = GenericStreamReadWriter::new_with_writer(input_stream, writer)
-            .add_transformer(HashingTransformer::new(Md5::new(), "md5".to_string()))
-            .add_transformer(HashingTransformer::new(Sha1::new(), "sha1".to_string()))
+            .add_transformer(HashingTransformer::new(Md5::new(), "md5".to_string(), true))
+            .add_transformer(HashingTransformer::new(
+                Sha256::new(),
+                "sha256".to_string(),
+                true,
+            ))
             .add_transformer(PithosTransformer::new())
             .add_transformer(FooterGenerator::new());
 
