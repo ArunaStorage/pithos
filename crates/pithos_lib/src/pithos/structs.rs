@@ -196,7 +196,7 @@ impl TryFrom<FileContext> for FileContextHeader {
 
     fn try_from(ctx: FileContext) -> Result<Self> {
         Ok(Self {
-            file_path: ctx.file_path,
+            file_path: ctx.file_path.clone(),
             disk_size: ctx.decompressed_size,
             file_start: 0,
             file_end: 0,
@@ -204,7 +204,7 @@ impl TryFrom<FileContext> for FileContextHeader {
             encrypted: ctx.encryption_key.data_encrypted(),
             block_scale: ctx.chunk_multiplier.unwrap_or(1),
             index_list: None,
-            file_info: ctx.into(),
+            file_info: Option::from(&ctx),
             hashes: ctx.get_hashes()?,
             metadata: ctx.semantic_metadata,
             symlinks: None,
@@ -224,8 +224,8 @@ pub struct DirContextHeader {
 impl From<FileContext> for DirContextHeader {
     fn from(ctx: FileContext) -> Self {
         Self {
-            file_path: ctx.file_path,
-            file_info: ctx.into(),
+            file_path: ctx.file_path.clone(),
+            file_info: Option::from(&ctx),
             symlinks: None,
             metadata: ctx.semantic_metadata,
         }

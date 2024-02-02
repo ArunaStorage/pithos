@@ -1,7 +1,7 @@
-use std::{io::Read, num::ParseIntError};
+use std::num::ParseIntError;
 
 use crate::pithos::structs::{CustomRange, FileInfo, Hashes};
-use anyhow::Result;
+use anyhow::{anyhow, bail, Result};
 
 #[derive(Debug, PartialEq, Default, Clone)]
 pub enum ProbeResult {
@@ -99,6 +99,24 @@ impl Into<Option<FileInfo>> for FileContext {
     }
 }
 
+impl From<&FileContext> for Option<FileInfo> {
+    fn from(value: &FileContext) -> Self {
+        if value.uid.is_some()
+            || value.gid.is_some()
+            || value.mode.is_some()
+            || value.mtime.is_some()
+        {
+            return Some(FileInfo {
+                uid: value.uid,
+                gid: value.gid,
+                mode: value.mode,
+                mtime: value.mtime,
+            });
+        }
+        None
+    }
+}
+
 impl FileContext {
     /*
     #[tracing::instrument(level = "trace", skip(self))]
@@ -124,24 +142,30 @@ impl FileContext {
         // Validate hash lengths?
 
         if let Some(sha256) = &self.expected_sha256 {
-            //let mut sha256_buf: [u8; 32] = [0; 32];
-            //sha256.as_bytes().read_exact(&mut sha256_buf)?;
-            //hashes.sha256 = Some(sha256_buf)
-            hashes.sha256 = decode_hex(&sha256)?.into();
+            let sha256_bytes: [u8; 32] = decode_hex(&sha256)?
+                .try_into()
+                .map_err(|_| anyhow!("Provided SHA256 has invalid length"))?;
+            hashes.sha256 = Some(sha256_bytes);
         }
         if let Some(md5) = &self.expected_md5 {
-            let mut md5_buf: [u8; 16] = [0; 16];
-            md5.as_bytes().read_exact(&mut md5_buf)?;
-            hashes.md5 = Some(md5_buf)
+            let md5_bytes: [u8; 16] = decode_hex(&md5)?
+                .try_into()
+                .map_err(|_| anyhow!("Provided MD5 has invalid length"))?;
+            hashes.md5 = Some(md5_bytes)
         }
 
         Ok(Some(hashes))
     }
 }
 
-pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
-    (0..s.len())
+pub fn decode_hex(s: &str) -> Result<Vec<u8>> {
+    let result: Result<Vec<u8>, ParseIntError> = (0..s.len())
         .step_by(2)
         .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
-        .collect()
+        .collect();
+
+    match result {
+        Ok(bytes) => Ok(bytes),
+        Err(err) => bail!(err),
+    }
 }

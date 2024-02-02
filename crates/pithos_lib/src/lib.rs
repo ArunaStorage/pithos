@@ -254,7 +254,9 @@ mod tests {
             .add_transformer(
                 FooterGenerator::new_with_ctx(FileContext {
                     file_path: "test.txt".to_string(),
-                    encryption_key: EncryptionKey::Same(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+                    encryption_key: EncryptionKey::Same(
+                        b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec(),
+                    ),
                     ..Default::default()
                 })
                 .unwrap(),

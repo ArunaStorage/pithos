@@ -3,17 +3,17 @@ mod structs;
 mod utils;
 
 use crate::io::utils::{load_private_key_from_env, load_private_key_from_pem};
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use chacha20poly1305::aead::OsRng;
 use clap::{Parser, Subcommand};
 use crypto_kx::Keypair;
-use pithos_lib::helpers::structs::FileContext;
-use pithos_lib::pithos::structs::EndOfFileMetadata;
+use pithos_lib::helpers::structs::{EncryptionKey, FileContext};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
+use std::any;
 use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
-use tokio::fs::File;
+use tokio::fs::{read_link, File};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt}; // for write_all()
 use tracing::debug;
 use utils::conversion::evaluate_log_level;
@@ -304,27 +304,41 @@ async fn main() -> Result<()> {
             let mut init_stream = None;
             let mut input_streams = vec![];
 
-            for file_path in files {
+            for (i, file_path) in files.iter().enumerate() {
                 let input_file = File::open(file_path).await?;
                 let file_metadata = input_file.metadata().await?;
 
+                let symlink_target = if file_metadata.file_type().is_symlink() {
+                    Some(
+                        read_link(file_path)
+                            .await?
+                            .to_str()
+                            .ok_or_else(|| anyhow!("Path to string conversion failed"))?
+                            .to_string(),
+                    )
+                } else {
+                    None
+                };
+
                 let file_context = FileContext {
-                    file_name: file_path.file_name().unwrap().to_str().unwrap().to_string(),
+                    idx: i,
+                    file_path: file_path.to_str().unwrap().to_string(),
                     compressed_size: file_metadata.len(),
                     decompressed_size: file_metadata.len(),
-                    file_path: Some(file_path.to_str().unwrap().to_string()),
                     uid: Some(file_metadata.uid().into()),
                     gid: Some(file_metadata.gid().into()),
                     mode: Some(file_metadata.mode()),
                     mtime: Some(file_metadata.mtime() as u64),
                     compression: false,
                     chunk_multiplier: None,
-                    encryption_key: Some(key.as_bytes().to_vec()),
+                    encryption_key: todo!(),
                     owners_pubkey: Some(pub_key),
                     is_dir: file_metadata.file_type().is_dir(),
-                    symlink_info: file_metadata.file_type().is_symlink(),
+                    symlink_target: symlink_target,
                     expected_sha256: None, //ToDo
                     expected_md5: None,    //ToDo
+                    semantic_metadata: None,
+                    custom_ranges: None,
                 };
 
                 if init_stream.is_none() {
@@ -343,6 +357,7 @@ async fn main() -> Result<()> {
             );
 
             //let input_stream = ::futures::stream::iter(input_streams).flatten();
+
 
             // Init default PithosWriter with standard Transformers
             let mut writer = if let Some(output_path) = output {
