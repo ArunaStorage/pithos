@@ -324,7 +324,7 @@ async fn main() -> Result<()> {
                     is_dir: file_metadata.file_type().is_dir(),
                     symlink_info: file_metadata.file_type().is_symlink(),
                     expected_sha256: None, //ToDo
-                    expected_md5: None,  //ToDo
+                    expected_md5: None,    //ToDo
                 };
 
                 if init_stream.is_none() {

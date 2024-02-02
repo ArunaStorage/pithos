@@ -5,6 +5,7 @@ use crate::transformer::{ReadWriter, Sink, Transformer};
 use crate::transformers::encrypt::ChaCha20Enc;
 use crate::transformers::footer::FooterGenerator;
 use crate::transformers::hashing_transformer::HashingTransformer;
+use crate::transformers::pithos_comp_enc::PithosTransformer;
 use crate::transformers::zstd_comp::ZstdEnc;
 use anyhow::Result;
 use bytes::Bytes;
@@ -13,7 +14,6 @@ use futures::Stream;
 use md5::Md5;
 use sha1::Sha1;
 use tokio::io::AsyncWrite;
-use crate::transformers::pithos_comp_enc::PithosTransformer;
 
 pub struct PithosWriter<
     'a,

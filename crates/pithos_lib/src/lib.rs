@@ -10,7 +10,7 @@ pub mod transformers;
 mod tests {
     //use crate::helpers::footer_parser::{FooterParser, Range};
     use crate::helpers::notifications::Message;
-    use crate::helpers::structs::{FileContext, Range};
+    use crate::helpers::structs::{EncryptionKey, FileContext, Range};
     use crate::readwrite::GenericReadWriter;
     use crate::streamreadwrite::GenericStreamReadWriter;
     use crate::transformer::ReadWriter;
@@ -177,10 +177,10 @@ mod tests {
 
         read_writer
             .set_file_ctx(FileContext {
-                file_name: "test.txt".to_string(),
+                file_path: "test.txt".to_string(),
                 compressed_size: size,
                 decompressed_size: 0,
-                encryption_key: Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+                encryption_key: EncryptionKey::Same(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
                 ..Default::default()
             })
             .await;
@@ -204,7 +204,7 @@ mod tests {
             .add_transformer(ZstdEnc::new())
             .add_transformer(
                 FooterGenerator::new_with_ctx(FileContext {
-                    file_name: "test.txt".to_string(),
+                    file_path: "test.txt".to_string(),
                     ..Default::default()
                 })
                 .unwrap(),
@@ -253,8 +253,8 @@ mod tests {
             )
             .add_transformer(
                 FooterGenerator::new_with_ctx(FileContext {
-                    file_name: "test.txt".to_string(),
-                    encryption_key: Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+                    file_path: "test.txt".to_string(),
+                    encryption_key: EncryptionKey::Same(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
                     ..Default::default()
                 })
                 .unwrap(),
@@ -332,7 +332,7 @@ mod tests {
 
         let (sx, rx) = async_channel::bounded(10);
         sx.send(Message::FileContext(FileContext {
-            file_name: "file1.txt".to_string(),
+            file_path: "file1.txt".to_string(),
             compressed_size: file1.len() as u64,
             decompressed_size: file1.len() as u64,
             compression: true,
@@ -342,7 +342,7 @@ mod tests {
         .unwrap();
 
         sx.send(Message::FileContext(FileContext {
-            file_name: "file2.txt".to_string(),
+            file_path: "file2.txt".to_string(),
             compressed_size: file2.len() as u64,
             decompressed_size: file2.len() as u64,
             compression: false,
@@ -429,22 +429,22 @@ mod tests {
 
         let (sx, rx) = async_channel::bounded(10);
         sx.send(Message::FileContext(FileContext {
-            file_name: "file1.txt".to_string(),
+            file_path: "file1.txt".to_string(),
             compressed_size: file1.len() as u64,
             decompressed_size: file1.len() as u64,
             compression: true,
-            encryption_key: Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+            encryption_key: EncryptionKey::Same(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
             ..Default::default()
         }))
         .await
         .unwrap();
 
         sx.send(Message::FileContext(FileContext {
-            file_name: "file2.txt".to_string(),
+            file_path: "file2.txt".to_string(),
             compressed_size: file2.len() as u64,
             decompressed_size: file2.len() as u64,
             compression: false,
-            encryption_key: Some(b"xxwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+            encryption_key: EncryptionKey::Same(b"xxwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
             ..Default::default()
         }))
         .await
@@ -469,22 +469,22 @@ mod tests {
 
         let (sx, rx) = async_channel::bounded(10);
         sx.send(Message::FileContext(FileContext {
-            file_name: "file1.txt".to_string(),
+            file_path: "file1.txt".to_string(),
             compressed_size: file1.metadata().await.unwrap().len(),
             decompressed_size: file1.metadata().await.unwrap().len(),
             compression: true,
-            encryption_key: Some(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+            encryption_key: EncryptionKey::Same(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
             ..Default::default()
         }))
         .await
         .unwrap();
 
         sx.send(Message::FileContext(FileContext {
-            file_name: "file2.txt".to_string(),
+            file_path: "file2.txt".to_string(),
             compressed_size: file2.metadata().await.unwrap().len(),
             decompressed_size: file2.metadata().await.unwrap().len(),
             compression: false,
-            encryption_key: Some(b"xxwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+            encryption_key: EncryptionKey::Same(b"xxwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
             ..Default::default()
         }))
         .await
@@ -516,7 +516,7 @@ mod tests {
 
         let (sx, rx) = async_channel::bounded(10);
         sx.send(Message::FileContext(FileContext {
-            file_name: "file1.txt".to_string(),
+            file_path: "file1.txt".to_string(),
             compressed_size: file1_size,
             decompressed_size: file1_size,
             ..Default::default()
@@ -525,7 +525,7 @@ mod tests {
         .unwrap();
 
         sx.send(Message::FileContext(FileContext {
-            file_name: "file2.txt".to_string(),
+            file_path: "file2.txt".to_string(),
             compressed_size: file2_size,
             decompressed_size: file2_size,
             ..Default::default()
@@ -559,7 +559,7 @@ mod tests {
 
         let (sx, rx) = async_channel::bounded(10);
         sx.send(Message::FileContext(FileContext {
-            file_name: "file1.txt".to_string(),
+            file_path: "file1.txt".to_string(),
             compressed_size: file1_size,
             decompressed_size: file1_size,
             ..Default::default()
@@ -568,7 +568,7 @@ mod tests {
         .unwrap();
 
         sx.send(Message::FileContext(FileContext {
-            file_name: "file2.txt".to_string(),
+            file_path: "file2.txt".to_string(),
             compressed_size: file2_size,
             decompressed_size: file2_size,
             ..Default::default()
@@ -631,7 +631,7 @@ mod tests {
         let (sx, rx) = async_channel::bounded(10);
 
         sx.send(Message::FileContext(FileContext {
-            file_name: "blup/".to_string(),
+            file_path: "blup/".to_string(),
             compressed_size: 0,
             decompressed_size: 0,
             is_dir: true,
@@ -641,7 +641,7 @@ mod tests {
         .unwrap();
 
         sx.send(Message::FileContext(FileContext {
-            file_name: "blup/file1.txt".to_string(),
+            file_path: "blup/file1.txt".to_string(),
             compressed_size: file1_size,
             decompressed_size: file1_size,
             ..Default::default()
@@ -650,7 +650,7 @@ mod tests {
         .unwrap();
 
         sx.send(Message::FileContext(FileContext {
-            file_name: "blip/".to_string(),
+            file_path: "blip/".to_string(),
             compressed_size: 0,
             decompressed_size: 0,
             is_dir: true,
@@ -660,7 +660,7 @@ mod tests {
         .unwrap();
 
         sx.send(Message::FileContext(FileContext {
-            file_name: "blip/file2.txt".to_string(),
+            file_path: "blip/file2.txt".to_string(),
             compressed_size: file2_size,
             decompressed_size: file2_size,
             ..Default::default()

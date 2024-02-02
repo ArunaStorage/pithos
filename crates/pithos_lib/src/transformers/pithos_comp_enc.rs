@@ -1,23 +1,23 @@
-use crate::helpers::notifications::{CompressionInfo, Message};
+use crate::helpers::frames::create_skippable_padding_frame;
 use crate::helpers::notifications::Notifier;
+use crate::helpers::notifications::{CompressionInfo, Message};
 use crate::helpers::structs::FileContext;
 use crate::helpers::structs::ProbeResult;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use crate::transformers::encrypt::encrypt_chunk;
+use anyhow::anyhow;
 use anyhow::Result;
-use anyhow::{anyhow, bail};
 use async_channel::Receiver;
 use async_channel::Sender;
 use async_channel::TryRecvError;
 use async_compression::tokio::write::ZstdEncoder;
 use bytes::BytesMut;
-use bytes::{Buf, BufMut, Bytes};
+use bytes::{BufMut, Bytes};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
 use tracing::error;
-use crate::helpers::frames::create_skippable_padding_frame;
 
 const CHUNK: u32 = 65_536;
 
@@ -129,7 +129,7 @@ impl PithosTransformer {
                     Ok(Message::Finished) => {
                         return Ok((true, true));
                     }
-                    Ok(Message::ShouldFlush)=> {
+                    Ok(Message::ShouldFlush) => {
                         return Ok((false, true));
                     }
                     Ok(Message::FileContext(ctx)) => {
@@ -224,11 +224,10 @@ impl PithosTransformer {
         let mut result = BytesMut::new();
 
         while !self.capture_buf.is_empty() {
-
             let bytes = if to_read > self.capture_buf.len() as isize {
                 self.advance_file(self.capture_buf.len());
                 self.capture_buf.split()
-            }else{
+            } else {
                 self.advance_file(to_read as usize);
                 self.capture_buf.split_to(to_read as usize)
             };
@@ -319,12 +318,7 @@ impl Transformer for PithosTransformer {
         {
             // Encrypt in chunks
             for chunk in compressed_bytes.chunks(CHUNK as usize) {
-                buf.put(encrypt_chunk(
-                    chunk,
-                    b"",
-                    encryption_key.as_slice(),
-                    true,
-                )?)
+                buf.put(encrypt_chunk(chunk, b"", encryption_key.as_slice(), true)?)
             }
         } else {
             buf.put(compressed_bytes);

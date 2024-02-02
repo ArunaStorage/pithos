@@ -68,9 +68,12 @@ impl ChaCha20Enc {
             loop {
                 match rx.try_recv() {
                     Ok(Message::FileContext(ctx)) => {
+                        todo!()
+                        /*
                         if !self.key_is_fixed && !ctx.is_dir && !ctx.symlink_info {
                             self.encryption_key = ctx.encryption_key;
                         }
+                        */
                     }
                     Ok(Message::ShouldFlush) => return Ok((true, false)),
                     Ok(Message::Finished) => return Ok((false, true)),

@@ -1,6 +1,6 @@
 use crate::helpers::notifications::{DirOrFileIdx, Message, Notifier};
 use crate::helpers::structs::{EncryptionKey, FileContext};
-use crate::pithos::structs::{DirContextHeader, EncryptionTarget, EndOfFileMetadata, FileContextHeader, FileInfo, PithosRange, TableOfContents};
+use crate::pithos::structs::{DirContextHeader, EncryptionTarget, FileContextHeader, PithosRange};
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::anyhow;
@@ -52,23 +52,37 @@ impl FooterGenerator {
                 EncryptionKey::None => HashMap::new(),
                 EncryptionKey::Same(enc_key) => HashMap::from([(
                     readers_key,
-                    vec![(enc_key
-                              .try_into()
-                              .map_err(|_| anyhow!("Vec<u8> to [u8;32] conversion failed"))?, EncryptionTarget::FileDataAndMetadata(PithosRange::All))],
+                    vec![(
+                        enc_key
+                            .try_into()
+                            .map_err(|_| anyhow!("Vec<u8> to [u8;32] conversion failed"))?,
+                        EncryptionTarget::FileDataAndMetadata(PithosRange::All),
+                    )],
                 )]),
                 EncryptionKey::DataOnly(enc_key) => HashMap::from([(
                     readers_key,
-                    vec![(enc_key
-                              .try_into()
-                              .map_err(|_| anyhow!("Vec<u8> to [u8;32] conversion failed"))?, EncryptionTarget::FileData(PithosRange::All))],
+                    vec![(
+                        enc_key
+                            .try_into()
+                            .map_err(|_| anyhow!("Vec<u8> to [u8;32] conversion failed"))?,
+                        EncryptionTarget::FileData(PithosRange::All),
+                    )],
                 )]),
                 EncryptionKey::Individual((data, meta)) => HashMap::from([(
                     readers_key,
                     vec![
-                        (data.try_into().map_err(|_| anyhow!("Vec<u8> to [u8;32] conversion failed"))?, EncryptionTarget::FileData(PithosRange::All)),
-                        (meta.try_into().map_err(|_| anyhow!("Vec<u8> to [u8;32] conversion failed"))?, EncryptionTarget::FileMetadata(PithosRange::All)),
-                    ]
-                )])
+                        (
+                            data.try_into()
+                                .map_err(|_| anyhow!("Vec<u8> to [u8;32] conversion failed"))?,
+                            EncryptionTarget::FileData(PithosRange::All),
+                        ),
+                        (
+                            meta.try_into()
+                                .map_err(|_| anyhow!("Vec<u8> to [u8;32] conversion failed"))?,
+                            EncryptionTarget::FileMetadata(PithosRange::All),
+                        ),
+                    ],
+                )]),
             }
         } else {
             HashMap::new()
@@ -79,6 +93,8 @@ impl FooterGenerator {
             counter: 0,
             directories: Vec::new(),
             files: Vec::new(),
+            path_table: HashMap::default(),
+            unassigned_symlinks: vec![],
             encryption_keys: map,
             sha256_hash: None,
             notifier: None,
@@ -92,17 +108,14 @@ impl FooterGenerator {
         if let Some(rx) = &self.msg_receiver {
             loop {
                 match rx.try_recv() {
-                    Ok(Message::Finished) => {
-                        return Ok(true)
-                    }
+                    Ok(Message::Finished) => return Ok(true),
                     Ok(Message::FileContext(ctx)) => {
                         if ctx.is_dir {
                             self.directories.push(ctx.into())
                         } else if ctx.symlink_target.is_none() {
-                            self.files.push(ctx.into())
+                            self.files.push(ctx.try_into()?)
                         } else {
                             // Modify FileContextHeader --> Add SymlinkContextHeader
-
                         }
                     }
                     Ok(Message::CompressionInfo(compression_info)) => {
@@ -110,7 +123,7 @@ impl FooterGenerator {
                     }
                     Ok(Message::Hash((hash_type, hash, idx))) => {
                         todo!()
-                    },
+                    }
                     Ok(_) => {}
                     Err(TryRecvError::Empty) => {
                         break;

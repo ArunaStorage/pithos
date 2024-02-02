@@ -1,4 +1,7 @@
+use std::{io::Read, num::ParseIntError};
+
 use crate::pithos::structs::{CustomRange, FileInfo, Hashes};
+use anyhow::Result;
 
 #[derive(Debug, PartialEq, Default, Clone)]
 pub enum ProbeResult {
@@ -90,13 +93,14 @@ impl Into<Option<FileInfo>> for FileContext {
                 gid: self.gid,
                 mode: self.mode,
                 mtime: self.mtime,
-            })
+            });
         }
         None
     }
 }
 
 impl FileContext {
+    /*
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn get_path(&self) -> String {
         match &self.file_path {
@@ -104,21 +108,40 @@ impl FileContext {
             None => self.file_name.clone(),
         }
     }
+    */
 
     #[tracing::instrument(level = "trace", skip(self))]
-    pub fn get_hashes(&self) -> Option<Hashes> {
-        let mut hashes = Hashes { sha256: None, md5: None };
-
+    pub fn get_hashes(&self) -> Result<Option<Hashes>> {
         if self.expected_sha256.is_none() && self.expected_sha256.is_none() {
-            return None;
+            return Ok(None);
         }
+
+        let mut hashes = Hashes {
+            sha256: None,
+            md5: None,
+        };
+
+        // Validate hash lengths?
+
         if let Some(sha256) = &self.expected_sha256 {
-            hashes.sha256 = Some(sha256.as_bytes().into())
+            //let mut sha256_buf: [u8; 32] = [0; 32];
+            //sha256.as_bytes().read_exact(&mut sha256_buf)?;
+            //hashes.sha256 = Some(sha256_buf)
+            hashes.sha256 = decode_hex(&sha256)?.into();
         }
         if let Some(md5) = &self.expected_md5 {
-            hashes.md5 = Some(md5.as_bytes().into())
+            let mut md5_buf: [u8; 16] = [0; 16];
+            md5.as_bytes().read_exact(&mut md5_buf)?;
+            hashes.md5 = Some(md5_buf)
         }
 
-        Some(hashes)
+        Ok(Some(hashes))
     }
+}
+
+pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16))
+        .collect()
 }

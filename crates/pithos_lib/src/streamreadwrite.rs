@@ -1,6 +1,6 @@
 use crate::helpers::notifications::{Message, Notifier};
 use crate::helpers::structs::FileContext;
-use crate::transformer::{ReadWriter, Sink, Transformer, TransformerType};
+use crate::transformer::{ReadWriter, Sink, Transformer};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::{anyhow, bail, Result};
 use async_channel::{Receiver, Sender, TryRecvError};
@@ -139,7 +139,7 @@ impl<
                         if context.is_dir {
                             context.idx = self.dir_counter;
                             self.dir_counter += 1;
-                        }else if file_ctx.symlink_target.is_none() {
+                        } else if context.symlink_target.is_none() {
                             context.idx = self.file_counter;
                             self.file_counter += 1;
                         }
@@ -228,11 +228,12 @@ impl<
             if let Some(context) = &file_ctx {
                 self.size_counter += read_bytes;
                 if self.size_counter > context.compressed_size as usize {
-                    let mut diff = if read_bytes > self.size_counter - context.compressed_size as usize {
-                        read_bytes - (self.size_counter - context.compressed_size as usize)
-                    } else {
-                        0
-                    };
+                    let mut diff =
+                        if read_bytes > self.size_counter - context.compressed_size as usize {
+                            read_bytes - (self.size_counter - context.compressed_size as usize)
+                        } else {
+                            0
+                        };
                     if diff >= context.compressed_size as usize {
                         diff = context.compressed_size as usize
                     }
@@ -240,7 +241,8 @@ impl<
                     mem::swap(&mut read_buf, &mut hold_buffer);
                     self.size_counter -= context.compressed_size as usize;
                     file_ctx = self.context_queue.pop_front();
-                } else if self.size_counter == context.compressed_size as usize && hold_buffer.is_empty()
+                } else if self.size_counter == context.compressed_size as usize
+                    && hold_buffer.is_empty()
                 {
                     file_ctx = self.context_queue.pop_front();
                 }

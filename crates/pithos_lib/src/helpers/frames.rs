@@ -1,8 +1,8 @@
+use crate::pithos::structs::ZSTD_MAGIC_BYTES_SKIPPABLE_15;
 use anyhow::anyhow;
 use byteorder::{LittleEndian, WriteBytesExt};
 use bytes::Bytes;
 use tracing::error;
-use crate::pithos::structs::ZSTD_MAGIC_BYTES_SKIPPABLE_15;
 
 #[tracing::instrument(level = "trace", skip(size))]
 #[inline]

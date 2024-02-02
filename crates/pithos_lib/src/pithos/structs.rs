@@ -1,3 +1,4 @@
+use crate::helpers::structs::FileContext;
 use anyhow::{anyhow, Result};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chacha20poly1305::aead::OsRng;
@@ -7,7 +8,6 @@ use chacha20poly1305::{
     ChaCha20Poly1305,
 };
 use std::fmt::Display;
-use crate::helpers::structs::{EncryptionKey, FileContext};
 
 pub const ZSTD_MAGIC_BYTES: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
 pub const ZSTD_MAGIC_BYTES_SKIPPABLE_0: [u8; 4] = [0x50, 0x2A, 0x4D, 0x18];
@@ -191,10 +191,12 @@ pub struct FileContextHeader {
     pub custom_ranges: Option<Vec<CustomRange>>,
 }
 
-impl From<FileContext> for FileContextHeader {
-    fn from(ctx: FileContext) -> Self {
-        Self {
-            file_path: ctx.get_path(),
+impl TryFrom<FileContext> for FileContextHeader {
+    type Error = anyhow::Error;
+
+    fn try_from(ctx: FileContext) -> Result<Self> {
+        Ok(Self {
+            file_path: ctx.file_path,
             disk_size: ctx.decompressed_size,
             file_start: 0,
             file_end: 0,
@@ -203,11 +205,11 @@ impl From<FileContext> for FileContextHeader {
             block_scale: ctx.chunk_multiplier.unwrap_or(1),
             index_list: None,
             file_info: ctx.into(),
-            hashes: ctx.get_hashes(),
+            hashes: ctx.get_hashes()?,
             metadata: ctx.semantic_metadata,
             symlinks: None,
             custom_ranges: ctx.custom_ranges,
-        }
+        })
     }
 }
 
@@ -222,7 +224,7 @@ pub struct DirContextHeader {
 impl From<FileContext> for DirContextHeader {
     fn from(ctx: FileContext) -> Self {
         Self {
-            file_path: ctx.get_path(),
+            file_path: ctx.file_path,
             file_info: ctx.into(),
             symlinks: None,
             metadata: ctx.semantic_metadata,

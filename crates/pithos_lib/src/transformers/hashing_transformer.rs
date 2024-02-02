@@ -8,9 +8,9 @@ use std::sync::Arc;
 use tracing::error;
 
 pub struct HashingTransformer<T: Digest + Send + FixedOutputReset> {
+    idx: Option<usize>,
     hasher: T,
     hasher_type: String,
-    idx: Option<usize>,
     msg_receiver: Option<Receiver<Message>>,
     notifier: Option<Arc<Notifier>>,
 }
@@ -23,9 +23,9 @@ where
     #[allow(dead_code)]
     pub fn new(hasher: T, hasher_type: String) -> HashingTransformer<T> {
         HashingTransformer {
+            idx: None,
             hasher,
             hasher_type,
-            idx: None,
             msg_receiver: None,
             notifier: None,
         }
@@ -85,9 +85,9 @@ where
                     };
                     notifier.send_all_type(
                         TransformerType::FooterGenerator,
-                        Message::Hash((hashertype.clone(), finished_hash.clone())),
+                        Message::Hash((hashertype.clone(), finished_hash.clone(), todo!())),
                     )?;
-                    notifier.send_read_writer(Message::Hash((hashertype, finished_hash)))?;
+                    //notifier.send_read_writer(Message::Hash((hashertype, finished_hash)))?; // No need to send out anymore?
                     notifier.send_next(
                         self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
                         Message::Finished,
