@@ -595,6 +595,7 @@ mod tests {
         let md5_trans = crate::transformers::hashing_transformer::HashingTransformer::new(
             Md5::new(),
             "md5".to_string(),
+            false,
         );
 
         // Create a new GenericReadWriter

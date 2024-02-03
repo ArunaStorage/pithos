@@ -141,7 +141,7 @@ pub enum PithosRange {
 
 // -------------- FileContextHeader --------------
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct FileInfo {
     pub uid: Option<u64>,   // UserId
     pub gid: Option<u64>,   // GroupId
@@ -149,13 +149,13 @@ pub struct FileInfo {
     pub mtime: Option<u64>, // Created at
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct Hashes {
     pub sha256: Option<[u8; 32]>,
     pub md5: Option<[u8; 16]>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
 pub struct SymlinkContextHeader {
     pub file_path: String, // FileName /foo/bar/
     pub file_info: Option<FileInfo>,
@@ -168,7 +168,7 @@ pub struct CustomRange {
     pub end: u64,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct FileContextHeader {
     pub file_path: String, // FilePath empty = SKIP
     pub disk_size: u64,
@@ -207,7 +207,7 @@ impl TryFrom<FileContext> for FileContextHeader {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, Debug, Clone)]
 pub struct DirContextHeader {
     pub file_path: String, // FileName /foo/bar/
     pub file_info: Option<FileInfo>,

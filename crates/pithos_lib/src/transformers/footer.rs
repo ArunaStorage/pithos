@@ -115,16 +115,16 @@ impl FooterGenerator {
                     Ok(Message::FileContext(ctx)) => {
                         if ctx.is_dir {
                             self.path_table
-                                .insert(ctx.file_path, DirOrFileIdx::Dir(ctx.idx));
+                                .insert(ctx.file_path.clone(), DirOrFileIdx::Dir(ctx.idx));
                             self.directories.push(ctx.into())
                         } else if ctx.symlink_target.is_none() {
                             self.path_table
-                                .insert(ctx.file_path, DirOrFileIdx::File(ctx.idx));
+                                .insert(ctx.file_path.clone(), DirOrFileIdx::File(ctx.idx));
                             self.files.push(ctx.try_into()?)
                         } else {
                             if let Some(idx) = self
                                 .path_table
-                                .get(&ctx.symlink_target.ok_or_else(|| anyhow!(""))?)
+                                .get(ctx.symlink_target.as_ref().ok_or_else(|| anyhow!(""))?)
                             {
                                 match idx {
                                     DirOrFileIdx::File(idx) => {
@@ -133,7 +133,7 @@ impl FooterGenerator {
                                                 anyhow!("FileContextHeader does not exist")
                                             })?;
                                         let symlink_ctx = SymlinkContextHeader {
-                                            file_path: ctx.file_path,
+                                            file_path: ctx.file_path.clone(),
                                             file_info: ctx.try_into()?,
                                         };
                                         if let Some(symlinks) = mut_ctx.symlinks.as_mut() {
@@ -148,7 +148,7 @@ impl FooterGenerator {
                                                 anyhow!("DirContextHeader does not exist")
                                             })?;
                                         let symlink_ctx = SymlinkContextHeader {
-                                            file_path: ctx.file_path,
+                                            file_path: ctx.file_path.clone(),
                                             file_info: ctx.try_into()?,
                                         };
                                         if let Some(symlinks) = mut_ctx.symlinks.as_mut() {
@@ -281,11 +281,13 @@ impl Transformer for FooterGenerator {
                 toc.directories = self
                     .directories
                     .iter()
+                    .cloned()
                     .map(|ctx| DirContextVariants::DirDecrypted(ctx))
                     .collect();
                 toc.files = self
                     .files
                     .iter()
+                    .cloned()
                     .map(|ctx| FileContextVariants::FileDecrypted(ctx))
                     .collect();
 

@@ -12,7 +12,7 @@ use tokio::fs::File;
 
 #[tracing::instrument(level = "trace", skip())]
 async fn read_writer_with_file() {
-    let file = File::open("test.txt").await.unwrap();
+    let file = File::open("./crates/pithos_lib/test.txt").await.unwrap();
     let file2 = File::create("test.txt.out.1").await.unwrap();
 
     // Create a new GenericReadWriter
