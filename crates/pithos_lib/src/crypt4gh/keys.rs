@@ -72,6 +72,7 @@ impl Debug for C4ghKey {
 }
 
 impl C4ghKey {
+    #[allow(dead_code)]
     pub fn from_pem(path: PathBuf) -> Result<Self> {
         let mut file = File::open(path)?;
         let mut contents = String::new();
@@ -79,6 +80,7 @@ impl C4ghKey {
         Self::from_string(&contents)
     }
 
+    #[allow(dead_code)]
     pub fn from_string(c4gh_file_content: &str) -> Result<Self> {
         let lines = c4gh_file_content.lines().collect::<Vec<_>>();
         if lines.len() != 3 {
@@ -93,6 +95,7 @@ impl C4ghKey {
         Ok(C4ghKey::try_from(bytes.as_slice())?)
     }
 
+    #[allow(dead_code)]
     pub fn decrypt(&self, passkey: Option<String>) -> Result<[u8; 32]> {
         let key = match (std::str::from_utf8(&self.kdf_name), passkey) {
             (Ok("none"), _) => None,
@@ -106,8 +109,8 @@ impl C4ghKey {
                 )?;
                 Some(result)
             }
-            (Ok("bcrypt"), Some(key)) => {
-                todo!()
+            (Ok("bcrypt"), Some(_)) => {
+                unimplemented!("BCrypt key encryption not yet implemented")
             }
             _ => {
                 return Err(anyhow!("Invalid KDF name"));

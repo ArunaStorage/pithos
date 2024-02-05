@@ -47,20 +47,20 @@ impl EncryptionKey {
 
     pub fn as_encryption_target(&self, idx: usize, is_dir: bool) -> Vec<EncryptionTarget> {
         match (self, is_dir) {
-            (EncryptionKey::Same(key), false) => vec![EncryptionTarget::FileDataAndMetadata(
+            (EncryptionKey::Same(_), false) => vec![EncryptionTarget::FileDataAndMetadata(
                 PithosRange::Index(idx as u64),
             )],
-            (EncryptionKey::DataOnly(key), false) => {
+            (EncryptionKey::DataOnly(_), false) => {
                 vec![EncryptionTarget::FileData(PithosRange::Index(idx as u64))]
             }
-            (EncryptionKey::Individual((data_key, pub_key)), false) => vec![
+            (EncryptionKey::Individual((_, _)), false) => vec![
                 EncryptionTarget::FileData(PithosRange::Index(idx as u64)),
                 EncryptionTarget::FileMetadata(PithosRange::Index(idx as u64)),
             ],
             (
-                EncryptionKey::Same(key)
-                | EncryptionKey::DataOnly(key)
-                | EncryptionKey::Individual((key, _)),
+                EncryptionKey::Same(_)
+                | EncryptionKey::DataOnly(_)
+                | EncryptionKey::Individual((_, _)),
                 true,
             ) => vec![EncryptionTarget::Dir(PithosRange::Index(idx as u64))],
             _ => vec![],

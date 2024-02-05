@@ -1,14 +1,17 @@
 use crate::helpers::notifications::{DirOrFileIdx, HashType, Message, Notifier};
 use crate::helpers::structs::{EncryptionKey, FileContext};
 use crate::pithos::structs::{
-    DirContextHeader, DirContextVariants, EncryptionTarget, FileContextHeader, FileContextVariants,
-    Hashes, PithosRange, SymlinkContextHeader, TableOfContents,
+    DirContextHeader, DirContextVariants, EncryptionMetadata, EncryptionTarget, EndOfFileMetadata,
+    FileContextHeader, FileContextVariants, Hashes, PithosRange, SymlinkContextHeader,
+    TableOfContents,
 };
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::Result;
 use anyhow::{anyhow, bail};
 use async_channel::{Receiver, Sender, TryRecvError};
+use byteorder::{ByteOrder, LittleEndian};
+use bytes::BufMut;
 use digest::Digest;
 use sha2::Sha256;
 use std::collections::HashMap;
@@ -194,7 +197,7 @@ impl FooterGenerator {
                                         if hash != sha256_bytes {
                                             bail!("SHA256 hash mismatch");
                                         }
-                                    } else if let Some(Hashes { sha256: _None, md5 }) =
+                                    } else if let Some(Hashes { sha256: None, md5 }) =
                                         mut_ctx.hashes
                                     {
                                         mut_ctx.hashes = Some(Hashes {
@@ -219,7 +222,7 @@ impl FooterGenerator {
                                         if hash != md5_bytes {
                                             bail!("SHA256 hash mismatch");
                                         }
-                                    } else if let Some(Hashes { md5: _None, sha256 }) =
+                                    } else if let Some(Hashes { md5: None, sha256 }) =
                                         mut_ctx.hashes
                                     {
                                         mut_ctx.hashes = Some(Hashes {
@@ -273,9 +276,9 @@ impl Transformer for FooterGenerator {
         self.hasher.update(buf.as_ref());
         self.counter += buf.len() as u64;
         if let Ok(finished) = self.process_messages() {
-            //TODO: Evaluate keys map
-
             if finished {
+                let mut eof_meta = EndOfFileMetadata::new();
+
                 // Write TableOfContents
                 let mut toc = TableOfContents::new();
                 toc.directories = self
@@ -291,9 +294,19 @@ impl Transformer for FooterGenerator {
                     .map(|ctx| FileContextVariants::FileDecrypted(ctx))
                     .collect();
 
-                toc.finalize(todo!());
+                toc.finalize(&self.encryption_keys)?;
+                let mut toc_bytes = borsh::to_vec(&toc)?;
+                eof_meta.range_table_len = toc_bytes.len() as u64;
+
+                LittleEndian::write_u32_into(
+                    &[(toc_bytes.len() - 8).try_into()?],
+                    &mut toc_bytes[4..8],
+                );
+
+                buf.put(toc_bytes.as_slice());
 
                 // Write Encryption Metadata
+                let _enc_meta = EncryptionMetadata::new();
 
                 // Write EndOfFileMetadata
             }

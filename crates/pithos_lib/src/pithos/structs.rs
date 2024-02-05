@@ -1,5 +1,6 @@
-use crate::helpers::structs::{EncryptionKey, FileContext};
-use anyhow::{anyhow, Result};
+use crate::helpers::notifications::DirOrFileIdx;
+use crate::helpers::structs::FileContext;
+use anyhow::{anyhow, bail, Result};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chacha20poly1305::aead::OsRng;
 use chacha20poly1305::AeadCore;
@@ -7,6 +8,7 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305,
 };
+use std::collections::HashMap;
 use std::fmt::Display;
 
 pub const ZSTD_MAGIC_BYTES: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
@@ -76,7 +78,7 @@ impl Display for EndOfFileMetadata {
 }
 
 impl EndOfFileMetadata {
-    pub fn init() -> Self {
+    pub fn new() -> Self {
         Self {
             magic_bytes: ZSTD_MAGIC_BYTES_SKIPPABLE_0,
             len: 73,
@@ -99,12 +101,73 @@ pub struct EncryptionMetadata {
     pub packets: Vec<EncryptionPacket>,
 }
 
+impl EncryptionMetadata {
+    pub fn new() -> Self {
+        EncryptionMetadata {
+            magic_bytes: ZSTD_MAGIC_BYTES_SKIPPABLE_1,
+            len: 0,
+            packets: vec![],
+        }
+    }
+}
+
+impl From<HashMap<[u8; 32], Vec<([u8; 32], EncryptionTarget)>>> for EncryptionMetadata {
+    fn from(value: HashMap<[u8; 32], Vec<([u8; 32], EncryptionTarget)>>) -> Self {
+        for (pubkey, key_list) in value {
+
+            // Sort keylist by starting point
+
+            // Eventually merge ranges
+        }
+
+        todo!()
+    }
+}
+
 #[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
 pub enum EncryptionTarget {
     FileData(PithosRange),     // File Data
     FileMetadata(PithosRange), // Full TableOfContents entry
     FileDataAndMetadata(PithosRange),
     Dir(PithosRange), // Full DirContextHeader
+}
+
+impl EncryptionTarget {
+    pub fn as_dir_or_file_idx(&self, metadata_only: bool) -> Vec<DirOrFileIdx> {
+        match self {
+            EncryptionTarget::FileData(PithosRange::Index(idx)) if !metadata_only => {
+                vec![DirOrFileIdx::File(*idx as usize)]
+            }
+            EncryptionTarget::FileData(PithosRange::IndexRange((start, end))) if !metadata_only => {
+                (*start..*end)
+                    .map(|idx| DirOrFileIdx::File(idx as usize))
+                    .collect()
+            }
+            EncryptionTarget::FileMetadata(PithosRange::Index(idx))
+            | EncryptionTarget::FileDataAndMetadata(PithosRange::Index(idx)) => {
+                vec![DirOrFileIdx::File(*idx as usize)]
+            }
+            EncryptionTarget::FileMetadata(PithosRange::IndexRange((start, end)))
+            | EncryptionTarget::FileDataAndMetadata(PithosRange::IndexRange((start, end))) => {
+                (*start..*end)
+                    .map(|idx| DirOrFileIdx::File(idx as usize))
+                    .collect()
+            }
+            EncryptionTarget::Dir(PithosRange::Index(idx)) => {
+                vec![DirOrFileIdx::Dir(*idx as usize)]
+            }
+            EncryptionTarget::Dir(PithosRange::IndexRange((start, end))) => (*start..*end)
+                .map(|idx| DirOrFileIdx::Dir(idx as usize))
+                .collect(),
+            _ => vec![],
+        }
+    }
+
+    pub fn merge(&mut self, other: EncryptionTarget) -> bool {
+        // Try to merge self range with other range
+
+        todo!()
+    }
 }
 
 #[derive(Debug)]
@@ -137,6 +200,30 @@ pub enum PithosRange {
     Index(u64),
     // From start_index to end_index
     IndexRange((u64, u64)),
+}
+
+impl PithosRange {
+    pub fn merge(&mut self, other: PithosRange) -> bool {
+        match (&self, other) {
+            (PithosRange::Index(self_index), PithosRange::Index(other_index)) => {
+                match (self_index, other_index) {
+                    (x, y) if *x == y => true,
+                    (x, y) if *x == y + 1 => {
+                        *self = PithosRange::IndexRange((*x, y));
+                        true
+                    }
+                    (x, y) if *x == y - 1 => {
+                        *self = PithosRange::IndexRange((y, *x));
+                        true
+                    }
+                    _ => false,
+                }
+            }
+            (PithosRange::Index(_), PithosRange::IndexRange(_)) => todo!(),
+            (PithosRange::IndexRange(_), PithosRange::Index(_)) => todo!(),
+            (PithosRange::IndexRange(_), PithosRange::IndexRange(_)) => todo!(),
+        }
+    }
 }
 
 // -------------- FileContextHeader --------------
@@ -233,16 +320,16 @@ pub enum FileContextVariants {
 }
 
 impl FileContextVariants {
-    pub fn encrypt(self, key: &[u8; 32]) -> Result<Self> {
+    pub fn encrypt(&mut self, key: &[u8; 32]) -> Result<()> {
         let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
-        let as_bytes = borsh::to_vec(&self)?;
+        let as_bytes = borsh::to_vec(self)?;
         let data: Vec<u8> = ChaCha20Poly1305::new_from_slice(key)
             .map_err(|_| anyhow!("Invalid key length"))?
             .encrypt(&nonce, as_bytes.as_slice())
             .map_err(|_| anyhow!("Error while encrypting keys"))?;
-        Ok(FileContextVariants::FileEncrypted(
-            nonce.to_vec().into_iter().chain(data).collect(),
-        ))
+        *self =
+            FileContextVariants::FileEncrypted(nonce.to_vec().into_iter().chain(data).collect());
+        Ok(())
     }
 }
 
@@ -253,16 +340,15 @@ pub enum DirContextVariants {
 }
 
 impl DirContextVariants {
-    pub fn encrypt(self, key: &[u8; 32]) -> Result<Self> {
+    pub fn encrypt(&mut self, key: &[u8; 32]) -> Result<()> {
         let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
-        let as_bytes = borsh::to_vec(&self)?;
+        let as_bytes = borsh::to_vec(self)?;
         let data: Vec<u8> = ChaCha20Poly1305::new_from_slice(key)
             .map_err(|_| anyhow!("Invalid key length"))?
             .encrypt(&nonce, as_bytes.as_slice())
             .map_err(|_| anyhow!("Error while encrypting keys"))?;
-        Ok(DirContextVariants::DirEncrypted(
-            nonce.to_vec().into_iter().chain(data).collect(),
-        ))
+        *self = DirContextVariants::DirEncrypted(nonce.to_vec().into_iter().chain(data).collect());
+        Ok(())
     }
 }
 
@@ -284,22 +370,41 @@ impl TableOfContents {
         }
     }
 
-    pub fn finalize(&mut self, keys: Vec<EncryptionKey>) {
-        /*
-        match keys {
-            EncryptionKey::None => {
-                // Do nothing
-            }
-            EncryptionKey::Same(key) => {
-
-            }
-            EncryptionKey::DataOnly(_) => {
-                // Do nothing
-            }
-            EncryptionKey::Individual((_, metadata_key)) => {
-
+    //pub fn finalize(&mut self, keys: Vec<EncryptionKey>) {
+    pub fn finalize(
+        &mut self,
+        keys: &HashMap<[u8; 32], Vec<([u8; 32], EncryptionTarget)>>,
+    ) -> Result<()> {
+        let mut key_idx_list = HashMap::new();
+        for (_, keylist) in keys {
+            for (key, target) in keylist {
+                for dingens in target.as_dir_or_file_idx(true) {
+                    if let Some(existing_key) = key_idx_list.insert(dingens, key) {
+                        if existing_key != key {
+                            bail!("Differing key already exists");
+                        }
+                    }
+                }
             }
         }
-        */
+
+        // Encrypt entries
+        for (idx, dir) in self.directories.iter_mut().enumerate() {
+            if let DirContextVariants::DirDecrypted(_) = dir {
+                if let Some(key) = key_idx_list.get(&DirOrFileIdx::Dir(idx)) {
+                    dir.encrypt(*key)?;
+                }
+            }
+        }
+
+        for (idx, file) in self.files.iter_mut().enumerate() {
+            if let FileContextVariants::FileDecrypted(_) = file {
+                if let Some(key) = key_idx_list.get(&DirOrFileIdx::File(idx)) {
+                    file.encrypt(*key)?;
+                }
+            }
+        }
+
+        Ok(())
     }
 }

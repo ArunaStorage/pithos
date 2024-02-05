@@ -2,17 +2,14 @@ use crate::helpers::notifications::Message;
 use crate::helpers::structs::FileContext;
 use crate::streamreadwrite::GenericStreamReadWriter;
 use crate::transformer::{ReadWriter, Sink, Transformer};
-use crate::transformers::encrypt::ChaCha20Enc;
 use crate::transformers::footer::FooterGenerator;
 use crate::transformers::hashing_transformer::HashingTransformer;
 use crate::transformers::pithos_comp_enc::PithosTransformer;
-use crate::transformers::zstd_comp::ZstdEnc;
 use anyhow::Result;
 use bytes::Bytes;
 use digest::Digest;
 use futures::Stream;
 use md5::Md5;
-use sha1::Sha1;
 use sha2::Sha256;
 use tokio::io::AsyncWrite;
 
