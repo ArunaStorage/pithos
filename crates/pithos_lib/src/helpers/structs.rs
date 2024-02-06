@@ -1,6 +1,7 @@
 use std::num::ParseIntError;
 
-use crate::pithos::structs::{CustomRange, EncryptionTarget, FileInfo, Hashes, PithosRange};
+use crate::helpers::notifications::DirOrFileIdx;
+use crate::pithos::structs::{CustomRange, FileInfo, Hashes};
 use anyhow::{anyhow, bail, Result};
 
 #[derive(Debug, PartialEq, Default, Clone)]
@@ -45,26 +46,17 @@ impl EncryptionKey {
         }
     }
 
-    pub fn as_encryption_target(&self, idx: usize, is_dir: bool) -> Vec<EncryptionTarget> {
-        match (self, is_dir) {
-            (EncryptionKey::Same(_), false) => vec![EncryptionTarget::FileDataAndMetadata(
-                PithosRange::Index(idx as u64),
-            )],
-            (EncryptionKey::DataOnly(_), false) => {
-                vec![EncryptionTarget::FileData(PithosRange::Index(idx as u64))]
+    pub fn into_keys(&self) -> Result<Vec<[u8; 32]>> {
+        let result: Vec<[u8; 32]> = match &self {
+            EncryptionKey::None => vec![],
+            EncryptionKey::Same(key) => vec![key.as_slice().try_into()?],
+            EncryptionKey::DataOnly(key) => vec![key.as_slice().try_into()?],
+            EncryptionKey::Individual((key, key2)) => {
+                vec![key.as_slice().try_into()?, key2.as_slice().try_into()?]
             }
-            (EncryptionKey::Individual((_, _)), false) => vec![
-                EncryptionTarget::FileData(PithosRange::Index(idx as u64)),
-                EncryptionTarget::FileMetadata(PithosRange::Index(idx as u64)),
-            ],
-            (
-                EncryptionKey::Same(_)
-                | EncryptionKey::DataOnly(_)
-                | EncryptionKey::Individual((_, _)),
-                true,
-            ) => vec![EncryptionTarget::Dir(PithosRange::Index(idx as u64))],
-            _ => vec![],
-        }
+        };
+
+        Ok(result)
     }
 }
 
@@ -91,8 +83,8 @@ pub struct FileContext {
     pub chunk_multiplier: Option<u32>,
     // Encryption Key(s)
     pub encryption_key: EncryptionKey,
-    // Owners pubkey
-    pub owners_pubkey: Option<[u8; 32]>,
+    // Recipients pubkeys
+    pub recipients_pubkeys: Vec<[u8; 32]>,
     // Is this file a directory
     pub is_dir: bool,
     // Is this file a symlink
@@ -167,18 +159,6 @@ impl FileContext {
         }
 
         Ok(Some(hashes))
-    }
-
-    pub fn get_keys(&self) -> Result<([u8; 32], Vec<EncryptionTarget>)> {
-        if let Some(pubkey) = self.owners_pubkey {
-            Ok((
-                pubkey,
-                self.encryption_key
-                    .as_encryption_target(self.idx, self.is_dir),
-            ))
-        } else {
-            bail!("No pubkey found for file")
-        }
     }
 }
 

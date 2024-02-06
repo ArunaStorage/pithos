@@ -1,6 +1,6 @@
 use crate::helpers::notifications::DirOrFileIdx;
 use crate::helpers::structs::FileContext;
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chacha20poly1305::aead::OsRng;
 use chacha20poly1305::AeadCore;
@@ -10,6 +10,7 @@ use chacha20poly1305::{
 };
 use std::collections::HashMap;
 use std::fmt::Display;
+use crypto_kx::{Keypair, PublicKey, SecretKey};
 
 pub const ZSTD_MAGIC_BYTES: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
 pub const ZSTD_MAGIC_BYTES_SKIPPABLE_0: [u8; 4] = [0x50, 0x2A, 0x4D, 0x18];
@@ -50,7 +51,7 @@ pub const ZSTD_MAGIC_BYTES_ALL: [[u8; 4]; 17] = [
 
 // -------------- EndOfFileMetadata --------------
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, BorshSerialize, BorshDeserialize)]
 pub struct EndOfFileMetadata {
     // 73 Bytes
     pub magic_bytes: [u8; 4], // Should be 0x50, 0x2A, 0x4D, 0x18
@@ -59,7 +60,7 @@ pub struct EndOfFileMetadata {
     pub raw_file_size: u64,
     pub disk_file_size: u64,
     pub disk_hash_sha256: [u8; 32], // Everything except disk_hash_sha256 is expected to be 0
-    pub range_table_len: u64,
+    pub toc_len: u64,
     pub encryption_len: u64,
 }
 
@@ -71,7 +72,7 @@ impl Display for EndOfFileMetadata {
         write!(f, "Raw file size: {}\n", self.raw_file_size)?;
         write!(f, "Disk file size: {}\n", self.disk_file_size)?;
         write!(f, "Disk hash SHA256: {:?}\n", self.disk_hash_sha256)?;
-        write!(f, "Range table len: {:?}\n", self.range_table_len)?;
+        write!(f, "Toc table len: {:?}\n", self.toc_len)?;
         write!(f, "Encryption meta len: {:?}\n", self.encryption_len)?;
         Ok(())
     }
@@ -86,7 +87,7 @@ impl EndOfFileMetadata {
             raw_file_size: 0,
             disk_file_size: 0,
             disk_hash_sha256: [0; 32],
-            range_table_len: 0,
+            toc_len: 0,
             encryption_len: 0,
         }
     }
@@ -111,69 +112,36 @@ impl EncryptionMetadata {
     }
 }
 
-impl From<HashMap<[u8; 32], Vec<([u8; 32], EncryptionTarget)>>> for EncryptionMetadata {
-    fn from(value: HashMap<[u8; 32], Vec<([u8; 32], EncryptionTarget)>>) -> Self {
-        for (pubkey, key_list) in value {
+impl TryFrom<&HashMap<[u8; 32], HashMap<[u8; 32], DirOrFileIdx>>> for EncryptionMetadata {
+    type Error = anyhow::Error;
 
-            // Sort keylist by starting point
-
-            // Eventually merge ranges
+    fn try_from(value: &HashMap<[u8; 32], HashMap<[u8; 32], DirOrFileIdx>>) -> Result<Self> {
+        let mut packets = vec![];
+        let mut len = 0;
+        for (pubkey, keylist) in value {
+            let decrypted_key = DecryptedKeys {
+                keys: keylist.iter().map(|(k, v)| (*k, *v)).collect(),
+            };
+            let packet = decrypted_key.encrypt(*pubkey, None)?;
+            len += packet.len();
+            packets.push(packet);
         }
 
-        todo!()
+        Ok(EncryptionMetadata {
+            magic_bytes: ZSTD_MAGIC_BYTES_SKIPPABLE_1,
+            len,
+            packets,
+        })
     }
 }
 
-#[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
-pub enum EncryptionTarget {
-    FileData(PithosRange),     // File Data
-    FileMetadata(PithosRange), // Full TableOfContents entry
-    FileDataAndMetadata(PithosRange),
-    Dir(PithosRange), // Full DirContextHeader
-}
-
-impl EncryptionTarget {
-    pub fn as_dir_or_file_idx(&self, metadata_only: bool) -> Vec<DirOrFileIdx> {
-        match self {
-            EncryptionTarget::FileData(PithosRange::Index(idx)) if !metadata_only => {
-                vec![DirOrFileIdx::File(*idx as usize)]
-            }
-            EncryptionTarget::FileData(PithosRange::IndexRange((start, end))) if !metadata_only => {
-                (*start..*end)
-                    .map(|idx| DirOrFileIdx::File(idx as usize))
-                    .collect()
-            }
-            EncryptionTarget::FileMetadata(PithosRange::Index(idx))
-            | EncryptionTarget::FileDataAndMetadata(PithosRange::Index(idx)) => {
-                vec![DirOrFileIdx::File(*idx as usize)]
-            }
-            EncryptionTarget::FileMetadata(PithosRange::IndexRange((start, end)))
-            | EncryptionTarget::FileDataAndMetadata(PithosRange::IndexRange((start, end))) => {
-                (*start..*end)
-                    .map(|idx| DirOrFileIdx::File(idx as usize))
-                    .collect()
-            }
-            EncryptionTarget::Dir(PithosRange::Index(idx)) => {
-                vec![DirOrFileIdx::Dir(*idx as usize)]
-            }
-            EncryptionTarget::Dir(PithosRange::IndexRange((start, end))) => (*start..*end)
-                .map(|idx| DirOrFileIdx::Dir(idx as usize))
-                .collect(),
-            _ => vec![],
-        }
-    }
-
-    pub fn merge(&mut self, other: EncryptionTarget) -> bool {
-        // Try to merge self range with other range
-
-        todo!()
-    }
-}
-
-#[derive(Debug)]
-pub struct DecryptedKey {
-    pub keys: Vec<([u8; 32], Vec<EncryptionTarget>)>,
-    pub readers_pubkey: [u8; 32],
+// Key <-> Index: LastUse
+// F0, F1, F2, F3
+// K0 -> F0, F1 -> DirOrFileIdx::File(1)
+// K2 -> F2, F3 -> DirOrFileIdx::File(3)
+#[derive(Debug, BorshSerialize, BorshDeserialize)]
+pub struct DecryptedKeys {
+    pub keys: Vec<([u8; 32], DirOrFileIdx)>,
 }
 
 #[derive(Debug, BorshSerialize, BorshDeserialize)]
@@ -184,45 +152,46 @@ pub struct EncryptionPacket {
     pub mac: [u8; 16],
 }
 
+impl EncryptionPacket {
+    fn len(&self) -> u32 {
+        (32 + 12 + self.keys.len() + 16) as u32
+    }
+}
+
+
+impl DecryptedKeys {
+    pub fn encrypt(&self, readers_pubkey: [u8; 32], writers_private_key: Option<[u8; 32]>) -> Result<EncryptionPacket> {
+        let keypair = match writers_private_key {
+            Some(key) => Keypair::from(SecretKey::from(key)),
+            None => Keypair::generate(&mut OsRng),
+        };
+        let public_key = PublicKey::from(readers_pubkey);
+        let session_key = keypair.session_keys_from(&public_key).tx;
+        let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
+        let as_bytes = borsh::to_vec(&self)?;
+
+        let data: Vec<u8> = ChaCha20Poly1305::new_from_slice(session_key.as_ref().as_slice())
+            .map_err(|_| anyhow!("Invalid key length"))?
+            .encrypt(&nonce, as_bytes.as_slice())
+            .map_err(|_| anyhow!("Error while encrypting keys"))?;
+        let (data, mac) = data.split_at(data.len() - 16);
+
+        Ok(EncryptionPacket {
+            pubkey: *keypair.public().as_ref(),
+            nonce: nonce.as_slice().try_into()?,
+            keys: data.to_vec(),
+            mac: mac.try_into()?,
+        })
+    }
+}
+
 // impl DecryptedKey into EncryptionPacket
 // Auto encrypt DecryptedKey with recipient PubKey into EncryptionPacket
-impl TryInto<EncryptionPacket> for DecryptedKey {
+impl TryInto<EncryptionPacket> for DecryptedKeys {
     type Error = anyhow::Error;
 
     fn try_into(self) -> std::result::Result<EncryptionPacket, Self::Error> {
         todo!()
-    }
-}
-
-#[derive(Clone, Debug, BorshSerialize, BorshDeserialize)]
-pub enum PithosRange {
-    // Exact index
-    Index(u64),
-    // From start_index to end_index
-    IndexRange((u64, u64)),
-}
-
-impl PithosRange {
-    pub fn merge(&mut self, other: PithosRange) -> bool {
-        match (&self, other) {
-            (PithosRange::Index(self_index), PithosRange::Index(other_index)) => {
-                match (self_index, other_index) {
-                    (x, y) if *x == y => true,
-                    (x, y) if *x == y + 1 => {
-                        *self = PithosRange::IndexRange((*x, y));
-                        true
-                    }
-                    (x, y) if *x == y - 1 => {
-                        *self = PithosRange::IndexRange((y, *x));
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            (PithosRange::Index(_), PithosRange::IndexRange(_)) => todo!(),
-            (PithosRange::IndexRange(_), PithosRange::Index(_)) => todo!(),
-            (PithosRange::IndexRange(_), PithosRange::IndexRange(_)) => todo!(),
-        }
     }
 }
 
@@ -320,15 +289,18 @@ pub enum FileContextVariants {
 }
 
 impl FileContextVariants {
-    pub fn encrypt(&mut self, key: &[u8; 32]) -> Result<()> {
-        let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
-        let as_bytes = borsh::to_vec(self)?;
-        let data: Vec<u8> = ChaCha20Poly1305::new_from_slice(key)
-            .map_err(|_| anyhow!("Invalid key length"))?
-            .encrypt(&nonce, as_bytes.as_slice())
-            .map_err(|_| anyhow!("Error while encrypting keys"))?;
-        *self =
-            FileContextVariants::FileEncrypted(nonce.to_vec().into_iter().chain(data).collect());
+    pub fn encrypt(&mut self, key: &Option<[u8; 32]>) -> Result<()> {
+        if let Some(key) = key {
+            let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
+            let as_bytes = borsh::to_vec(self)?;
+            let data: Vec<u8> = ChaCha20Poly1305::new_from_slice(key)
+                .map_err(|_| anyhow!("Invalid key length"))?
+                .encrypt(&nonce, as_bytes.as_slice())
+                .map_err(|_| anyhow!("Error while encrypting keys"))?;
+            *self = FileContextVariants::FileEncrypted(
+                nonce.to_vec().into_iter().chain(data).collect(),
+            );
+        }
         Ok(())
     }
 }
@@ -340,14 +312,17 @@ pub enum DirContextVariants {
 }
 
 impl DirContextVariants {
-    pub fn encrypt(&mut self, key: &[u8; 32]) -> Result<()> {
-        let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
-        let as_bytes = borsh::to_vec(self)?;
-        let data: Vec<u8> = ChaCha20Poly1305::new_from_slice(key)
-            .map_err(|_| anyhow!("Invalid key length"))?
-            .encrypt(&nonce, as_bytes.as_slice())
-            .map_err(|_| anyhow!("Error while encrypting keys"))?;
-        *self = DirContextVariants::DirEncrypted(nonce.to_vec().into_iter().chain(data).collect());
+    pub fn encrypt(&mut self, key: &Option<[u8; 32]>) -> Result<()> {
+        if let Some(key) = key {
+            let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
+            let as_bytes = borsh::to_vec(self)?;
+            let data: Vec<u8> = ChaCha20Poly1305::new_from_slice(key)
+                .map_err(|_| anyhow!("Invalid key length"))?
+                .encrypt(&nonce, as_bytes.as_slice())
+                .map_err(|_| anyhow!("Error while encrypting keys"))?;
+            *self =
+                DirContextVariants::DirEncrypted(nonce.to_vec().into_iter().chain(data).collect());
+        }
         Ok(())
     }
 }
@@ -368,43 +343,5 @@ impl TableOfContents {
             directories: Vec::new(),
             files: Vec::new(),
         }
-    }
-
-    //pub fn finalize(&mut self, keys: Vec<EncryptionKey>) {
-    pub fn finalize(
-        &mut self,
-        keys: &HashMap<[u8; 32], Vec<([u8; 32], EncryptionTarget)>>,
-    ) -> Result<()> {
-        let mut key_idx_list = HashMap::new();
-        for (_, keylist) in keys {
-            for (key, target) in keylist {
-                for dingens in target.as_dir_or_file_idx(true) {
-                    if let Some(existing_key) = key_idx_list.insert(dingens, key) {
-                        if existing_key != key {
-                            bail!("Differing key already exists");
-                        }
-                    }
-                }
-            }
-        }
-
-        // Encrypt entries
-        for (idx, dir) in self.directories.iter_mut().enumerate() {
-            if let DirContextVariants::DirDecrypted(_) = dir {
-                if let Some(key) = key_idx_list.get(&DirOrFileIdx::Dir(idx)) {
-                    dir.encrypt(*key)?;
-                }
-            }
-        }
-
-        for (idx, file) in self.files.iter_mut().enumerate() {
-            if let FileContextVariants::FileDecrypted(_) = file {
-                if let Some(key) = key_idx_list.get(&DirOrFileIdx::File(idx)) {
-                    file.encrypt(*key)?;
-                }
-            }
-        }
-
-        Ok(())
     }
 }

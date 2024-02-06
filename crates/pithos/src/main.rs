@@ -7,13 +7,16 @@ use anyhow::{anyhow, bail, Result};
 use chacha20poly1305::aead::OsRng;
 use clap::{Parser, Subcommand};
 use crypto_kx::Keypair;
-use pithos_lib::helpers::structs::FileContext;
+use futures_util::StreamExt;
+use pithos_lib::helpers::structs::{EncryptionKey, FileContext};
+use pithos_lib::pithos::pithoswriter::PithosWriter;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use tokio::fs::{read_link, File};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt}; // for write_all()
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::pin;
 use tracing::debug;
 use utils::conversion::evaluate_log_level;
 
@@ -300,7 +303,6 @@ async fn main() -> Result<()> {
 
             // Parse file metadata
             let mut file_ctxs = vec![];
-            let mut init_stream = None;
             let mut input_streams = vec![];
 
             for (i, file_path) in files.iter().enumerate() {
@@ -330,8 +332,8 @@ async fn main() -> Result<()> {
                     mtime: Some(file_metadata.mtime() as u64),
                     compression: false,
                     chunk_multiplier: None,
-                    encryption_key: todo!(),
-                    owners_pubkey: Some(pub_key),
+                    encryption_key: EncryptionKey::Same(key.as_bytes().to_vec()), // How to know if encryption is wanted?
+                    recipients_pubkeys: vec![pub_key],
                     is_dir: file_metadata.file_type().is_dir(),
                     symlink_target: symlink_target,
                     expected_sha256: None, //ToDo
@@ -340,45 +342,39 @@ async fn main() -> Result<()> {
                     custom_ranges: None,
                 };
 
-                if init_stream.is_none() {
-                    init_stream = Some(tokio_util::io::ReaderStream::new(input_file));
-                } else {
-                    input_streams.push(tokio_util::io::ReaderStream::new(input_file));
-                }
-
                 file_ctxs.push(file_context);
+                input_streams.push(tokio_util::io::ReaderStream::new(input_file));
             }
 
-            /*
-            let input_stream = input_streams[1..].into_iter().fold(
-                init_stream.ok_or_else(|| anyhow!("No init stream"))?,
-                |s1, s2| s1.chain(*s2),
-            );
-
-            //let input_stream = ::futures::stream::iter(input_streams).flatten();
-
+            // Send all file data into channel
+            let (data_sender, data_receiver) = async_channel::bounded(100); // Channel cap?
+            tokio::spawn(async move {
+                for mut input_stream in input_streams {
+                    while let Some(bytes) = input_stream.next().await {
+                        data_sender.send(Ok(bytes?)).await?
+                    }
+                }
+                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+            });
+            pin!(data_receiver);
 
             // Init default PithosWriter with standard Transformers
             let mut writer = if let Some(output_path) = output {
-                PithosWriter::new_with_writer(
-                    input_stream,
+                PithosWriter::new_multi_with_writer(
+                    data_receiver,
                     File::create(output_path).await?,
-                    file_context,
-                    metadata.clone(),
+                    file_ctxs,
                 )
                 .await?
             } else {
-                PithosWriter::new_with_writer(
-                    input_stream,
+                PithosWriter::new_multi_with_writer(
+                    data_receiver,
                     tokio::io::stdout(),
-                    file_context,
-                    metadata.clone(),
+                    file_ctxs,
                 )
                 .await?
             };
-
             writer.process_bytes().await?;
-             */
         }
         Some(PithosCommands::CreateKeypair { output }) => {
             let keypair = Keypair::generate(&mut OsRng);

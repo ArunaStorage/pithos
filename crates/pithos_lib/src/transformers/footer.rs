@@ -1,9 +1,8 @@
 use crate::helpers::notifications::{DirOrFileIdx, HashType, Message, Notifier};
 use crate::helpers::structs::{EncryptionKey, FileContext};
 use crate::pithos::structs::{
-    DirContextHeader, DirContextVariants, EncryptionMetadata, EncryptionTarget, EndOfFileMetadata,
-    FileContextHeader, FileContextVariants, Hashes, PithosRange, SymlinkContextHeader,
-    TableOfContents,
+    DirContextHeader, DirContextVariants, EncryptionMetadata, EndOfFileMetadata, FileContextHeader,
+    FileContextVariants, Hashes, SymlinkContextHeader, TableOfContents,
 };
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
@@ -12,7 +11,7 @@ use anyhow::{anyhow, bail};
 use async_channel::{Receiver, Sender, TryRecvError};
 use byteorder::{ByteOrder, LittleEndian};
 use bytes::BufMut;
-use digest::Digest;
+use digest::{Digest, Mac};
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -21,11 +20,12 @@ use tracing::{debug, error};
 pub struct FooterGenerator {
     hasher: Sha256,
     counter: u64,
-    directories: Vec<DirContextHeader>,
-    files: Vec<FileContextHeader>,
+    raw_counter: u64,
+    directories: Vec<(Option<[u8; 32]>, DirContextHeader)>,
+    files: Vec<(Option<[u8; 32]>, FileContextHeader)>,
     path_table: HashMap<String, DirOrFileIdx>,
     unassigned_symlinks: Vec<FileContext>,
-    encryption_keys: HashMap<[u8; 32], Vec<([u8; 32], EncryptionTarget)>>, // <Reader PubKey, List of encryption keys>
+    encryption_keys: HashMap<[u8; 32], HashMap<[u8; 32], DirOrFileIdx>>, // <Reader PubKey, List of encryption keys>
     sha256_hash: Option<String>,
     notifier: Option<Arc<Notifier>>,
     msg_receiver: Option<Receiver<Message>>,
@@ -40,6 +40,7 @@ impl FooterGenerator {
         FooterGenerator {
             hasher: Sha256::new(),
             counter: 0,
+            raw_counter: 0,
             directories: Vec::new(),
             files: Vec::new(),
             path_table: HashMap::default(),
@@ -53,50 +54,61 @@ impl FooterGenerator {
     }
 
     pub fn new_with_ctx(ctx: FileContext) -> Result<FooterGenerator> {
-        let map = if let Some(readers_key) = ctx.owners_pubkey {
-            match ctx.encryption_key {
-                EncryptionKey::None => HashMap::new(),
-                EncryptionKey::Same(enc_key) => HashMap::from([(
-                    readers_key,
-                    vec![(
-                        enc_key
-                            .try_into()
-                            .map_err(|_| anyhow!("Vec<u8> to [u8;32] conversion failed"))?,
-                        EncryptionTarget::FileDataAndMetadata(PithosRange::Index(ctx.idx as u64)),
-                    )],
-                )]),
-                EncryptionKey::DataOnly(enc_key) => HashMap::from([(
-                    readers_key,
-                    vec![(
-                        enc_key
-                            .try_into()
-                            .map_err(|_| anyhow!("Vec<u8> to [u8;32] conversion failed"))?,
-                        EncryptionTarget::FileData(PithosRange::Index(ctx.idx as u64)),
-                    )],
-                )]),
-                EncryptionKey::Individual((data, meta)) => HashMap::from([(
-                    readers_key,
-                    vec![
-                        (
-                            data.try_into()
+        let mut map = HashMap::new();
+        for pubkey in &ctx.recipients_pubkeys {
+            match &ctx.encryption_key {
+                EncryptionKey::None => {}
+                EncryptionKey::Same(enc_key) => {
+                    map.insert(
+                        pubkey.clone(),
+                        HashMap::from([(
+                            enc_key
+                                .clone()
+                                .try_into()
                                 .map_err(|_| anyhow!("Vec<u8> to [u8;32] conversion failed"))?,
-                            EncryptionTarget::FileData(PithosRange::Index(ctx.idx as u64)),
-                        ),
-                        (
-                            meta.try_into()
+                            DirOrFileIdx::from(&ctx),
+                        )]),
+                    );
+                }
+                EncryptionKey::DataOnly(enc_key) => {
+                    map.insert(
+                        pubkey.clone(),
+                        HashMap::from([(
+                            enc_key
+                                .clone()
+                                .try_into()
                                 .map_err(|_| anyhow!("Vec<u8> to [u8;32] conversion failed"))?,
-                            EncryptionTarget::FileMetadata(PithosRange::Index(ctx.idx as u64)),
-                        ),
-                    ],
-                )]),
+                            DirOrFileIdx::from(&ctx),
+                        )]),
+                    );
+                }
+                // Data key necessary if is_dir?
+                EncryptionKey::Individual((data, meta)) => {
+                    map.insert(
+                        pubkey.clone(),
+                        HashMap::from([
+                            (
+                                data.clone()
+                                    .try_into()
+                                    .map_err(|_| anyhow!("Vec<u8> to [u8;32] conversion failed"))?,
+                                DirOrFileIdx::from(&ctx),
+                            ),
+                            (
+                                meta.clone()
+                                    .try_into()
+                                    .map_err(|_| anyhow!("Vec<u8> to [u8;32] conversion failed"))?,
+                                DirOrFileIdx::from(&ctx),
+                            ),
+                        ]),
+                    );
+                }
             }
-        } else {
-            HashMap::new()
-        };
+        }
 
         Ok(FooterGenerator {
             hasher: Sha256::new(),
             counter: 0,
+            raw_counter: 0,
             directories: Vec::new(),
             files: Vec::new(),
             path_table: HashMap::default(),
@@ -116,14 +128,41 @@ impl FooterGenerator {
                 match rx.try_recv() {
                     Ok(Message::Finished) => return Ok(true),
                     Ok(Message::FileContext(ctx)) => {
+                        // Update raw counter
+                        self.raw_counter += ctx.decompressed_size;
+
+                        // Collect encryption keys
+                        for recipient in &ctx.recipients_pubkeys {
+                            let entry = self
+                                .encryption_keys
+                                .entry(recipient.clone())
+                                .or_insert(HashMap::new());
+                            for key in ctx.encryption_key.into_keys()? {
+                                if let Some(inner) = entry.get_mut(&key) {
+                                    if inner.get_idx() < ctx.idx {
+                                        *inner = DirOrFileIdx::from(&ctx);
+                                    }
+                                } else {
+                                    entry.insert(key, DirOrFileIdx::from(&ctx));
+                                }
+                            }
+                        }
+
+                        // Get metadata key if available
+                        let m_key: Option<[u8; 32]> = match &ctx.encryption_key {
+                            EncryptionKey::Same(key) => Some(key.as_slice().try_into()?),
+                            EncryptionKey::Individual((_, key)) => Some(key.as_slice().try_into()?),
+                            _ => None,
+                        };
+
                         if ctx.is_dir {
                             self.path_table
                                 .insert(ctx.file_path.clone(), DirOrFileIdx::Dir(ctx.idx));
-                            self.directories.push(ctx.into())
+                            self.directories.push((m_key, ctx.into()))
                         } else if ctx.symlink_target.is_none() {
                             self.path_table
                                 .insert(ctx.file_path.clone(), DirOrFileIdx::File(ctx.idx));
-                            self.files.push(ctx.try_into()?)
+                            self.files.push((m_key, ctx.try_into()?))
                         } else {
                             if let Some(idx) = self
                                 .path_table
@@ -131,7 +170,7 @@ impl FooterGenerator {
                             {
                                 match idx {
                                     DirOrFileIdx::File(idx) => {
-                                        let mut_ctx =
+                                        let (_, mut_ctx) =
                                             self.files.get_mut(*idx).ok_or_else(|| {
                                                 anyhow!("FileContextHeader does not exist")
                                             })?;
@@ -146,7 +185,7 @@ impl FooterGenerator {
                                         }
                                     }
                                     DirOrFileIdx::Dir(idx) => {
-                                        let mut_ctx =
+                                        let (_, mut_ctx) =
                                             self.directories.get_mut(*idx).ok_or_else(|| {
                                                 anyhow!("DirContextHeader does not exist")
                                             })?;
@@ -167,7 +206,7 @@ impl FooterGenerator {
                         }
                     }
                     Ok(Message::CompressionInfo(compression_info)) => {
-                        let mut_ctx = self
+                        let (_, mut_ctx) = self
                             .files
                             .get_mut(compression_info.idx)
                             .ok_or_else(|| anyhow!("FileContextHeader does not exist"))?;
@@ -181,7 +220,7 @@ impl FooterGenerator {
                     }
                     Ok(Message::Hash((hash_type, hash, idx))) => {
                         if let Some(idx) = idx {
-                            let mut_ctx = self
+                            let (_, mut_ctx) = self
                                 .files
                                 .get_mut(idx)
                                 .ok_or_else(|| anyhow!("FileContextHeader does not exist"))?;
@@ -242,9 +281,6 @@ impl FooterGenerator {
                             };
                         }
                     }
-                    Ok(Message::SizeInfo(_)) => {
-                        // Sum all FileContext sizes
-                    }
                     Ok(_) => {}
                     Err(TryRecvError::Empty) => {
                         break;
@@ -281,34 +317,61 @@ impl Transformer for FooterGenerator {
 
                 // Write TableOfContents
                 let mut toc = TableOfContents::new();
-                toc.directories = self
+                let dir_ctx_list: Result<Vec<DirContextVariants>> = self
                     .directories
                     .iter()
                     .cloned()
-                    .map(|ctx| DirContextVariants::DirDecrypted(ctx))
+                    .map(|(key, ctx)|
+                        {
+                            let mut variant = DirContextVariants::DirDecrypted(ctx);
+                            variant.encrypt(&key)?;
+                            Ok(variant)
+                        })
                     .collect();
-                toc.files = self
+                toc.directories = dir_ctx_list?;
+                let file_ctx_list: Result<Vec<FileContextVariants>> = self
                     .files
                     .iter()
                     .cloned()
-                    .map(|ctx| FileContextVariants::FileDecrypted(ctx))
+                    .map(|(key, ctx)|
+                        {
+                            let mut variant = FileContextVariants::FileDecrypted(ctx);
+                            variant.encrypt(&key)?;
+                            Ok(variant)
+                        })
                     .collect();
+                toc.files = file_ctx_list?;
 
-                toc.finalize(&self.encryption_keys)?;
                 let mut toc_bytes = borsh::to_vec(&toc)?;
-                eof_meta.range_table_len = toc_bytes.len() as u64;
+                eof_meta.toc_len = toc_bytes.len() as u64;
 
                 LittleEndian::write_u32_into(
                     &[(toc_bytes.len() - 8).try_into()?],
                     &mut toc_bytes[4..8],
                 );
 
+                self.hasher.update(toc_bytes.as_slice());
                 buf.put(toc_bytes.as_slice());
 
                 // Write Encryption Metadata
-                let _enc_meta = EncryptionMetadata::new();
+                let enc_meta = EncryptionMetadata::try_from(&self.encryption_keys)?;
+                let enc_meta_bytes = borsh::to_vec(&enc_meta)?;
+                eof_meta.encryption_len = enc_meta_bytes.len() as u64;
+                self.hasher.update(enc_meta_bytes.as_slice());
+                buf.put(enc_meta_bytes.as_slice());
 
                 // Write EndOfFileMetadata
+                eof_meta.raw_file_size = self.raw_counter;
+                eof_meta.disk_file_size = self.counter;
+                let mut eof_meta_bytes = borsh::to_vec(&eof_meta)?;
+                self.hasher.update(eof_meta_bytes.as_slice());
+                eof_meta.disk_hash_sha256 = self.hasher.finalize_reset().try_into()?;
+                eof_meta_bytes = borsh::to_vec(&eof_meta)?;
+                buf.put(eof_meta_bytes.as_slice());
+
+                if let Some(notifier) = &self.notifier {
+                    notifier.send_next(self.idx.ok_or_else(|| anyhow!("Missing idx"))?, Message::Finished)?;
+                }
             }
         } else {
             return Err(anyhow!("Error processing messages"));

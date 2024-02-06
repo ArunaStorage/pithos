@@ -2,6 +2,7 @@ use crate::helpers::structs::FileContext;
 use crate::transformer::TransformerType;
 use async_channel::Sender;
 use std::sync::RwLock;
+use borsh::{BorshDeserialize, BorshSerialize};
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -19,10 +20,29 @@ pub struct CompressionInfo {
     pub chunk_infos: Option<Vec<u32>>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, BorshDeserialize, BorshSerialize)]
 pub enum DirOrFileIdx {
     Dir(usize),
     File(usize),
+}
+
+impl DirOrFileIdx {
+    pub fn get_idx(&self) -> usize {
+        match self {
+            Self::Dir(idx) => *idx,
+            Self::File(idx) => *idx,
+        }
+    }
+}
+
+impl From<&FileContext> for DirOrFileIdx {
+    fn from(value: &FileContext) -> Self {
+        if value.is_dir {
+            Self::Dir(value.idx)
+        } else {
+            Self::File(value.idx)
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

@@ -1,6 +1,3 @@
-/* use crate::structs::EncryptionMetadata;
-use crate::structs::EndOfFileMetadata;
-use crate::structs::TableOfContents;
 use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Result;
@@ -13,153 +10,38 @@ use chacha20poly1305::{
 };
 use tracing::debug;
 use tracing::error;
+use crate::pithos::structs::{DecryptedKeys, EndOfFileMetadata, TableOfContents};
 
 pub enum FooterParserState<'a> {
     Empty,
     Raw(&'a [u8]),
+    Missing(usize),
     Decoded(Box<Footer>),
 }
 
 pub struct FooterParser<'a> {
     state: FooterParserState<'a>,
-    keys: Option<Keys>,
-}
-
-#[derive(Clone, Debug)]
-pub enum EncryptionKeySet {
-    None,
-    Single([u8; 32]),
-    Multiple(Vec<[u8; 32]>),
-}
-
-impl Into<Vec<[u8; 32]>> for EncryptionKeySet {
-    fn into(self) -> Vec<[u8; 32]> {
-        match self {
-            EncryptionKeySet::None => vec![],
-            EncryptionKeySet::Single(key) => vec![key],
-            EncryptionKeySet::Multiple(keys) => keys,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Keys {
-    data_keys: EncryptionKeySet,
-    recipient_keys: EncryptionKeySet,
-    range_table_key: EncryptionKeySet,
-    semantic_metadata: EncryptionKeySet,
-}
-
-impl Keys {
-    pub fn add_data_keys(&mut self, mut keys: Vec<[u8; 32]>) {
-        match (&mut self.data_keys, keys.len()) {
-            (EncryptionKeySet::None, 1) => {
-                self.data_keys = EncryptionKeySet::Single(keys[0]);
-            }
-            (EncryptionKeySet::None, _) => {
-                self.data_keys = EncryptionKeySet::Multiple(keys);
-            }
-            (EncryptionKeySet::Single(key), _) => {
-                keys.push(*key);
-                self.data_keys = EncryptionKeySet::Multiple(keys);
-            }
-            (EncryptionKeySet::Multiple(current_keys), _) => {
-                current_keys.extend(keys);
-            }
-        }
-    }
-
-    fn add_range_table_key(&mut self, key: [u8; 32]) -> Result<()> {
-        match &self.range_table_key {
-            EncryptionKeySet::None => {
-                self.range_table_key = EncryptionKeySet::Single(key);
-            }
-            EncryptionKeySet::Single(_) => {
-                return Err(anyhow!("Range table key already set"));
-            }
-            EncryptionKeySet::Multiple(_) => {
-                return Err(anyhow!("Range table key already set"));
-            }
-        }
-        Ok(())
-    }
-
-    fn add_semantic_metadata_key(&mut self, key: [u8; 32]) -> Result<()> {
-        match &self.semantic_metadata {
-            EncryptionKeySet::None => {
-                self.semantic_metadata = EncryptionKeySet::Single(key);
-            }
-            EncryptionKeySet::Single(_) => {
-                return Err(anyhow!("Semantic metadata key already set"));
-            }
-            EncryptionKeySet::Multiple(_) => {
-                return Err(anyhow!("Semantic metadata key already set"));
-            }
-        }
-        Ok(())
-    }
-
-    pub fn add_recepient(&mut self, key: [u8; 32]) {
-        match &mut self.recipient_keys {
-            EncryptionKeySet::None => {
-                self.recipient_keys = EncryptionKeySet::Single(key);
-            }
-            EncryptionKeySet::Single(_) => {
-                self.recipient_keys = EncryptionKeySet::Multiple(vec![key]);
-            }
-            EncryptionKeySet::Multiple(keys) => {
-                keys.push(key);
-            }
-        }
-    }
 }
 
 pub struct Footer {
     pub eof_metadata: EndOfFileMetadata,
-    pub encryption_metadata: Option<EncryptionMetadata>,
-    pub blocklist: Option<BlockList>,
-    pub range_table: Option<TableOfContents>,
-    pub semantic_metadata: Option<SemanticMetadata>,
+    pub table_of_contents: TableOfContents,
+    pub encryption_keys: Option<DecryptedKeys>,
 }
 
 impl FooterParser<'_> {
     #[tracing::instrument(level = "trace", skip(bytes))]
-    pub fn new<'a>(bytes: &'a [u8]) -> FooterParser<'a> {
+    pub fn new(bytes: &[u8]) -> FooterParser {
         FooterParser {
             state: FooterParserState::Raw(bytes),
-            keys: None,
         }
     }
 
-    #[tracing::instrument(level = "trace", skip(self, keys))]
-    pub fn add_keys(&mut self, keys: Vec<[u8; 32]>) {
-        if let Some(current_keys) = self.keys.as_mut() {
-            current_keys.add_data_keys(keys);
-        } else {
-            self.keys = Some(Keys {
-                data_keys: EncryptionKeySet::Multiple(keys),
-                recipient_keys: EncryptionKeySet::None,
-                range_table_key: EncryptionKeySet::None,
-                semantic_metadata: EncryptionKeySet::None,
-            });
-        }
+    pub fn add_recipient(bytes: &[u8]) -> FooterParser {
+
     }
 
-    #[tracing::instrument(level = "trace", skip(self, key))]
-    pub fn add_recipient_key(&mut self, key: [u8; 32]) {
-        if let Some(current_keys) = self.keys.as_mut() {
-            current_keys.add_recepient(key);
-        } else {
-            self.keys = Some(Keys {
-                data_keys: EncryptionKeySet::None,
-                recipient_keys: EncryptionKeySet::Single(key),
-                range_table_key: EncryptionKeySet::None,
-                semantic_metadata: EncryptionKeySet::None,
-            });
-        }
-    }
-
-    #[tracing::instrument(err, level = "trace", skip(self))]
+        #[tracing::instrument(err, level = "trace", skip(self))]
     pub fn parse(&mut self) -> Result<()> {
         let eof_md = self.locate_and_parse_eof_md()?;
         let mut start_location = eof_md.eof_metadata_len;
@@ -245,12 +127,16 @@ impl FooterParser<'_> {
 
     fn locate_and_parse_eof_md(&mut self) -> Result<EndOfFileMetadata> {
         match self.state {
+            FooterParserState::Empty => Err(anyhow!("Empty footer")),
             FooterParserState::Raw(ref mut bytes) => {
-                let eof_len = LittleEndian::read_u64(&bytes[bytes.len() - 8..]) as usize;
-                let eof_md = EndOfFileMetadata::try_from(&bytes[bytes.len() - eof_len..])?;
+                if bytes.len() < 73 {
+                    bail!("Not enough bytes to parse EOFMetadata")
+                }
+                let eof_bytes:[u8;73] = bytes[bytes.len()-73..].try_into()?;
+                let eof_md = borsh::from_slice(&eof_bytes)?;
                 Ok(eof_md)
             }
-            FooterParserState::Empty => Err(anyhow!("Empty footer")),
+            FooterParserState::Missing(_) => todo!("Read more bytes"),
             FooterParserState::Decoded(_) => Err(anyhow!(
                 "Footer already decoded, cannot locate end of file metadata"
             )),
@@ -462,4 +348,3 @@ pub fn decrypt_chunks(chunk: &[u8; (65536 + 28) * 2], decryption_key: &[u8]) -> 
     );
     Ok(first_dec.into())
 }
- */
