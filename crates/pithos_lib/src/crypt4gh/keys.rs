@@ -91,8 +91,8 @@ impl C4ghKey {
         {
             return Err(anyhow!("Invalid PEM header/footer"));
         }
-        let bytes = BASE64_STANDARD.decode(&lines[1])?;
-        Ok(C4ghKey::try_from(bytes.as_slice())?)
+        let bytes = BASE64_STANDARD.decode(lines[1])?;
+        C4ghKey::try_from(bytes.as_slice())
     }
 
     #[allow(dead_code)]
@@ -117,7 +117,7 @@ impl C4ghKey {
             }
         };
 
-        Ok(key.ok_or_else(|| anyhow!("No key"))?)
+        key.ok_or_else(|| anyhow!("No key"))
     }
 }
 
@@ -153,7 +153,7 @@ impl TryFrom<&[u8]> for C4ghKey {
         let blop_len = value.read_u16::<BigEndian>()?;
         let mut blop = vec![0; blop_len as usize];
         value.read_exact(&mut blop)?;
-        let (comment_len, comment) = if value.len() > 0 {
+        let (comment_len, comment) = if !value.is_empty() {
             let comment_len = value.read_u16::<BigEndian>()?;
             let mut comment = vec![0; comment_len as usize];
             value.read_exact(&mut comment)?;

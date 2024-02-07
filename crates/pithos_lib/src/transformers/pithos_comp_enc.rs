@@ -23,7 +23,6 @@ const CHUNK: u32 = 65_536;
 
 struct CurrentFile {
     idx: usize,
-    expected_size: Option<u64>,
     raw_size_full: u64,
     multiplier: u32,
     encryption_key: Option<Vec<u8>>,
@@ -36,7 +35,6 @@ impl Default for CurrentFile {
     fn default() -> Self {
         CurrentFile {
             idx: 0,
-            expected_size: None,
             raw_size_full: 0,
             multiplier: 1,
             encryption_key: None,
@@ -47,13 +45,13 @@ impl Default for CurrentFile {
     }
 }
 
-impl Into<CompressionInfo> for CurrentFile {
-    fn into(self) -> CompressionInfo {
+impl From<CurrentFile> for CompressionInfo {
+    fn from(val: CurrentFile) -> Self {
         CompressionInfo {
-            idx: self.idx,
-            size: self.raw_size_full,
-            compression: self.compression == ProbeResult::Compression,
-            chunk_infos: Some(self.chunk_sizes),
+            idx: val.idx,
+            size: val.raw_size_full,
+            compression: val.compression == ProbeResult::Compression,
+            chunk_infos: Some(val.chunk_sizes),
         }
     }
 }
@@ -74,7 +72,6 @@ impl From<FileContext> for CurrentFile {
     fn from(ctx: FileContext) -> Self {
         CurrentFile {
             idx: ctx.idx,
-            expected_size: Some(ctx.decompressed_size),
             raw_size_full: 0,
             multiplier: ctx.chunk_multiplier.unwrap_or(1),
             encryption_key: ctx.encryption_key.get_data_key(),
@@ -153,7 +150,7 @@ impl PithosTransformer {
     async fn probe_compression(bytes: &[u8]) -> Result<bool> {
         let original_size = bytes.len();
         let mut compressor = ZstdEncoder::new(Vec::with_capacity(original_size + 100));
-        compressor.write_all(&bytes).await?;
+        compressor.write_all(bytes).await?;
         compressor.shutdown().await?;
         if (original_size as f64 * 0.875) as usize > compressor.get_ref().len() {
             Ok(true)
@@ -208,7 +205,7 @@ impl PithosTransformer {
             self.set_compression(probe_result);
             return Ok(Some(probe_result_ctx));
         }
-        return Ok(Some(current_compression));
+        Ok(Some(current_compression))
     }
 
     async fn smart_compress(&mut self, flush: bool) -> Result<Bytes> {

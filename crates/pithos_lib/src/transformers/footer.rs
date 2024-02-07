@@ -26,7 +26,6 @@ pub struct FooterGenerator {
     path_table: HashMap<String, DirOrFileIdx>,
     unassigned_symlinks: Vec<FileContext>,
     encryption_keys: HashMap<[u8; 32], HashMap<[u8; 32], DirOrFileIdx>>, // <Reader PubKey, List of encryption keys>
-    sha256_hash: Option<String>,
     notifier: Option<Arc<Notifier>>,
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
@@ -47,7 +46,6 @@ impl FooterGenerator {
             path_table: HashMap::default(),
             unassigned_symlinks: vec![],
             encryption_keys: HashMap::new(),
-            sha256_hash: None,
             notifier: None,
             msg_receiver: None,
             idx: None,
@@ -62,7 +60,7 @@ impl FooterGenerator {
                 EncryptionKey::None => {}
                 EncryptionKey::Same(enc_key) => {
                     map.insert(
-                        pubkey.clone(),
+                        *pubkey,
                         HashMap::from([(
                             enc_key
                                 .clone()
@@ -74,7 +72,7 @@ impl FooterGenerator {
                 }
                 EncryptionKey::DataOnly(enc_key) => {
                     map.insert(
-                        pubkey.clone(),
+                        *pubkey,
                         HashMap::from([(
                             enc_key
                                 .clone()
@@ -87,7 +85,7 @@ impl FooterGenerator {
                 // Data key necessary if is_dir?
                 EncryptionKey::Individual((data, meta)) => {
                     map.insert(
-                        pubkey.clone(),
+                        *pubkey,
                         HashMap::from([
                             (
                                 data.clone()
@@ -116,7 +114,6 @@ impl FooterGenerator {
             path_table: HashMap::default(),
             unassigned_symlinks: vec![],
             encryption_keys: map,
-            sha256_hash: None,
             notifier: None,
             msg_receiver: None,
             idx: None,
@@ -136,10 +133,7 @@ impl FooterGenerator {
 
                         // Collect encryption keys
                         for recipient in &ctx.recipients_pubkeys {
-                            let entry = self
-                                .encryption_keys
-                                .entry(recipient.clone())
-                                .or_insert(HashMap::new());
+                            let entry = self.encryption_keys.entry(*recipient).or_default();
                             for key in ctx.encryption_key.into_keys()? {
                                 if let Some(inner) = entry.get_mut(&key) {
                                     if inner.get_idx() < ctx.idx {
@@ -166,46 +160,44 @@ impl FooterGenerator {
                             self.path_table
                                 .insert(ctx.file_path.clone(), DirOrFileIdx::File(ctx.idx));
                             self.files.push((m_key, ctx.try_into()?))
-                        } else {
-                            if let Some(idx) = self
-                                .path_table
-                                .get(ctx.symlink_target.as_ref().ok_or_else(|| anyhow!(""))?)
-                            {
-                                match idx {
-                                    DirOrFileIdx::File(idx) => {
-                                        let (_, mut_ctx) =
-                                            self.files.get_mut(*idx).ok_or_else(|| {
-                                                anyhow!("FileContextHeader does not exist")
-                                            })?;
-                                        let symlink_ctx = SymlinkContextHeader {
-                                            file_path: ctx.file_path.clone(),
-                                            file_info: ctx.try_into()?,
-                                        };
-                                        if let Some(symlinks) = mut_ctx.symlinks.as_mut() {
-                                            symlinks.push(symlink_ctx)
-                                        } else {
-                                            mut_ctx.symlinks = Some(vec![symlink_ctx])
-                                        }
-                                    }
-                                    DirOrFileIdx::Dir(idx) => {
-                                        let (_, mut_ctx) =
-                                            self.directories.get_mut(*idx).ok_or_else(|| {
-                                                anyhow!("DirContextHeader does not exist")
-                                            })?;
-                                        let symlink_ctx = SymlinkContextHeader {
-                                            file_path: ctx.file_path.clone(),
-                                            file_info: ctx.try_into()?,
-                                        };
-                                        if let Some(symlinks) = mut_ctx.symlinks.as_mut() {
-                                            symlinks.push(symlink_ctx)
-                                        } else {
-                                            mut_ctx.symlinks = Some(vec![symlink_ctx])
-                                        }
+                        } else if let Some(idx) = self
+                            .path_table
+                            .get(ctx.symlink_target.as_ref().ok_or_else(|| anyhow!(""))?)
+                        {
+                            match idx {
+                                DirOrFileIdx::File(idx) => {
+                                    let (_, mut_ctx) =
+                                        self.files.get_mut(*idx).ok_or_else(|| {
+                                            anyhow!("FileContextHeader does not exist")
+                                        })?;
+                                    let symlink_ctx = SymlinkContextHeader {
+                                        file_path: ctx.file_path.clone(),
+                                        file_info: ctx.into(),
+                                    };
+                                    if let Some(symlinks) = mut_ctx.symlinks.as_mut() {
+                                        symlinks.push(symlink_ctx)
+                                    } else {
+                                        mut_ctx.symlinks = Some(vec![symlink_ctx])
                                     }
                                 }
-                            } else {
-                                self.unassigned_symlinks.push(ctx)
+                                DirOrFileIdx::Dir(idx) => {
+                                    let (_, mut_ctx) =
+                                        self.directories.get_mut(*idx).ok_or_else(|| {
+                                            anyhow!("DirContextHeader does not exist")
+                                        })?;
+                                    let symlink_ctx = SymlinkContextHeader {
+                                        file_path: ctx.file_path.clone(),
+                                        file_info: ctx.into(),
+                                    };
+                                    if let Some(symlinks) = mut_ctx.symlinks.as_mut() {
+                                        symlinks.push(symlink_ctx)
+                                    } else {
+                                        mut_ctx.symlinks = Some(vec![symlink_ctx])
+                                    }
+                                }
                             }
+                        } else {
+                            self.unassigned_symlinks.push(ctx)
                         }
                     }
                     Ok(Message::CompressionInfo(compression_info)) => {
@@ -367,7 +359,7 @@ impl Transformer for FooterGenerator {
                     eof_meta.disk_file_size = self.counter;
                     let mut eof_meta_bytes = borsh::to_vec(&eof_meta)?;
                     self.hasher.update(eof_meta_bytes.as_slice());
-                    eof_meta.disk_hash_sha256 = self.hasher.finalize_reset().try_into()?;
+                    eof_meta.disk_hash_sha256 = self.hasher.finalize_reset().into();
                     eof_meta_bytes = borsh::to_vec(&eof_meta)?;
                     buf.put(eof_meta_bytes.as_slice());
 

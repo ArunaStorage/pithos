@@ -69,15 +69,21 @@ pub struct EndOfFileMetadata {
 
 impl Display for EndOfFileMetadata {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "==== EndOfFileMetadata ====\n")?;
-        write!(f, "Len: {}\n", self.len)?;
-        write!(f, "Version: {}\n", self.version)?;
-        write!(f, "Raw file size: {}\n", self.raw_file_size)?;
-        write!(f, "Disk file size: {}\n", self.disk_file_size)?;
-        write!(f, "Disk hash SHA256: {:?}\n", self.disk_hash_sha256)?;
-        write!(f, "ToC len: {:?}\n", self.toc_len)?;
-        write!(f, "Encryption Info len: {:?}\n", self.encryption_len)?;
+        writeln!(f, "==== EndOfFileMetadata ====")?;
+        writeln!(f, "Len: {}", self.len)?;
+        writeln!(f, "Version: {}", self.version)?;
+        writeln!(f, "Raw file size: {}", self.raw_file_size)?;
+        writeln!(f, "Disk file size: {}", self.disk_file_size)?;
+        writeln!(f, "Disk hash SHA256: {:?}", self.disk_hash_sha256)?;
+        writeln!(f, "ToC len: {:?}", self.toc_len)?;
+        writeln!(f, "Encryption Info len: {:?}", self.encryption_len)?;
         Ok(())
+    }
+}
+
+impl Default for EndOfFileMetadata {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -103,6 +109,12 @@ pub struct EncryptionMetadata {
     pub magic_bytes: [u8; 4], // Should be 0x51, 0x2A, 0x4D, 0x18
     pub len: u32,             // Required for zstd skippable frame
     pub packets: Vec<EncryptionPacket>,
+}
+
+impl Default for EncryptionMetadata {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EncryptionMetadata {
@@ -168,13 +180,10 @@ impl EncryptionPacket {
 
         let decrypted = ChaCha20Poly1305::new_from_slice(session_key.as_ref().as_slice())
             .ok()?
-            .decrypt(
-                &Nonce::from_slice(self.nonce.as_ref()),
-                self.keys.as_slice(),
-            )
+            .decrypt(Nonce::from_slice(self.nonce.as_ref()), self.keys.as_slice())
             .ok()?;
 
-        Some(borsh::from_slice(&decrypted).ok()?)
+        borsh::from_slice(&decrypted).ok()
     }
 }
 
@@ -212,7 +221,7 @@ impl DecryptedKeys {
             .keys
             .clone()
             .into_iter()
-            .interleave(other_keys.keys.into_iter())
+            .interleave(other_keys.keys)
             .collect_vec();
         self.keys.dedup();
     }
@@ -332,7 +341,7 @@ impl FileContextVariants {
             let (nonce, data) = data.split_at(12);
             let decrypted: Vec<u8> = ChaCha20Poly1305::new_from_slice(key.as_slice())
                 .ok()?
-                .decrypt(&Nonce::from_slice(nonce), data)
+                .decrypt(Nonce::from_slice(nonce), data)
                 .ok()?;
             let deserialized: FileContextVariants = borsh::from_slice(&decrypted).ok()?;
             *self = deserialized;
@@ -341,11 +350,7 @@ impl FileContextVariants {
     }
 
     pub fn is_encrypted(&self) -> bool {
-        if let FileContextVariants::FileEncrypted(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, FileContextVariants::FileEncrypted(_))
     }
 }
 
@@ -364,8 +369,7 @@ impl DirContextVariants {
                 .map_err(|_| anyhow!("Invalid key length"))?
                 .encrypt(&nonce, as_bytes.as_slice())
                 .map_err(|_| anyhow!("Error while encrypting keys"))?;
-            *self =
-                DirContextVariants::DirEncrypted(nonce.to_vec().into_iter().chain(data).collect());
+            *self = DirContextVariants::DirEncrypted(nonce.into_iter().chain(data).collect());
         }
         Ok(())
     }
@@ -375,7 +379,7 @@ impl DirContextVariants {
             let (nonce, data) = data.split_at(12);
             let decrypted: Vec<u8> = ChaCha20Poly1305::new_from_slice(key.as_slice())
                 .ok()?
-                .decrypt(&Nonce::from_slice(nonce), data)
+                .decrypt(Nonce::from_slice(nonce), data)
                 .ok()?;
 
             let deserialized: DirContextVariants = borsh::from_slice(&decrypted).ok()?;
@@ -384,11 +388,7 @@ impl DirContextVariants {
         Some(())
     }
     pub fn is_encrypted(&self) -> bool {
-        if let DirContextVariants::DirEncrypted(_) = self {
-            true
-        } else {
-            false
-        }
+        matches!(self, DirContextVariants::DirEncrypted(_))
     }
 }
 
@@ -398,6 +398,12 @@ pub struct TableOfContents {
     pub len: u32,
     pub directories: Vec<DirContextVariants>,
     pub files: Vec<FileContextVariants>,
+}
+
+impl Default for TableOfContents {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TableOfContents {

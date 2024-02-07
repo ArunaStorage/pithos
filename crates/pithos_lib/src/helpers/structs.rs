@@ -98,14 +98,14 @@ pub struct FileContext {
     pub custom_ranges: Option<Vec<CustomRange>>,
 }
 
-impl Into<Option<FileInfo>> for FileContext {
-    fn into(self) -> Option<FileInfo> {
-        if self.uid.is_some() || self.gid.is_some() || self.mode.is_some() || self.mtime.is_some() {
+impl From<FileContext> for Option<FileInfo> {
+    fn from(val: FileContext) -> Self {
+        if val.uid.is_some() || val.gid.is_some() || val.mode.is_some() || val.mtime.is_some() {
             return Some(FileInfo {
-                uid: self.uid,
-                gid: self.gid,
-                mode: self.mode,
-                mtime: self.mtime,
+                uid: val.uid,
+                gid: val.gid,
+                mode: val.mode,
+                mtime: val.mtime,
             });
         }
         None
@@ -145,13 +145,13 @@ impl FileContext {
         // Validate hash lengths?
 
         if let Some(sha256) = &self.expected_sha256 {
-            let sha256_bytes: [u8; 32] = decode_hex(&sha256)?
+            let sha256_bytes: [u8; 32] = decode_hex(sha256)?
                 .try_into()
                 .map_err(|_| anyhow!("Provided SHA256 has invalid length"))?;
             hashes.sha256 = Some(sha256_bytes);
         }
         if let Some(md5) = &self.expected_md5 {
-            let md5_bytes: [u8; 16] = decode_hex(&md5)?
+            let md5_bytes: [u8; 16] = decode_hex(md5)?
                 .try_into()
                 .map_err(|_| anyhow!("Provided MD5 has invalid length"))?;
             hashes.md5 = Some(md5_bytes)

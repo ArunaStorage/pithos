@@ -52,7 +52,7 @@ where
                         if !ctx.is_dir && ctx.symlink_target.is_none() {
                             if let Some(queue) = self.file_queue.as_mut() {
                                 queue.push_back((ctx.idx, ctx.decompressed_size));
-                                if self.counter <= 0 {
+                                if self.counter == 0 {
                                     self.counter = ctx.decompressed_size;
                                 }
                             }
@@ -118,8 +118,8 @@ where
             return Err(anyhow!("[HashingTransformer] Error processing messages"));
         };
 
-        self.counter = self.counter - buf.len() as u64;
-        if self.counter <= 0 {
+        self.counter -= buf.len() as u64;
+        if self.counter == 0 {
             let to_keep = buf.len() + self.counter as usize;
             Digest::update(&mut self.hasher, buf.get(0..to_keep).unwrap_or_default());
             self.next_file(buf.get(to_keep..).unwrap_or_default())

@@ -8,7 +8,7 @@ use chacha20poly1305::aead::OsRng;
 use clap::{Parser, Subcommand};
 use crypto_kx::Keypair;
 use futures_util::StreamExt;
-use openssl::pkey::PKey;
+
 use pithos_lib::helpers::structs::{EncryptionKey, FileContext};
 use pithos_lib::pithos::pithoswriter::PithosWriter;
 use pithos_lib::pithos::structs::{EndOfFileMetadata, EOF_META_LEN};
@@ -222,25 +222,21 @@ async fn main() -> Result<()> {
                 file,
             } => {
                 // Load readers secret key
-                let (sec_key, _) = if let Ok(key) = load_private_key_from_env() {
+                let (_sec_key, _) = if let Ok(key) = load_private_key_from_env() {
                     key
+                } else if let Ok(key_bytes) =
+                    load_private_key_from_pem(&PathBuf::from("~/.pithos/private_key.pem"))
+                {
+                    key_bytes
+                } else if let Some(key_path) = reader_private_key {
+                    load_private_key_from_pem(key_path)?
                 } else {
-                    if let Ok(key_bytes) =
-                        load_private_key_from_pem(&PathBuf::from("~/.pithos/private_key.pem"))
-                    {
-                        key_bytes
-                    } else {
-                        if let Some(key_path) = reader_private_key {
-                            load_private_key_from_pem(key_path)?
-                        } else {
-                            bail!("No private key provided")
-                        }
-                    }
+                    bail!("No private key provided")
                 };
 
                 // Open file
                 let mut input_file = File::open(file).await?;
-                let mut file_meta = input_file.metadata().await?;
+                let file_meta = input_file.metadata().await?;
 
                 let footer_prediction = if file_meta.len() < 65536 * 2 {
                     file_meta.len() as i64 // 131072 always fits in i64 ...
@@ -265,10 +261,10 @@ async fn main() -> Result<()> {
             }
         },
         PithosCommands::Create {
-            metadata,
-            ranges,
+            metadata: _,
+            ranges: _,
             writer_private_key,
-            reader_public_keys,
+            reader_public_keys: _,
             files,
             output,
         } => {
@@ -277,20 +273,16 @@ async fn main() -> Result<()> {
 
             // Parse writer key to validate format and generate public key
             // Load readers secret key
-            let (sec_key, pub_key) = if let Ok(key) = load_private_key_from_env() {
+            let (_sec_key, pub_key) = if let Ok(key) = load_private_key_from_env() {
                 key
+            } else if let Ok(key_bytes) =
+                load_private_key_from_pem(&PathBuf::from("~/.pithos/private_key.pem"))
+            {
+                key_bytes
+            } else if let Some(key_path) = writer_private_key {
+                load_private_key_from_pem(key_path)?
             } else {
-                if let Ok(key_bytes) =
-                    load_private_key_from_pem(&PathBuf::from("~/.pithos/private_key.pem"))
-                {
-                    key_bytes
-                } else {
-                    if let Some(key_path) = writer_private_key {
-                        load_private_key_from_pem(key_path)?
-                    } else {
-                        bail!("No private key provided")
-                    }
-                }
+                bail!("No private key provided")
             };
 
             //let pub_key = PKey::public_key_from_pem(b"-----BEGIN PUBLIC KEY-----MCowBQYDK2VuAyEAlULMGjfTdkjURUilioyhox1uDbLIY8sUnitB1xwYkV8=-----END PUBLIC KEY-----")?.raw_public_key()?;
@@ -337,7 +329,7 @@ async fn main() -> Result<()> {
                     encryption_key: EncryptionKey::Same(key.as_bytes().to_vec()), // How to know if encryption is wanted?
                     recipients_pubkeys: vec![pub_key.as_slice().try_into()?],
                     is_dir: file_metadata.file_type().is_dir(),
-                    symlink_target: symlink_target,
+                    symlink_target,
                     expected_sha256: None, //ToDo
                     expected_md5: None,    //ToDo
                     semantic_metadata: None,

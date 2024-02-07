@@ -99,34 +99,30 @@ impl<
 
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn process_messages(&mut self) -> Result<bool> {
-        loop {
-            if let Some(rx) = &self.external_receiver {
-                match rx.try_recv() {
-                    Err(TryRecvError::Empty) => break,
-                    Ok(ref msg) => match &msg {
-                        &Message::FileContext(context) => {
-                            let mut context = context.clone();
-                            if context.is_dir {
-                                context.idx = self.dir_counter;
-                                self.dir_counter += 1;
-                            } else if context.symlink_target.is_none() {
-                                context.idx = self.file_counter;
-                                self.file_counter += 1;
-                            }
-                            self.context_queue.push_back(context);
+        while let Some(rx) = &self.external_receiver {
+            match rx.try_recv() {
+                Err(TryRecvError::Empty) => break,
+                Ok(ref msg) => match &msg {
+                    &Message::FileContext(context) => {
+                        let mut context = context.clone();
+                        if context.is_dir {
+                            context.idx = self.dir_counter;
+                            self.dir_counter += 1;
+                        } else if context.symlink_target.is_none() {
+                            context.idx = self.file_counter;
+                            self.file_counter += 1;
                         }
-                        Message::Completed => {
-                            return Ok(true);
-                        }
-                        _ => {}
-                    },
-                    Err(TryRecvError::Closed) => {
-                        self.external_receiver = None;
-                        break;
+                        self.context_queue.push_back(context);
                     }
+                    Message::Completed => {
+                        return Ok(true);
+                    }
+                    _ => {}
+                },
+                Err(TryRecvError::Closed) => {
+                    self.external_receiver = None;
+                    break;
                 }
-            } else {
-                break;
             }
         }
 
