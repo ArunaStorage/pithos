@@ -77,7 +77,7 @@ where
             if let Some((idx, _)) = queue.pop_front() {
                 let finished_hash = self.hasher.finalize_reset().to_vec();
                 let hashertype = match self.hasher_type.as_str() {
-                    "sha1" => HashType::Sha256,
+                    "sha256" => HashType::Sha256,
                     "md5" => HashType::Md5,
                     a => HashType::Other(a.to_string()),
                 };
@@ -115,7 +115,7 @@ where
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
         let Ok(finished) = self.process_messages() else {
-            return Err(anyhow!("HashingTransformer: Error processing messages"));
+            return Err(anyhow!("[HashingTransformer] Error processing messages"));
         };
 
         self.counter = self.counter - buf.len() as u64;

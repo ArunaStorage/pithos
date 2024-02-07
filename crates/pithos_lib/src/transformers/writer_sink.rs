@@ -43,6 +43,7 @@ impl<W: AsyncWrite + Unpin> WriterSink<W> {
                         if let Some(notifier) = &self.notifier {
                             self.writer.shutdown().await?;
                             notifier.send_read_writer(Message::Completed)?;
+                            debug!("WriteSink completed");
                         }
                         debug!("finished");
                         break;

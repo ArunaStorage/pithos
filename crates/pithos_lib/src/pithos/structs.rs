@@ -3,14 +3,15 @@ use crate::helpers::structs::FileContext;
 use anyhow::{anyhow, Result};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chacha20poly1305::aead::OsRng;
-use chacha20poly1305::AeadCore;
 use chacha20poly1305::{
     aead::{Aead, KeyInit},
     ChaCha20Poly1305,
 };
+use chacha20poly1305::{AeadCore, Nonce};
+use crypto_kx::{Keypair, PublicKey, SecretKey};
+use itertools::Itertools;
 use std::collections::HashMap;
 use std::fmt::Display;
-use crypto_kx::{Keypair, PublicKey, SecretKey};
 
 pub const ZSTD_MAGIC_BYTES: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
 pub const ZSTD_MAGIC_BYTES_SKIPPABLE_0: [u8; 4] = [0x50, 0x2A, 0x4D, 0x18];
@@ -49,6 +50,8 @@ pub const ZSTD_MAGIC_BYTES_ALL: [[u8; 4]; 17] = [
     ZSTD_MAGIC_BYTES_SKIPPABLE_15,
 ];
 
+pub const EOF_META_LEN: usize = 73;
+
 // -------------- EndOfFileMetadata --------------
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, BorshSerialize, BorshDeserialize)]
@@ -72,8 +75,8 @@ impl Display for EndOfFileMetadata {
         write!(f, "Raw file size: {}\n", self.raw_file_size)?;
         write!(f, "Disk file size: {}\n", self.disk_file_size)?;
         write!(f, "Disk hash SHA256: {:?}\n", self.disk_hash_sha256)?;
-        write!(f, "Toc table len: {:?}\n", self.toc_len)?;
-        write!(f, "Encryption meta len: {:?}\n", self.encryption_len)?;
+        write!(f, "ToC len: {:?}\n", self.toc_len)?;
+        write!(f, "Encryption Info len: {:?}\n", self.encryption_len)?;
         Ok(())
     }
 }
@@ -82,7 +85,7 @@ impl EndOfFileMetadata {
     pub fn new() -> Self {
         Self {
             magic_bytes: ZSTD_MAGIC_BYTES_SKIPPABLE_0,
-            len: 73,
+            len: EOF_META_LEN as u32,
             version: 1,
             raw_file_size: 0,
             disk_file_size: 0,
@@ -144,7 +147,7 @@ pub struct DecryptedKeys {
     pub keys: Vec<([u8; 32], DirOrFileIdx)>,
 }
 
-#[derive(Debug, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct EncryptionPacket {
     pub pubkey: [u8; 32],
     pub nonce: [u8; 12],
@@ -156,11 +159,31 @@ impl EncryptionPacket {
     fn len(&self) -> u32 {
         (32 + 12 + self.keys.len() + 16) as u32
     }
+
+    pub fn decrypt(self, private_key: &[u8; 32]) -> Option<DecryptedKeys> {
+        let keypair = Keypair::from(SecretKey::from(*private_key));
+
+        let writers_pub_key = PublicKey::from(self.pubkey);
+        let session_key = keypair.session_keys_from(&writers_pub_key).rx;
+
+        let decrypted = ChaCha20Poly1305::new_from_slice(session_key.as_ref().as_slice())
+            .ok()?
+            .decrypt(
+                &Nonce::from_slice(self.nonce.as_ref()),
+                self.keys.as_slice(),
+            )
+            .ok()?;
+
+        Some(borsh::from_slice(&decrypted).ok()?)
+    }
 }
 
-
 impl DecryptedKeys {
-    pub fn encrypt(&self, readers_pubkey: [u8; 32], writers_private_key: Option<[u8; 32]>) -> Result<EncryptionPacket> {
+    pub fn encrypt(
+        &self,
+        readers_pubkey: [u8; 32],
+        writers_private_key: Option<[u8; 32]>,
+    ) -> Result<EncryptionPacket> {
         let keypair = match writers_private_key {
             Some(key) => Keypair::from(SecretKey::from(key)),
             None => Keypair::generate(&mut OsRng),
@@ -183,15 +206,15 @@ impl DecryptedKeys {
             mac: mac.try_into()?,
         })
     }
-}
 
-// impl DecryptedKey into EncryptionPacket
-// Auto encrypt DecryptedKey with recipient PubKey into EncryptionPacket
-impl TryInto<EncryptionPacket> for DecryptedKeys {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> std::result::Result<EncryptionPacket, Self::Error> {
-        todo!()
+    pub fn add_keys(&mut self, other_keys: DecryptedKeys) {
+        self.keys = self
+            .keys
+            .clone()
+            .into_iter()
+            .interleave(other_keys.keys.into_iter())
+            .collect_vec();
+        self.keys.dedup();
     }
 }
 
@@ -303,6 +326,27 @@ impl FileContextVariants {
         }
         Ok(())
     }
+
+    pub fn decrypt(&mut self, key: [u8; 32]) -> Option<()> {
+        if let FileContextVariants::FileEncrypted(data) = self {
+            let (nonce, data) = data.split_at(12);
+            let decrypted: Vec<u8> = ChaCha20Poly1305::new_from_slice(key.as_slice())
+                .ok()?
+                .decrypt(&Nonce::from_slice(nonce), data)
+                .ok()?;
+            let deserialized: FileContextVariants = borsh::from_slice(&decrypted).ok()?;
+            *self = deserialized;
+        }
+        Some(())
+    }
+
+    pub fn is_encrypted(&self) -> bool {
+        if let FileContextVariants::FileEncrypted(_) = self {
+            true
+        } else {
+            false
+        }
+    }
 }
 
 #[derive(BorshDeserialize, BorshSerialize, Debug)]
@@ -324,6 +368,27 @@ impl DirContextVariants {
                 DirContextVariants::DirEncrypted(nonce.to_vec().into_iter().chain(data).collect());
         }
         Ok(())
+    }
+
+    pub fn decrypt(&mut self, key: [u8; 32]) -> Option<()> {
+        if let DirContextVariants::DirEncrypted(data) = self {
+            let (nonce, data) = data.split_at(12);
+            let decrypted: Vec<u8> = ChaCha20Poly1305::new_from_slice(key.as_slice())
+                .ok()?
+                .decrypt(&Nonce::from_slice(nonce), data)
+                .ok()?;
+
+            let deserialized: DirContextVariants = borsh::from_slice(&decrypted).ok()?;
+            *self = deserialized;
+        }
+        Some(())
+    }
+    pub fn is_encrypted(&self) -> bool {
+        if let DirContextVariants::DirEncrypted(_) = self {
+            true
+        } else {
+            false
+        }
     }
 }
 

@@ -1,6 +1,5 @@
 use std::num::ParseIntError;
 
-use crate::helpers::notifications::DirOrFileIdx;
 use crate::pithos::structs::{CustomRange, FileInfo, Hashes};
 use anyhow::{anyhow, bail, Result};
 

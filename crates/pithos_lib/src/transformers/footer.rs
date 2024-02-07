@@ -11,7 +11,7 @@ use anyhow::{anyhow, bail};
 use async_channel::{Receiver, Sender, TryRecvError};
 use byteorder::{ByteOrder, LittleEndian};
 use bytes::BufMut;
-use digest::{Digest, Mac};
+use digest::Digest;
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -30,6 +30,7 @@ pub struct FooterGenerator {
     notifier: Option<Arc<Notifier>>,
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
+    finished: bool,
 }
 
 impl FooterGenerator {
@@ -50,6 +51,7 @@ impl FooterGenerator {
             notifier: None,
             msg_receiver: None,
             idx: None,
+            finished: false,
         }
     }
 
@@ -118,6 +120,7 @@ impl FooterGenerator {
             notifier: None,
             msg_receiver: None,
             idx: None,
+            finished: false,
         })
     }
 
@@ -311,72 +314,79 @@ impl Transformer for FooterGenerator {
         // Update overall hash & size counter
         self.hasher.update(buf.as_ref());
         self.counter += buf.len() as u64;
-        if let Ok(finished) = self.process_messages() {
-            if finished {
-                let mut eof_meta = EndOfFileMetadata::new();
+        match self.process_messages() {
+            Ok(finished) => {
+                if finished && !self.finished {
+                    let mut eof_meta = EndOfFileMetadata::new();
 
-                // Write TableOfContents
-                let mut toc = TableOfContents::new();
-                let dir_ctx_list: Result<Vec<DirContextVariants>> = self
-                    .directories
-                    .iter()
-                    .cloned()
-                    .map(|(key, ctx)|
-                        {
+                    // Write TableOfContents
+                    let mut toc = TableOfContents::new();
+                    let dir_ctx_list: Result<Vec<DirContextVariants>> = self
+                        .directories
+                        .iter()
+                        .cloned()
+                        .map(|(key, ctx)| {
                             let mut variant = DirContextVariants::DirDecrypted(ctx);
                             variant.encrypt(&key)?;
                             Ok(variant)
                         })
-                    .collect();
-                toc.directories = dir_ctx_list?;
-                let file_ctx_list: Result<Vec<FileContextVariants>> = self
-                    .files
-                    .iter()
-                    .cloned()
-                    .map(|(key, ctx)|
-                        {
+                        .collect();
+                    toc.directories = dir_ctx_list?;
+                    let file_ctx_list: Result<Vec<FileContextVariants>> = self
+                        .files
+                        .iter()
+                        .cloned()
+                        .map(|(key, ctx)| {
                             let mut variant = FileContextVariants::FileDecrypted(ctx);
                             variant.encrypt(&key)?;
                             Ok(variant)
                         })
-                    .collect();
-                toc.files = file_ctx_list?;
+                        .collect();
+                    toc.files = file_ctx_list?;
 
-                let mut toc_bytes = borsh::to_vec(&toc)?;
-                eof_meta.toc_len = toc_bytes.len() as u64;
+                    let mut toc_bytes = borsh::to_vec(&toc)?;
+                    eof_meta.toc_len = toc_bytes.len() as u64;
 
-                LittleEndian::write_u32_into(
-                    &[(toc_bytes.len() - 8).try_into()?],
-                    &mut toc_bytes[4..8],
-                );
+                    LittleEndian::write_u32_into(
+                        &[(toc_bytes.len() - 8).try_into()?],
+                        &mut toc_bytes[4..8],
+                    );
 
-                self.hasher.update(toc_bytes.as_slice());
-                buf.put(toc_bytes.as_slice());
+                    self.hasher.update(toc_bytes.as_slice());
+                    buf.put(toc_bytes.as_slice());
 
-                // Write Encryption Metadata
-                let enc_meta = EncryptionMetadata::try_from(&self.encryption_keys)?;
-                let enc_meta_bytes = borsh::to_vec(&enc_meta)?;
-                eof_meta.encryption_len = enc_meta_bytes.len() as u64;
-                self.hasher.update(enc_meta_bytes.as_slice());
-                buf.put(enc_meta_bytes.as_slice());
+                    // Write Encryption Metadata
+                    let enc_meta = EncryptionMetadata::try_from(&self.encryption_keys)?;
+                    let enc_meta_bytes = borsh::to_vec(&enc_meta)?;
+                    eof_meta.encryption_len = enc_meta_bytes.len() as u64;
+                    self.hasher.update(enc_meta_bytes.as_slice());
+                    buf.put(enc_meta_bytes.as_slice());
 
-                // Write EndOfFileMetadata
-                eof_meta.raw_file_size = self.raw_counter;
-                eof_meta.disk_file_size = self.counter;
-                let mut eof_meta_bytes = borsh::to_vec(&eof_meta)?;
-                self.hasher.update(eof_meta_bytes.as_slice());
-                eof_meta.disk_hash_sha256 = self.hasher.finalize_reset().try_into()?;
-                eof_meta_bytes = borsh::to_vec(&eof_meta)?;
-                buf.put(eof_meta_bytes.as_slice());
+                    // Write EndOfFileMetadata
+                    eof_meta.raw_file_size = self.raw_counter;
+                    eof_meta.disk_file_size = self.counter;
+                    let mut eof_meta_bytes = borsh::to_vec(&eof_meta)?;
+                    self.hasher.update(eof_meta_bytes.as_slice());
+                    eof_meta.disk_hash_sha256 = self.hasher.finalize_reset().try_into()?;
+                    eof_meta_bytes = borsh::to_vec(&eof_meta)?;
+                    buf.put(eof_meta_bytes.as_slice());
 
-                if let Some(notifier) = &self.notifier {
-                    notifier.send_next(self.idx.ok_or_else(|| anyhow!("Missing idx"))?, Message::Finished)?;
+                    if let Some(notifier) = &self.notifier {
+                        notifier.send_next(
+                            self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
+                            Message::Finished,
+                        )?;
+                    }
+                    self.finished = true;
                 }
             }
-        } else {
-            return Err(anyhow!("Error processing messages"));
-        };
-
+            Err(err) => {
+                return Err(anyhow!(
+                    "[FooterGenerator] Error processing messages: {}",
+                    err
+                ))
+            }
+        }
         Ok(())
     }
 

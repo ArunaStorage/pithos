@@ -27,7 +27,7 @@ pub struct ChaCha20Enc {
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
     encryption_key: Option<Vec<u8>>,
-    key_is_fixed: bool,
+    _key_is_fixed: bool,
     finished: bool,
 }
 
@@ -42,7 +42,7 @@ impl ChaCha20Enc {
             msg_receiver: None,
             idx: None,
             encryption_key: None,
-            key_is_fixed: false,
+            _key_is_fixed: false,
             finished: false,
         }
     }
@@ -57,7 +57,7 @@ impl ChaCha20Enc {
             msg_receiver: None,
             idx: None,
             encryption_key: Some(key),
-            key_is_fixed: true,
+            _key_is_fixed: true,
             finished: false,
         })
     }

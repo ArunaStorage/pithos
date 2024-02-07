@@ -287,7 +287,7 @@ impl Transformer for PithosTransformer {
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut BytesMut) -> Result<()> {
         let Ok((finished, flush)) = self.process_messages() else {
-            return Err(anyhow!("Error processing messages"));
+            return Err(anyhow!("[PithosTransformer] Error processing messages"));
         };
         self.capture_buf.put(buf.split());
 

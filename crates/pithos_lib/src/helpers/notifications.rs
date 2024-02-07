@@ -1,8 +1,9 @@
 use crate::helpers::structs::FileContext;
 use crate::transformer::TransformerType;
 use async_channel::Sender;
-use std::sync::RwLock;
 use borsh::{BorshDeserialize, BorshSerialize};
+use std::sync::RwLock;
+use tracing::debug;
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -60,6 +61,7 @@ pub enum Message {
     Custom((String, Vec<u8>)),
 }
 
+#[derive(Debug)]
 pub struct Notifier {
     read_writer: Sender<Message>,
     notifiers: RwLock<Vec<(TransformerType, Sender<Message>)>>,
@@ -77,7 +79,9 @@ impl Notifier {
         self.notifiers.write().unwrap().push(trans);
     }
 
+    #[tracing::instrument(err)]
     pub fn send_next(&self, idx: usize, message: Message) -> anyhow::Result<()> {
+        debug!("Send {:?} from {} to {}", message, idx, idx + 1);
         if idx + 1 < self.notifiers.read().unwrap().len() {
             self.notifiers.read().unwrap()[idx + 1]
                 .1
@@ -86,6 +90,7 @@ impl Notifier {
         Ok(())
     }
 
+    #[tracing::instrument(err)]
     pub fn send_first(&self, message: Message) -> anyhow::Result<()> {
         if let Some((_, sender)) = self.notifiers.read().unwrap().first() {
             sender.try_send(message)?;
@@ -93,6 +98,7 @@ impl Notifier {
         Ok(())
     }
 
+    #[tracing::instrument(err)]
     pub fn send_next_type(
         &self,
         idx: usize,
@@ -111,6 +117,7 @@ impl Notifier {
         Ok(())
     }
 
+    #[tracing::instrument(err)]
     pub fn send_all_type(
         &self,
         trans_type: TransformerType,
@@ -124,6 +131,7 @@ impl Notifier {
         Ok(())
     }
 
+    #[tracing::instrument(err)]
     pub fn send_all(&self, message: Message) -> anyhow::Result<()> {
         for (_, sender) in self.notifiers.read().unwrap().iter() {
             sender.try_send(message.clone())?;
@@ -131,6 +139,7 @@ impl Notifier {
         Ok(())
     }
 
+    #[tracing::instrument(err)]
     pub fn send_read_writer(&self, message: Message) -> anyhow::Result<()> {
         self.read_writer.try_send(message)?;
         Ok(())
