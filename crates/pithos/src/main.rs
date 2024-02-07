@@ -8,8 +8,10 @@ use chacha20poly1305::aead::OsRng;
 use clap::{Parser, Subcommand};
 use crypto_kx::Keypair;
 use futures_util::StreamExt;
+use openssl::pkey::PKey;
 use pithos_lib::helpers::structs::{EncryptionKey, FileContext};
 use pithos_lib::pithos::pithoswriter::PithosWriter;
+use pithos_lib::pithos::structs::{EndOfFileMetadata, EOF_META_LEN};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::os::unix::fs::MetadataExt;
@@ -34,7 +36,7 @@ struct Cli {
 
     /// Subcommands
     #[command(subcommand)]
-    command: Option<PithosCommands>,
+    command: PithosCommands,
 }
 
 #[derive(Subcommand)]
@@ -53,13 +55,13 @@ enum PithosCommands {
         /// Public keys of recipients
         #[arg(long)]
         reader_public_keys: Option<Vec<PathBuf>>, // Iterate files and parse all keys
+        /// Output destination; Default is stdout or ./<filename>.pto (?)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
 
-        /// Input file
+        /// Input files
         #[arg(value_name = "FILE")]
         files: Vec<PathBuf>,
-        /// Output destination; Default is stdout or ./<filename>.pto (?)
-        #[arg(value_name = "OUTPUT")]
-        output: Option<PathBuf>,
     },
     /// Read pithos file
     Read {
@@ -185,26 +187,24 @@ async fn main() -> Result<()> {
 
     // Execute subcommand
     match &cli.command {
-        None => {}
-        Some(PithosCommands::Read { read_command }) => match read_command {
+        PithosCommands::Read { read_command } => match read_command {
             ReadCommands::Info { file } => {
                 // Open file
                 let mut input_file = File::open(file).await?;
 
-                // Read last 8 bytes to get EndOfFileMetadata len
-                input_file.seek(tokio::io::SeekFrom::End(-8)).await?;
-                let mut buf = [0; 8];
-                input_file.read_exact(&mut buf).await?;
-                let eof_len = i64::from_le_bytes(buf);
-
                 // Read EndOfFileMetadata bytes
-                let mut eof_metadata = vec![0; eof_len as usize];
-                input_file.seek(tokio::io::SeekFrom::End(-eof_len)).await?;
-                input_file.read_exact(&mut eof_metadata).await?;
+                input_file
+                    .seek(tokio::io::SeekFrom::Start(
+                        input_file.metadata().await?.len() - EOF_META_LEN as u64,
+                    ))
+                    .await?;
+                let mut buf = [0; EOF_META_LEN];
+                input_file.read_exact(&mut buf).await?;
 
                 // Try to parse EndOfFileMetadata
-                //let eof_block = EndOfFileMetadata::try_from(eof_metadata.as_slice())?;
-                //debug!(?eof_block)
+                let eof_meta: EndOfFileMetadata = borsh::from_slice(&buf)?;
+
+                println!("{eof_meta}");
 
                 //ToDo: OutputWriter
             }
@@ -264,14 +264,14 @@ async fn main() -> Result<()> {
                 //serde_json::to_string_pretty(&parser.get_semantic_metadata()?.semantic);
             }
         },
-        Some(PithosCommands::Create {
+        PithosCommands::Create {
             metadata,
             ranges,
             writer_private_key,
             reader_public_keys,
             files,
             output,
-        }) => {
+        } => {
             // Ranges as JSON (or CSV) file or 'Tag1,0,12;Tag2,13,38; ...'
             // Metadata as JSON file or '{"key": "value"}' | validate schema
 
@@ -292,6 +292,8 @@ async fn main() -> Result<()> {
                     }
                 }
             };
+
+            //let pub_key = PKey::public_key_from_pem(b"-----BEGIN PUBLIC KEY-----MCowBQYDK2VuAyEAlULMGjfTdkjURUilioyhox1uDbLIY8sUnitB1xwYkV8=-----END PUBLIC KEY-----")?.raw_public_key()?;
 
             // Generate random symmetric "key" for encryption
             let key: String = thread_rng()
@@ -333,7 +335,7 @@ async fn main() -> Result<()> {
                     compression: false,
                     chunk_multiplier: None,
                     encryption_key: EncryptionKey::Same(key.as_bytes().to_vec()), // How to know if encryption is wanted?
-                    recipients_pubkeys: vec![pub_key],
+                    recipients_pubkeys: vec![pub_key.as_slice().try_into()?],
                     is_dir: file_metadata.file_type().is_dir(),
                     symlink_target: symlink_target,
                     expected_sha256: None, //ToDo
@@ -367,16 +369,12 @@ async fn main() -> Result<()> {
                 )
                 .await?
             } else {
-                PithosWriter::new_multi_with_writer(
-                    data_receiver,
-                    tokio::io::stdout(),
-                    file_ctxs,
-                )
-                .await?
+                PithosWriter::new_multi_with_writer(data_receiver, tokio::io::stdout(), file_ctxs)
+                    .await?
             };
             writer.process_bytes().await?;
         }
-        Some(PithosCommands::CreateKeypair { output }) => {
+        PithosCommands::CreateKeypair { output } => {
             let keypair = Keypair::generate(&mut OsRng);
 
             // x25519 keypair
@@ -411,8 +409,8 @@ async fn main() -> Result<()> {
             target_file.write_all(sec_out.as_bytes()).await?;
             target_file.write_all(pub_out.as_bytes()).await?;
         }
-        Some(PithosCommands::Modify { .. }) => {}
-        Some(PithosCommands::Export { .. }) => {}
+        PithosCommands::Modify { .. } => {}
+        PithosCommands::Export { .. } => {}
     }
 
     // Continued program logic goes here...

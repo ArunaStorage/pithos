@@ -21,7 +21,7 @@ pub fn load_private_key_from_pem(filepath: &PathBuf) -> Result<([u8; 32], [u8; 3
     Ok((private_key_bytes, public_key_bytes))
 }
 
-pub fn load_private_key_from_string(key_bytes: &[u8]) -> Result<([u8; 32], [u8; 32])> {
+pub fn _load_private_key_from_string(key_bytes: &[u8]) -> Result<([u8; 32], [u8; 32])> {
     // Try to parse bytes as x25519 key
     let private_key = PKey::private_key_from_raw_bytes(key_bytes, Id::X25519)?;
 
