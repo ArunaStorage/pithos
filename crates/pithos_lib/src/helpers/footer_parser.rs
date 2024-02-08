@@ -5,6 +5,7 @@ use crate::pithos::structs::{
 use crate::pithos::structs::{EncryptionMetadata, EOF_META_LEN};
 use anyhow::anyhow;
 use anyhow::Result;
+
 pub enum FooterParserState {
     Empty,
     Raw,
@@ -14,7 +15,7 @@ pub enum FooterParserState {
 
 pub struct FooterParser<'a> {
     buffer: Vec<u8>,
-    state: FooterParserState,
+    pub state: FooterParserState,
     keys: Vec<&'a [u8; 32]>,
     eof_metadata: Option<EndOfFileMetadata>,
     encryption_keys: Option<DecryptedKeys>,
@@ -106,17 +107,20 @@ impl<'a> FooterParser<'a> {
                 let (enc_len, toc_len) = if let Some(eof_metadata) = &self.eof_metadata {
                     (eof_metadata.encryption_len, eof_metadata.toc_len)
                 } else {
-                    let eof_metadata = self.parse_eof_md()?;
+                    let eof_metadata = self.parse_eof_md()?; // buf.len - 73
                     let encryption_len = eof_metadata.encryption_len;
                     let toc_len = eof_metadata.toc_len;
-                    let missing = (encryption_len + toc_len) - self.buffer.len() as u64;
-                    self.eof_metadata = Some(eof_metadata);
-                    if missing > 0 {
+
+                    // Evaluate if bytes are missing for full footer parsing
+                    if (self.buffer.len() as u64) < (encryption_len + toc_len) {
+                        let missing = (encryption_len + toc_len) - self.buffer.len() as u64;
                         return Ok(FooterParser {
                             state: FooterParserState::Missing(missing as usize),
                             ..self
                         });
                     }
+
+                    self.eof_metadata = Some(eof_metadata);
                     (encryption_len, toc_len)
                 };
 
@@ -127,6 +131,9 @@ impl<'a> FooterParser<'a> {
 
                 // Parse Table of Contents
                 self.parse_table_of_contents(toc_len)?;
+
+                // Set state to decoded
+                self.state = FooterParserState::Decoded;
 
                 Ok(self)
             }
@@ -158,6 +165,8 @@ impl<'a> FooterParser<'a> {
                 if let Some(decrypted_keys) = packet.decrypt(key) {
                     if let Some(keys) = &mut self.encryption_keys {
                         keys.add_keys(decrypted_keys)
+                    } else {
+                        self.encryption_keys = Some(decrypted_keys);
                     }
                 }
             }
@@ -180,7 +189,7 @@ impl<'a> FooterParser<'a> {
                     .clone()
                 {
                     if let DirOrFileIdx::Dir(last_used_idx) = key_idx {
-                        if idx < last_used_idx {
+                        if idx <= last_used_idx {
                             dir_ctx.decrypt(key);
                         }
                     }
@@ -198,7 +207,7 @@ impl<'a> FooterParser<'a> {
                     .clone()
                 {
                     if let DirOrFileIdx::File(last_used_idx) = key_idx {
-                        if idx < last_used_idx {
+                        if idx <= last_used_idx {
                             file_ctx.decrypt(key);
                         }
                     }
@@ -206,10 +215,11 @@ impl<'a> FooterParser<'a> {
             }
         }
 
-        table_of_contents.files.retain(|var| !var.is_encrypted());
         table_of_contents
             .directories
             .retain(|var| !var.is_encrypted());
+
+        table_of_contents.files.retain(|var| !var.is_encrypted());
 
         self.table_of_contents = Some(table_of_contents);
         self.buffer = remaining.to_vec();

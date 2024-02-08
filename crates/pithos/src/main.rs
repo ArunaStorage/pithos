@@ -9,6 +9,7 @@ use clap::{Parser, Subcommand};
 use crypto_kx::Keypair;
 use futures_util::StreamExt;
 
+use pithos_lib::helpers::footer_parser::{Footer, FooterParser, FooterParserState};
 use pithos_lib::helpers::structs::{EncryptionKey, FileContext};
 use pithos_lib::pithos::pithoswriter::PithosWriter;
 use pithos_lib::pithos::structs::{EndOfFileMetadata, EOF_META_LEN};
@@ -19,7 +20,6 @@ use std::path::PathBuf;
 use tokio::fs::{read_link, File};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::pin;
-use tracing::debug;
 use utils::conversion::evaluate_log_level;
 
 use crate::utils::conversion::to_hex_string;
@@ -60,7 +60,7 @@ enum PithosCommands {
         output: Option<PathBuf>,
 
         /// Input files
-        #[arg(value_name = "FILE")]
+        #[arg(value_name = "FILES")]
         files: Vec<PathBuf>,
     },
     /// Read pithos file
@@ -73,7 +73,7 @@ enum PithosCommands {
     /// Create custom transformer order or something like that
     CreateKeypair {
         /// Optionally output destination; Default is stdout
-        #[arg(value_name = "OUTPUT")]
+        #[arg(short, long)]
         output: Option<PathBuf>,
     },
 
@@ -119,20 +119,13 @@ enum ReadCommands {
         #[arg(value_name = "FILE")]
         file: PathBuf,
     },
-    /// Read the range list if present
-    RangeList {
-        /// Private key for decryption
-        #[arg(long)]
-        reader_private_key: Option<String>,
-        /// Input file
-        #[arg(value_name = "FILE")]
-        file: PathBuf,
-    },
-    /// Read the semantic metadata if present
-    Metadata {
+    /// Read the Table of Contents
+    ContentList {
         /// Private key for decryption
         #[arg(long)]
         reader_private_key: Option<PathBuf>,
+
+        //ToDo: Filter to display only specific fields of the ToC?
         /// Input file
         #[arg(value_name = "FILE")]
         file: PathBuf,
@@ -216,13 +209,12 @@ async fn main() -> Result<()> {
                 // Create PithosReader
                 //let reader = PithosReader::new_with_writer(input_stream, sink, filecontext, metadata);
             }
-            ReadCommands::RangeList { .. } => todo!(""),
-            ReadCommands::Metadata {
+            ReadCommands::ContentList {
                 reader_private_key,
                 file,
             } => {
                 // Load readers secret key
-                let (_sec_key, _) = if let Ok(key) = load_private_key_from_env() {
+                let (sec_key, _) = if let Ok(key) = load_private_key_from_env() {
                     key
                 } else if let Ok(key_bytes) =
                     load_private_key_from_pem(&PathBuf::from("~/.pithos/private_key.pem"))
@@ -239,25 +231,31 @@ async fn main() -> Result<()> {
                 let file_meta = input_file.metadata().await?;
 
                 let footer_prediction = if file_meta.len() < 65536 * 2 {
-                    file_meta.len() as i64 // 131072 always fits in i64 ...
+                    file_meta.len() // 131072 always fits in i64 ...
                 } else {
                     65536 * 2
                 };
 
                 // Read footer bytes in FooterParser
                 input_file
-                    .seek(tokio::io::SeekFrom::End(-footer_prediction))
+                    .seek(tokio::io::SeekFrom::End(-(footer_prediction as i64)))
                     .await?;
-                let buf: &mut [u8; 65536 * 2] = &mut [0; 65536 * 2]; // ToDo
+                let buf = &mut vec![0; footer_prediction as usize]; // Has to be vec as length is defined by dynamic value
                 input_file.read_exact(buf).await?;
 
-                // Init footer parser with provided private key
-                //let mut parser = FooterParser::new(buf);
-                //parser.add_recipient_key(sec_key);
+                let parser = FooterParser::new(buf)?.add_recipient(&sec_key).parse()?;
 
-                // Parse the footer bytes and display technical metadata info
-                //parser.parse()?;
-                //serde_json::to_string_pretty(&parser.get_semantic_metadata()?.semantic);
+                // Check if bytes are missing
+                if let FooterParserState::Missing(missing_bytes) = parser.state {
+                    let _needed_bytes = footer_prediction + missing_bytes as u64;
+                    todo!()
+                }
+
+                // Parse the footer bytes and display Table of Contents
+                let footer: Footer = parser.try_into()?;
+                println!("{:#?}", footer.table_of_contents);
+
+                //TODO: Output writer
             }
         },
         PithosCommands::Create {
@@ -284,8 +282,6 @@ async fn main() -> Result<()> {
             } else {
                 bail!("No private key provided")
             };
-
-            //let pub_key = PKey::public_key_from_pem(b"-----BEGIN PUBLIC KEY-----MCowBQYDK2VuAyEAlULMGjfTdkjURUilioyhox1uDbLIY8sUnitB1xwYkV8=-----END PUBLIC KEY-----")?.raw_public_key()?;
 
             // Generate random symmetric "key" for encryption
             let key: String = thread_rng()
@@ -369,7 +365,8 @@ async fn main() -> Result<()> {
         PithosCommands::CreateKeypair { output } => {
             let keypair = Keypair::generate(&mut OsRng);
 
-            // x25519 keypair
+            // x25519 openSSL keypair
+            // x25519 Crypt4GH keypair
             // GPG (for parsing?)
             // Output format parameter?
             //  - Raw
@@ -389,14 +386,12 @@ async fn main() -> Result<()> {
                 "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n",
                 sec_hex
             );
-            debug!("{}", sec_out);
 
             let pub_hex = to_hex_string(keypair.public().as_ref().into()).to_ascii_lowercase();
             let pub_out = format!(
                 "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
                 pub_hex
             );
-            debug!("{}", pub_out);
 
             target_file.write_all(sec_out.as_bytes()).await?;
             target_file.write_all(pub_out.as_bytes()).await?;

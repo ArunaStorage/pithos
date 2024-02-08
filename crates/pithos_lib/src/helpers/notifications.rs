@@ -3,7 +3,6 @@ use crate::transformer::TransformerType;
 use async_channel::Sender;
 use borsh::{BorshDeserialize, BorshSerialize};
 use std::sync::RwLock;
-use tracing::debug;
 
 #[derive(Clone, Debug)]
 #[non_exhaustive]
@@ -81,7 +80,6 @@ impl Notifier {
 
     #[tracing::instrument(err)]
     pub fn send_next(&self, idx: usize, message: Message) -> anyhow::Result<()> {
-        debug!("Send {:?} from {} to {}", message, idx, idx + 1);
         if idx + 1 < self.notifiers.read().unwrap().len() {
             self.notifiers.read().unwrap()[idx + 1]
                 .1

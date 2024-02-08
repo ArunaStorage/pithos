@@ -311,39 +311,28 @@ impl Transformer for FooterGenerator {
                 if finished && !self.finished {
                     let mut eof_meta = EndOfFileMetadata::new();
 
-                    // Write TableOfContents
+                    // Prepare TableOfContents
                     let mut toc = TableOfContents::new();
-                    let dir_ctx_list: Result<Vec<DirContextVariants>> = self
-                        .directories
-                        .iter()
-                        .cloned()
-                        .map(|(key, ctx)| {
-                            let mut variant = DirContextVariants::DirDecrypted(ctx);
-                            variant.encrypt(&key)?;
-                            Ok(variant)
-                        })
-                        .collect();
-                    toc.directories = dir_ctx_list?;
-                    let file_ctx_list: Result<Vec<FileContextVariants>> = self
-                        .files
-                        .iter()
-                        .cloned()
-                        .map(|(key, ctx)| {
-                            let mut variant = FileContextVariants::FileDecrypted(ctx);
-                            variant.encrypt(&key)?;
-                            Ok(variant)
-                        })
-                        .collect();
-                    toc.files = file_ctx_list?;
-
+                    for (key, dir_ctx) in self.directories.clone() {
+                        let mut variant = DirContextVariants::DirDecrypted(dir_ctx);
+                        variant.encrypt(&key)?;
+                        toc.directories.push(variant)
+                    }
+                    for (key, file_ctx) in self.files.clone() {
+                        let mut variant = FileContextVariants::FileDecrypted(file_ctx);
+                        variant.encrypt(&key)?;
+                        toc.files.push(variant);
+                    }
                     let mut toc_bytes = borsh::to_vec(&toc)?;
                     eof_meta.toc_len = toc_bytes.len() as u64;
 
+                    // Inject TableOfContents bytes length into serialized TableOfContents
                     LittleEndian::write_u32_into(
                         &[(toc_bytes.len() - 8).try_into()?],
                         &mut toc_bytes[4..8],
                     );
 
+                    // Update full file hash and write TableOfContents
                     self.hasher.update(toc_bytes.as_slice());
                     buf.put(toc_bytes.as_slice());
 
