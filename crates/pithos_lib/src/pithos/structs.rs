@@ -174,13 +174,17 @@ impl EncryptionPacket {
 
     pub fn decrypt(self, private_key: &[u8; 32]) -> Option<DecryptedKeys> {
         let keypair = Keypair::from(SecretKey::from(*private_key));
-
         let writers_pub_key = PublicKey::from(self.pubkey);
         let session_key = keypair.session_keys_from(&writers_pub_key).rx;
 
+        // Re-combine payload and mac before decryption
+        let encrypted_payload = [self.keys, self.mac.to_vec()].concat();
         let decrypted = ChaCha20Poly1305::new_from_slice(session_key.as_ref().as_slice())
             .ok()?
-            .decrypt(Nonce::from_slice(self.nonce.as_ref()), self.keys.as_slice())
+            .decrypt(
+                Nonce::from_slice(self.nonce.as_ref()),
+                encrypted_payload.as_slice(),
+            )
             .ok()?;
 
         borsh::from_slice(&decrypted).ok()
@@ -197,8 +201,8 @@ impl DecryptedKeys {
             Some(key) => Keypair::from(SecretKey::from(key)),
             None => Keypair::generate(&mut OsRng),
         };
-        let public_key = PublicKey::from(readers_pubkey);
-        let session_key = keypair.session_keys_from(&public_key).tx;
+        let readers_pub_key = PublicKey::from(readers_pubkey);
+        let session_key = keypair.session_keys_to(&readers_pub_key).tx;
         let nonce = ChaCha20Poly1305::generate_nonce(&mut OsRng);
         let as_bytes = borsh::to_vec(&self)?;
 
