@@ -4,9 +4,7 @@ mod utils;
 
 use crate::io::utils::{load_private_key_from_env, load_private_key_from_pem};
 use anyhow::{anyhow, bail, Result};
-use chacha20poly1305::aead::OsRng;
-use clap::{Parser, Subcommand};
-use crypto_kx::Keypair;
+use clap::{Parser, Subcommand, ValueEnum};
 use futures_util::StreamExt;
 
 use pithos_lib::helpers::footer_parser::{Footer, FooterParser, FooterParserState};
@@ -22,7 +20,18 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::pin;
 use utils::conversion::evaluate_log_level;
 
-use crate::utils::conversion::to_hex_string;
+#[derive(Clone, ValueEnum)]
+enum KeyFormat {
+    Openssl,
+    Crypt4gh,
+    Raw,
+}
+
+#[derive(Clone, ValueEnum)]
+enum ExportFormat {
+    Pithos,
+    Crypt4gh,
+}
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -43,7 +52,7 @@ struct Cli {
 enum PithosCommands {
     /// Create a Pithos file from some input
     Create {
-        /// Metadata in JSON format
+        /// Custom file metadata in JSON format
         #[arg(short, long)]
         metadata: Option<String>,
         /// Custom ranges e.g. 'Tag-Name,0,1234;Tag-Name,1235,2345'
@@ -69,25 +78,25 @@ enum PithosCommands {
         #[command(subcommand)]
         read_command: ReadCommands,
     },
-
-    /// Create custom transformer order or something like that
+    /// Create x25519
     CreateKeypair {
-        /// Optionally output destination; Default is stdout
+        /// Key format; Default is openSSL x25519 pem
+        #[arg(short, long)]
+        format: Option<KeyFormat>,
+        /// Output destination; Default is stdout
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
-
     /// Modify the Pithos footer
     Modify {
         /// Subcommands
         #[command(subcommand)]
         command: Option<ModifyCommands>,
     },
-
-    /// Export a Pithos into another compatible file format
+    /// Export a Pithos file into another compatible file format
     Export {
-        #[arg(short, long)]
-        format: String,
+        #[arg(short, long, value_enum)]
+        format: Option<ExportFormat>,
         #[arg(long)]
         writer_private_key: Option<String>,
     },
@@ -362,9 +371,7 @@ async fn main() -> Result<()> {
             };
             writer.process_bytes().await?;
         }
-        PithosCommands::CreateKeypair { output } => {
-            let keypair = Keypair::generate(&mut OsRng);
-
+        PithosCommands::CreateKeypair { format, output } => {
             // x25519 openSSL keypair
             // x25519 Crypt4GH keypair
             // GPG (for parsing?)
@@ -373,28 +380,40 @@ async fn main() -> Result<()> {
             //  - Pem
             //  - ?
 
-            let mut target_file = File::create(if let Some(destination) = output {
-                destination.clone()
+            // Evaluate output format
+            let format = format.as_ref().unwrap_or(&KeyFormat::Openssl);
+
+            // Generate keypair
+            let (seckey_bytes, pubkey_bytes) = match format {
+                KeyFormat::Openssl => {
+                    let openssl_keypair = openssl::pkey::PKey::generate_x25519()?;
+                    (
+                        openssl_keypair.private_key_to_pem_pkcs8()?,
+                        openssl_keypair.public_key_to_pem()?,
+                    )
+                }
+                KeyFormat::Crypt4gh => {
+                    unimplemented!("Crypt4GH key generation not yet implemented")
+                }
+                KeyFormat::Raw => {
+                    let openssl_keypair = openssl::pkey::PKey::generate_x25519()?;
+                    (
+                        openssl_keypair.raw_private_key()?,
+                        openssl_keypair.raw_public_key()?,
+                    )
+                }
+            };
+
+            // Write output
+            if let Some(dest) = output {
+                let mut output_target = File::create(dest).await?;
+                output_target.write_all(&seckey_bytes).await?;
+                output_target.write_all(&pubkey_bytes).await?;
             } else {
-                PathBuf::from("./keypair.pem")
-            })
-            .await
-            .unwrap();
-
-            let sec_hex = to_hex_string(keypair.secret().to_bytes().into()).to_ascii_lowercase();
-            let sec_out = format!(
-                "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n",
-                sec_hex
-            );
-
-            let pub_hex = to_hex_string(keypair.public().as_ref().into()).to_ascii_lowercase();
-            let pub_out = format!(
-                "-----BEGIN PUBLIC KEY-----\n{}\n-----END PUBLIC KEY-----\n",
-                pub_hex
-            );
-
-            target_file.write_all(sec_out.as_bytes()).await?;
-            target_file.write_all(pub_out.as_bytes()).await?;
+                let mut output_target = tokio::io::stdout();
+                output_target.write_all(&seckey_bytes).await?;
+                output_target.write_all(&pubkey_bytes).await?;
+            }
         }
         PithosCommands::Modify { .. } => {}
         PithosCommands::Export { .. } => {}

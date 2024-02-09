@@ -15,7 +15,7 @@ pub fn evaluate_log_level(input: Option<String>) -> Level {
     }
 }
 
-pub fn to_hex_string(bytes: Vec<u8>) -> String {
+pub fn _to_hex_string(bytes: Vec<u8>) -> String {
     let hex_str: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
     hex_str.join("")
 }
