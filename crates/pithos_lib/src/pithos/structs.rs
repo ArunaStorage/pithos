@@ -263,13 +263,13 @@ pub struct CustomRange {
 #[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
 pub struct FileContextHeader {
     pub file_path: String, // FilePath empty = SKIP
-    pub disk_size: u64,
+    pub raw_size: u64,
     pub file_start: u64,
     pub file_end: u64,
     pub compressed: bool,
     pub encrypted: bool,
     pub block_scale: u32, // ChaCha / Compression block scale, should be a multiple of 65536 (default = 1);
-    pub index_list: Option<Vec<u32>>, // Raw size of every chunk in order (only if compressed); MAX: 83_886_080, Max raw Blocksize 4GiB
+    pub index_list: Option<Vec<u32>>, // Compressed size of every chunk in order (only if compressed); MAX: 83_886_080, Max raw Blocksize 4GiB
     pub file_info: Option<FileInfo>,
     pub hashes: Option<Hashes>,
     pub metadata: Option<String>,
@@ -283,7 +283,7 @@ impl TryFrom<FileContext> for FileContextHeader {
     fn try_from(ctx: FileContext) -> Result<Self> {
         Ok(Self {
             file_path: ctx.file_path.clone(),
-            disk_size: ctx.decompressed_size,
+            raw_size: ctx.decompressed_size,
             file_start: 0,
             file_end: 0,
             compressed: ctx.compression,
@@ -296,6 +296,16 @@ impl TryFrom<FileContext> for FileContextHeader {
             symlinks: None,
             custom_ranges: ctx.custom_ranges,
         })
+    }
+}
+
+impl FileContextHeader {
+    pub fn update_range(&mut self, offset: u64) -> u64 {
+        self.file_start = offset;
+        let tmp_end = self.file_end;
+        self.file_end = tmp_end + offset;
+
+        tmp_end
     }
 }
 

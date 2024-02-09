@@ -15,7 +15,8 @@ pub enum HashType {
 #[derive(Clone, Debug)]
 pub struct CompressionInfo {
     pub idx: usize,
-    pub size: u64,
+    pub raw_size: u64,
+    pub compressed_size: u64,
     pub compression: bool,
     pub chunk_infos: Option<Vec<u32>>,
 }

@@ -206,11 +206,12 @@ impl FooterGenerator {
                             .get_mut(compression_info.idx)
                             .ok_or_else(|| anyhow!("FileContextHeader does not exist"))?;
                         mut_ctx.compressed = compression_info.compression;
-                        if mut_ctx.disk_size == 0 {
-                            mut_ctx.disk_size = compression_info.size;
-                        } else if mut_ctx.disk_size != compression_info.size {
+                        if mut_ctx.raw_size == 0 {
+                            mut_ctx.raw_size = compression_info.raw_size;
+                        } else if mut_ctx.raw_size != compression_info.raw_size {
                             bail!("Compression size does not match file disk size");
                         }
+                        mut_ctx.file_end = compression_info.compressed_size;
                         mut_ctx.index_list = compression_info.chunk_infos;
                     }
                     Ok(Message::Hash((hash_type, hash, idx))) => {
@@ -318,7 +319,9 @@ impl Transformer for FooterGenerator {
                         variant.encrypt(&key)?;
                         toc.directories.push(variant)
                     }
-                    for (key, file_ctx) in self.files.clone() {
+                    let mut offset = 0;
+                    for (key, mut file_ctx) in self.files.clone() {
+                        offset += file_ctx.update_range(offset);
                         let mut variant = FileContextVariants::FileDecrypted(file_ctx);
                         variant.encrypt(&key)?;
                         toc.files.push(variant);

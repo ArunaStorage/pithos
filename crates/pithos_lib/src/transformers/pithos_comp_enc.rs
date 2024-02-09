@@ -24,6 +24,7 @@ const CHUNK: u32 = 65_536;
 struct CurrentFile {
     idx: usize,
     raw_size_full: u64,
+    compressed_size: u64,
     multiplier: u32,
     encryption_key: Option<Vec<u8>>,
     compression: ProbeResult,
@@ -36,6 +37,7 @@ impl Default for CurrentFile {
         CurrentFile {
             idx: 0,
             raw_size_full: 0,
+            compressed_size: 0,
             multiplier: 1,
             encryption_key: None,
             compression: ProbeResult::Unknown,
@@ -49,7 +51,8 @@ impl From<CurrentFile> for CompressionInfo {
     fn from(val: CurrentFile) -> Self {
         CompressionInfo {
             idx: val.idx,
-            size: val.raw_size_full,
+            raw_size: val.raw_size_full,
+            compressed_size: val.compressed_size,
             compression: val.compression == ProbeResult::Compression,
             chunk_infos: Some(val.chunk_sizes),
         }
@@ -73,6 +76,7 @@ impl From<FileContext> for CurrentFile {
         CurrentFile {
             idx: ctx.idx,
             raw_size_full: 0,
+            compressed_size: 0,
             multiplier: ctx.chunk_multiplier.unwrap_or(1),
             encryption_key: ctx.encryption_key.get_data_key(),
             compression: ProbeResult::Unknown,
@@ -257,6 +261,13 @@ impl PithosTransformer {
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
+    fn add_compressed_bytes(&mut self, bytes: usize) {
+        if let Some(first) = self.file_queue.front_mut() {
+            first.compressed_size += bytes as u64;
+        }
+    }
+
+    #[tracing::instrument(level = "trace", skip(self))]
     fn advance_file(&mut self, advance: usize) {
         if let Some(first) = self.file_queue.front_mut() {
             first.advance(advance);
@@ -320,6 +331,8 @@ impl Transformer for PithosTransformer {
         } else {
             buf.put(compressed_bytes);
         }
+        self.add_compressed_bytes(buf.len());
+
         if flush {
             let file = self.file_queue.pop_front();
             if let Some(file) = file {
