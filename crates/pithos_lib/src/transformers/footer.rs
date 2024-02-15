@@ -25,6 +25,7 @@ pub struct FooterGenerator {
     files: Vec<(Option<[u8; 32]>, FileContextHeader)>,
     path_table: HashMap<String, DirOrFileIdx>,
     unassigned_symlinks: Vec<FileContext>,
+    writer_private_key: Option<[u8; 32]>,
     encryption_keys: HashMap<[u8; 32], HashMap<[u8; 32], DirOrFileIdx>>, // <Reader PubKey, List of encryption keys>
     notifier: Option<Arc<Notifier>>,
     msg_receiver: Option<Receiver<Message>>,
@@ -35,7 +36,7 @@ pub struct FooterGenerator {
 impl FooterGenerator {
     #[tracing::instrument(level = "trace")]
     #[allow(dead_code)]
-    pub fn new() -> FooterGenerator {
+    pub fn new(writer_private_key: Option<[u8; 32]>) -> FooterGenerator {
         debug!("new FooterGenerator");
         FooterGenerator {
             hasher: Sha256::new(),
@@ -45,6 +46,7 @@ impl FooterGenerator {
             files: Vec::new(),
             path_table: HashMap::default(),
             unassigned_symlinks: vec![],
+            writer_private_key,
             encryption_keys: HashMap::new(),
             notifier: None,
             msg_receiver: None,
@@ -113,6 +115,7 @@ impl FooterGenerator {
             files: Vec::new(),
             path_table: HashMap::default(),
             unassigned_symlinks: vec![],
+            writer_private_key: None,
             encryption_keys: map,
             notifier: None,
             msg_receiver: None,
@@ -277,6 +280,9 @@ impl FooterGenerator {
                             };
                         }
                     }
+                    Ok(Message::WriterKey(key)) => {
+                        self.writer_private_key = Some(key.as_slice().try_into()?)
+                    }
                     Ok(_) => {}
                     Err(TryRecvError::Empty) => {
                         break;
@@ -340,7 +346,10 @@ impl Transformer for FooterGenerator {
                     buf.put(toc_bytes.as_slice());
 
                     // Write Encryption Metadata
-                    let enc_meta = EncryptionMetadata::try_from(&self.encryption_keys)?;
+                    let enc_meta = EncryptionMetadata::try_from((
+                        self.writer_private_key,
+                        &self.encryption_keys,
+                    ))?;
                     let enc_meta_bytes = borsh::to_vec(&enc_meta)?;
                     eof_meta.encryption_len = enc_meta_bytes.len() as u64;
                     self.hasher.update(enc_meta_bytes.as_slice());

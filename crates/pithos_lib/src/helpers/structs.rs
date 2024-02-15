@@ -1,7 +1,10 @@
-use std::num::ParseIntError;
+use std::os::unix::fs::MetadataExt;
+use std::{num::ParseIntError, path::PathBuf};
 
 use crate::pithos::structs::{CustomRange, FileInfo, Hashes};
 use anyhow::{anyhow, bail, Result};
+use tokio::fs::{read_link, File};
+use tokio_util::io::ReaderStream;
 
 #[derive(Debug, PartialEq, Default, Clone)]
 pub enum ProbeResult {
@@ -158,6 +161,67 @@ impl FileContext {
         }
 
         Ok(Some(hashes))
+    }
+
+    pub async fn from_meta(
+        idx: usize,
+        file_path: &PathBuf,
+        encryption_keys: (Option<[u8; 32]>, Option<[u8; 32]>),
+        public_keys: Vec<[u8; 32]>,
+    ) -> Result<(FileContext, ReaderStream<File>)> {
+        let input_file = File::open(file_path).await?;
+        let file_metadata = input_file.metadata().await?;
+
+        // Evaluate file type
+        let symlink_target = if file_metadata.file_type().is_symlink() {
+            Some(
+                read_link(file_path)
+                    .await?
+                    .to_str()
+                    .ok_or_else(|| anyhow!("Path to string conversion failed"))?
+                    .to_string(),
+            )
+        } else {
+            None
+        };
+
+        // Evaluate keys
+        let enc_keys = match (encryption_keys.0, encryption_keys.1) {
+            (Some(data_key), Some(meta_key)) => {
+                if data_key == meta_key {
+                    EncryptionKey::Same(data_key.to_vec())
+                } else {
+                    EncryptionKey::Individual((data_key.to_vec(), meta_key.to_vec()))
+                }
+            }
+            (Some(data_key), None) => EncryptionKey::DataOnly(data_key.to_vec()),
+            (None, Some(meta_key)) => EncryptionKey::Same(meta_key.to_vec()), // ???
+            (None, None) => EncryptionKey::None,
+        };
+
+        Ok((
+            FileContext {
+                idx,
+                file_path: file_path.to_str().unwrap().to_string(),
+                compressed_size: file_metadata.len(),
+                decompressed_size: file_metadata.len(),
+                uid: Some(file_metadata.uid().into()),
+                gid: Some(file_metadata.gid().into()),
+                mode: Some(file_metadata.mode()),
+                mtime: Some(file_metadata.mtime() as u64),
+                compression: false,
+                chunk_multiplier: None,
+                encryption_key: enc_keys,
+                recipients_pubkeys: public_keys,
+                is_dir: file_metadata.file_type().is_dir(),
+                symlink_target,
+                expected_sha256: None,
+                expected_md5: None,
+                semantic_metadata: None,
+                custom_ranges: None,
+            },
+            ReaderStream::new(input_file),
+        ))
     }
 }
 

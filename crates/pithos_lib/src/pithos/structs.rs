@@ -127,17 +127,27 @@ impl EncryptionMetadata {
     }
 }
 
-impl TryFrom<&HashMap<[u8; 32], HashMap<[u8; 32], DirOrFileIdx>>> for EncryptionMetadata {
+impl
+    TryFrom<(
+        Option<[u8; 32]>, // Writer private key if provided
+        &HashMap<[u8; 32], HashMap<[u8; 32], DirOrFileIdx>>,
+    )> for EncryptionMetadata
+{
     type Error = anyhow::Error;
 
-    fn try_from(value: &HashMap<[u8; 32], HashMap<[u8; 32], DirOrFileIdx>>) -> Result<Self> {
+    fn try_from(
+        value: (
+            Option<[u8; 32]>,
+            &HashMap<[u8; 32], HashMap<[u8; 32], DirOrFileIdx>>,
+        ),
+    ) -> Result<Self> {
         let mut packets = vec![];
         let mut len = 0;
-        for (pubkey, keylist) in value {
+        for (pubkey, keylist) in value.1 {
             let decrypted_key = DecryptedKeys {
                 keys: keylist.iter().map(|(k, v)| (*k, *v)).collect(),
             };
-            let packet = decrypted_key.encrypt(*pubkey, None)?;
+            let packet = decrypted_key.encrypt(*pubkey, value.0)?;
             len += packet.len();
             packets.push(packet);
         }

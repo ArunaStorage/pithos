@@ -6,6 +6,7 @@ use crate::transformers::footer::FooterGenerator;
 use crate::transformers::hashing_transformer::HashingTransformer;
 use crate::transformers::pithos_comp_enc::PithosTransformer;
 use anyhow::Result;
+use async_channel::Receiver;
 use bytes::Bytes;
 use digest::Digest;
 use futures::Stream;
@@ -42,41 +43,12 @@ impl<
         todo!();
     }
 
-    /*
-        #[tracing::instrument(level = "trace", skip(input_stream, writer))]
-        pub async fn new_with_writer<W: AsyncWrite + Send + Sync + 'a>(
-            input_stream: R,
-            writer: W,
-            file_contexts: Vec<FileContext>,
-            metadata: Option<String>,
-        ) -> Result<Self> {
-
-            let mut stream_read_writer = GenericStreamReadWriter::new_with_writer(input_stream, writer)
-                .add_transformer(HashingTransformer::new(Md5::new(), "md5".to_string()))
-                .add_transformer(HashingTransformer::new(Sha256::new(), "sha256".to_string()))
-                .add_transformer(ZstdEnc::new())
-                .add_transformer(ChaCha20Enc::new())
-                .add_transformer(FooterGenerator::new());
-
-            // Send all FileContext into GenericStreamReadWriter message queue
-            let (sender, receiver) = async_channel::unbounded();
-            for file_context in file_contexts {
-                sender
-                    .send(Message::FileContext(file_context.clone()))
-                    .await?;
-            }
-
-            stream_read_writer.add_message_receiver(receiver).await?;
-
-            // Return default PithosWriter
-            Ok(PithosWriter { stream_read_writer })
-        }
-    */
     #[tracing::instrument(level = "trace", skip(input_stream, writer))]
-    pub async fn new_multi_with_writer<W: AsyncWrite + Send + Sync + 'a>(
+    pub async fn new_with_writer<W: AsyncWrite + Send + Sync + 'a>(
         input_stream: R,
         writer: W,
-        file_contexts: Vec<FileContext>,
+        file_context_receiver: Receiver<Message>,
+        writer_private_key: Option<[u8; 32]>,
     ) -> Result<Self> {
         let mut stream_read_writer = GenericStreamReadWriter::new_with_writer(input_stream, writer)
             .add_transformer(HashingTransformer::new(Md5::new(), "md5".to_string(), true))
@@ -86,14 +58,11 @@ impl<
                 true,
             ))
             .add_transformer(PithosTransformer::new())
-            .add_transformer(FooterGenerator::new());
+            .add_transformer(FooterGenerator::new(writer_private_key));
 
-        let (sender, receiver) = async_channel::bounded(10);
-        for context in file_contexts {
-            sender.send(Message::FileContext(context)).await?;
-        }
-
-        stream_read_writer.add_message_receiver(receiver).await?;
+        stream_read_writer
+            .add_message_receiver(file_context_receiver)
+            .await?;
 
         // Return default multifile PithosWriter
         Ok(PithosWriter { stream_read_writer })

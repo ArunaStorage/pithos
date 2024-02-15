@@ -172,7 +172,7 @@ mod tests {
             .add_transformer(ZstdEnc::new())
             .add_transformer(ChaCha20Enc::new())
             .add_transformer(ChaCha20Dec::new().unwrap())
-            .add_transformer(FooterGenerator::new())
+            .add_transformer(FooterGenerator::new(None))
             .add_transformer(ZstdDec::new());
 
         read_writer

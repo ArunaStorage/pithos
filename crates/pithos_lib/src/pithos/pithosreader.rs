@@ -1,12 +1,12 @@
 use anyhow::Result;
-use async_channel::{Receiver, Sender};
 use bytes::Bytes;
 use futures::Stream;
 use tokio::io::AsyncWrite;
 
 use crate::helpers::notifications::Message;
 use crate::helpers::structs::FileContext;
-use crate::transformer::{Sink, Transformer, TransformerType};
+use crate::streamreadwrite::GenericStreamReadWriter;
+use crate::transformer::{ReadWriter, Sink, Transformer};
 
 pub struct PithosReader<
     'a,
@@ -15,14 +15,8 @@ pub struct PithosReader<
         + Send
         + Sync,
 > {
-    _input_stream: R,
-    _transformers: Vec<(TransformerType, Box<dyn Transformer + Send + Sync + 'a>)>,
-    _sink: Box<dyn Sink + Send + Sync + 'a>,
-    _receiver: Receiver<Message>,
-    _sender: Sender<Message>,
-    _size_counter: usize,
-    _current_file_context: Option<(FileContext, bool)>,
-    _file_ctx_rx: Option<Receiver<(FileContext, bool)>>,
+    #[allow(dead_code)]
+    stream_read_writer: GenericStreamReadWriter<'a, R>,
 }
 
 impl<
@@ -43,13 +37,23 @@ impl<
         todo!()
     }
 
-    #[tracing::instrument(level = "trace", skip(_input_stream, _writer))]
+    #[tracing::instrument(level = "trace", skip(input_stream, writer))]
     pub async fn new_with_writer<W: AsyncWrite + Send + Sync + 'a>(
-        _input_stream: R,
-        _writer: W,
-        file_context: FileContext,
-        metadata: Option<String>,
+        input_stream: R, // Only contains the data payload of the specific files
+        writer: W,       // Output target
+        file_contexts: Vec<FileContext>, // Parsed from footer and filtered by user input
     ) -> Result<Self> {
-        todo!();
+        // Reverse PithosTransformer somehow
+        let mut stream_read_writer = GenericStreamReadWriter::new_with_writer(input_stream, writer);
+        unimplemented!("Reverse PithosTransformer");
+
+        //TODO: As long as this is not async moved the max number of files is limited to the size of the channel
+        let (sender, receiver) = async_channel::bounded(10);
+        for context in file_contexts {
+            sender.send(Message::FileContext(context)).await?;
+        }
+        stream_read_writer.add_message_receiver(receiver).await?;
+
+        Ok(PithosReader { stream_read_writer })
     }
 }

@@ -53,6 +53,7 @@ pub enum Message {
     Finished,
     FileContext(FileContext),
     Hash((HashType, Vec<u8>, Option<usize>)), // HashType, Hash, Optional idx of file
+    WriterKey(Vec<u8>),
     SizeInfo(u64),
     CompressionInfo(CompressionInfo),
     EditList(Vec<u64>),
