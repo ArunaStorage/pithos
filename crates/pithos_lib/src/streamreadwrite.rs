@@ -171,6 +171,7 @@ impl<
         let mut data;
         let mut read_bytes: usize = 0;
         let mut empty_counter: Option<u8> = Some(0);
+        let mut finished = false;
         self.transformers
             .push(self.sink.take().ok_or_else(|| anyhow!("No sink!"))?);
 
@@ -189,7 +190,7 @@ impl<
         }
 
         loop {
-            if hold_buffer.is_empty() {
+            if hold_buffer.is_empty() && !finished {
                 data = self
                     .input_stream
                     .next()
@@ -212,11 +213,11 @@ impl<
                 if let Some(ctx) = &file_ctx {
                     notifier.send_all(Message::FileContext(ctx.clone()))?;
                     notifier.send_all(Message::ShouldFlush)?;
+                } else {
+                    hold_buffer.clear();
+                    notifier.send_first(Message::Finished)?;
+                    finished = true;
                 }
-            }
-
-            if file_ctx.is_none() && read_buf.is_empty() && hold_buffer.is_empty() {
-                notifier.send_first(Message::Finished)?;
             }
 
             let completed = self.process_messages()?;

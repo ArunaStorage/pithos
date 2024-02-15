@@ -3,10 +3,12 @@ use bytes::Bytes;
 use futures::Stream;
 use tokio::io::AsyncWrite;
 
-use crate::helpers::notifications::Message;
 use crate::helpers::structs::FileContext;
 use crate::streamreadwrite::GenericStreamReadWriter;
 use crate::transformer::{ReadWriter, Sink, Transformer};
+use crate::transformers::decrypt::ChaCha20Dec;
+use crate::transformers::filter::Filter;
+use crate::transformers::zstd_decomp::ZstdDec;
 
 pub struct PithosReader<
     'a,
@@ -39,21 +41,30 @@ impl<
 
     #[tracing::instrument(level = "trace", skip(input_stream, writer))]
     pub async fn new_with_writer<W: AsyncWrite + Send + Sync + 'a>(
-        input_stream: R, // Only contains the data payload of the specific files
-        writer: W,       // Output target
-        file_contexts: Vec<FileContext>, // Parsed from footer and filtered by user input
+        input_stream: R,           // Only contains the data payload of the specific file
+        writer: W,                 // Output target
+        file_context: FileContext, // Parsed from footer and filtered by user input
+        range_filter: Option<Vec<u64>>,
     ) -> Result<Self> {
-        // Reverse PithosTransformer somehow
+        // Reverse PithosTransformer
         let mut stream_read_writer = GenericStreamReadWriter::new_with_writer(input_stream, writer);
-        unimplemented!("Reverse PithosTransformer");
 
-        //TODO: As long as this is not async moved the max number of files is limited to the size of the channel
-        let (sender, receiver) = async_channel::bounded(10);
-        for context in file_contexts {
-            sender.send(Message::FileContext(context)).await?;
+        if let Some(key) = file_context.encryption_key.get_data_key() {
+            stream_read_writer =
+                stream_read_writer.add_transformer(ChaCha20Dec::new_with_fixed(key)?);
         }
-        stream_read_writer.add_message_receiver(receiver).await?;
+        if file_context.compression {
+            stream_read_writer = stream_read_writer.add_transformer(ZstdDec::new());
+        }
+        if let Some(edit_list) = range_filter {
+            stream_read_writer =
+                stream_read_writer.add_transformer(Filter::new_with_edit_list(Some(edit_list)));
+        }
 
         Ok(PithosReader { stream_read_writer })
+    }
+
+    pub async fn process_bytes(&mut self) -> Result<()> {
+        self.stream_read_writer.process().await
     }
 }

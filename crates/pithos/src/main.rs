@@ -12,14 +12,19 @@ use async_channel::TryRecvError;
 use pithos_lib::helpers::footer_parser::{Footer, FooterParser, FooterParserState};
 use pithos_lib::helpers::notifications::Message;
 use pithos_lib::helpers::structs::FileContext;
+use pithos_lib::pithos::pithosreader::PithosReader;
 use pithos_lib::pithos::pithoswriter::PithosWriter;
-use pithos_lib::pithos::structs::{EndOfFileMetadata, EOF_META_LEN};
+use pithos_lib::pithos::structs::{
+    DirContextVariants, EndOfFileMetadata, FileContextVariants, EOF_META_LEN,
+};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
-use tokio::pin;
+use tokio::sync::Semaphore;
+use tokio::{pin, task};
 use utils::conversion::evaluate_log_level;
 
 #[derive(Clone, ValueEnum)]
@@ -230,13 +235,112 @@ async fn main() -> Result<()> {
 
                 //ToDo: OutputWriter
             }
-            ReadCommands::All { .. } => todo!("Read everything and write into output(s)"),
-            ReadCommands::Data { .. } => {
-                // Open file
-                //let mut input_file = File::open(file).await?;
+            ReadCommands::All { .. } => {
 
-                // Create PithosReader
-                //let reader = PithosReader::new_with_writer(input_stream, sink, filecontext, metadata);
+                //ToDo: Ranges & Metadata individual files
+            }
+            ReadCommands::Data { file } => {
+                // Parse Footer
+                let mut input_file = File::open(file.clone()).await?;
+                let file_meta = input_file.metadata().await?;
+
+                let footer_prediction = if file_meta.len() < 65536 * 2 {
+                    file_meta.len() // 131072 always fits in i64 ...
+                } else {
+                    65536 * 2
+                };
+
+                // Read footer bytes in FooterParser
+                input_file
+                    .seek(SeekFrom::End(-(footer_prediction as i64)))
+                    .await?;
+                let buf = &mut vec![0; footer_prediction as usize]; // Has to be vec as length is defined by dynamic value
+                input_file.read_exact(buf).await?;
+
+                let mut parser = FooterParser::new(buf)?;
+                if let Some(p_key) = private_key.as_ref() {
+                    parser = parser.add_recipient(p_key)
+                };
+                parser = parser.parse()?;
+
+                // Check if bytes are missing
+                let mut missing_buf;
+                if let FooterParserState::Missing(missing_bytes) = parser.state {
+                    let needed_bytes = footer_prediction + missing_bytes as u64;
+                    input_file
+                        .seek(SeekFrom::End(-(needed_bytes as i64)))
+                        .await?;
+                    missing_buf = vec![0; missing_bytes as usize]; // Has to be vec as length is defined by dynamic value
+                    input_file.read_exact(&mut missing_buf).await?;
+
+                    parser = parser.add_bytes(&missing_buf)?;
+                    parser = parser.parse()?
+                }
+
+                // Parse the footer bytes and display Table of Contents
+                let footer: Footer = parser.try_into()?;
+
+                // Output target ... ?
+                let base_path = Arc::new(PathBuf::from(
+                    cli.output
+                        .ok_or_else(|| anyhow!("No output target provided"))?,
+                ));
+
+                // Create directory structure
+                for dir in footer.table_of_contents.directories {
+                    if let DirContextVariants::DirDecrypted(dir_ctx) = dir {
+                        //ToDo: Sanitize file path
+                        tokio::fs::create_dir(base_path.clone().join(dir_ctx.file_path)).await?;
+                    }
+                }
+
+                // Create PithosReader for each file
+                let sem = Arc::new(Semaphore::new(16));
+                let mut process_handles = Vec::with_capacity(footer.table_of_contents.files.len());
+                for (idx, file_ctx_variant) in
+                    footer.table_of_contents.files.into_iter().enumerate()
+                {
+                    let permit = Arc::clone(&sem).acquire_owned().await;
+                    let base_path_clone = Arc::clone(&base_path);
+                    let file_clone = file.clone();
+
+                    if let FileContextVariants::FileDecrypted(file_ctx) = file_ctx_variant {
+                        process_handles.push(task::spawn(async move {
+                            let _permit = permit;
+                            let file_path = base_path_clone.join(file_ctx.file_path);
+                            let file_handle = File::create(&file_path).await?;
+
+                            // Open pithos file handle and read file range
+                            let mut pithos_file = File::open(file_clone).await?;
+                            pithos_file
+                                .seek(SeekFrom::Start(file_ctx.file_start))
+                                .await?;
+
+                            //ToDo: Generate FileContext
+                            let (ctx, _) =
+                                FileContext::from_meta(idx, &file_path, (None, None), vec![])
+                                    .await?;
+
+                            let (data_sender, data_receiver) = async_channel::unbounded();
+                            //ToDo: Send pithos_file bytes until file_ctx.file_end in data_sender
+
+                            pin!(data_receiver);
+                            let mut reader = PithosReader::new_with_writer(
+                                data_receiver,
+                                file_handle,
+                                ctx,
+                                None,
+                            )
+                            .await?;
+                            reader.process_bytes();
+
+                            Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+                        }));
+                    }
+                }
+
+                // Await all readers
+                futures::future::join_all(process_handles).await;
             }
             ReadCommands::ContentList { file } => {
                 // Open file
@@ -251,7 +355,7 @@ async fn main() -> Result<()> {
 
                 // Read footer bytes in FooterParser
                 input_file
-                    .seek(tokio::io::SeekFrom::End(-(footer_prediction as i64)))
+                    .seek(SeekFrom::End(-(footer_prediction as i64)))
                     .await?;
                 let buf = &mut vec![0; footer_prediction as usize]; // Has to be vec as length is defined by dynamic value
                 input_file.read_exact(buf).await?;
