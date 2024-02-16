@@ -27,7 +27,7 @@ pub struct ChaCha20Enc {
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
     encryption_key: Option<Vec<u8>>,
-    _key_is_fixed: bool,
+    key_is_fixed: bool,
     finished: bool,
 }
 
@@ -42,7 +42,7 @@ impl ChaCha20Enc {
             msg_receiver: None,
             idx: None,
             encryption_key: None,
-            _key_is_fixed: false,
+            key_is_fixed: false,
             finished: false,
         }
     }
@@ -57,7 +57,7 @@ impl ChaCha20Enc {
             msg_receiver: None,
             idx: None,
             encryption_key: Some(key),
-            _key_is_fixed: true,
+            key_is_fixed: true,
             finished: false,
         })
     }
@@ -67,13 +67,10 @@ impl ChaCha20Enc {
         if let Some(rx) = &self.msg_receiver {
             loop {
                 match rx.try_recv() {
-                    Ok(Message::FileContext(_)) => {
-                        todo!("FileContext processing still needs to be refactored");
-                        /*
-                        if !self.key_is_fixed && !ctx.is_dir && !ctx.symlink_info {
-                            self.encryption_key = ctx.encryption_key;
+                    Ok(Message::FileContext(ctx)) => {
+                        if !self.key_is_fixed && !ctx.is_dir && ctx.symlink_target.is_none() {
+                            self.encryption_key = ctx.encryption_key.get_data_key();
                         }
-                        */
                     }
                     Ok(Message::ShouldFlush) => return Ok((true, false)),
                     Ok(Message::Finished) => return Ok((false, true)),

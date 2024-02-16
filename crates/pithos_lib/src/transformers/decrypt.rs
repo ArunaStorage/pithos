@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use crate::helpers::notifications::{Message, Notifier};
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
@@ -28,11 +29,13 @@ pub struct ChaCha20Dec {
     notifier: Option<Arc<Notifier>>,
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
-    decryption_key: Option<Vec<u8>>,
+    decryption_key: Option<[u8;32]>,
+    available_keys: Option<VecDeque<([u8;32], usize)>>, // File data+meta keys
     _key_is_fixed: bool,
     finished: bool,
     backoff_counter: usize,
     skip_me: bool,
+    file_idx: VecDeque<usize>,
 }
 
 impl ChaCha20Dec {
@@ -45,11 +48,13 @@ impl ChaCha20Dec {
             finished: false,
             backoff_counter: 0,
             decryption_key: None,
+            available_keys: None,
             _key_is_fixed: false,
             skip_me: false,
             notifier: None,
             msg_receiver: None,
             idx: None,
+            file_idx: VecDeque::from([0]),
         })
     }
 
@@ -61,13 +66,80 @@ impl ChaCha20Dec {
             output_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
             finished: false,
             backoff_counter: 0,
-            decryption_key: Some(key),
+            decryption_key: Some(key.as_slice().try_into()?),
+            available_keys: None,
             _key_is_fixed: true,
             skip_me: false,
             notifier: None,
             msg_receiver: None,
             idx: None,
+            file_idx: VecDeque::from([0]),
         })
+    }
+
+
+    #[tracing::instrument(level = "trace")]
+    #[allow(dead_code)]
+    pub fn new_with_fixed_list(keys: Vec<([u8; 32], usize)>) -> Result<Self> {
+        Ok(ChaCha20Dec {
+            input_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
+            output_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
+            finished: false,
+            backoff_counter: 0,
+            decryption_key: Some(keys.first().ok_or_else(|| anyhow!("Empty key list provided"))?.0),
+            available_keys: Some(VecDeque::from(keys)),
+            _key_is_fixed: true,
+            skip_me: false,
+            notifier: None,
+            msg_receiver: None,
+            idx: None,
+            file_idx: VecDeque::from([0]),
+        })
+    }
+
+    #[tracing::instrument(level = "trace", skip(self))]
+    pub fn check_decrypt_chunk(&mut self) -> Result<()> {
+        let split_len = if self.input_buffer.len() > CIPHER_SEGMENT_SIZE {
+            CIPHER_SEGMENT_SIZE
+        } else {
+            self.input_buffer.len()
+        };
+        if let Some(key) = self.decryption_key {
+            if !self.input_buffer.is_empty() {
+                let mut maybe_chunk = decrypt_chunk(
+                    &self.input_buffer.split_to(split_len),
+                    &key,
+                );
+                if let Ok(chunk) = maybe_chunk {
+                    self.output_buffer.put(chunk);
+                    return Ok(())
+                } else {
+                    if let Some(k) = &self.available_keys {
+                        for (key, _) in k {
+                            maybe_chunk = decrypt_chunk(
+                                &self.input_buffer.split_to(split_len),
+                                &key
+                            );
+                            if let Ok(chunk) = maybe_chunk {
+                                self.decryption_key = Some(key.clone());
+                                self.output_buffer.put(chunk);
+                                return Ok(())
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        bail!("Could not decrypt chunk")
+    }
+
+    pub fn next_file(&mut self) -> Result<()> {
+        if let Some(idx) = self.file_idx.pop_front() {
+            if let Some(k) = self.available_keys.as_mut() {
+                k.retain(|(_, i)| *i >= idx);
+            }
+        }
+        Ok(())
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
@@ -75,13 +147,19 @@ impl ChaCha20Dec {
         if let Some(rx) = &self.msg_receiver {
             loop {
                 match rx.try_recv() {
-                    Ok(Message::FileContext(_)) => {
-                        todo!("FileContext processing still needs to be refactored");
-                        /*
-                        if !self.key_is_fixed && !ctx.is_dir && !ctx.symlink_info {
-                            self.decryption_key = ctx.encryption_key;
+                    Ok(Message::FileContext(ctx)) => {
+                        self.file_idx.push_back(ctx.idx);
+                        if let Some(data_key) = ctx.encryption_key.get_data_key() {
+                            if let Some(key) = self.available_keys.as_mut() {
+                                key.push_back((data_key.as_slice().try_into()?, ctx.idx));
+                            } else {
+                                self.available_keys = Some(VecDeque::from([(data_key.as_slice().try_into()?, ctx.idx)]));
+                            }
+
+                            if self.decryption_key.is_none() {
+                                self.decryption_key = Some(data_key.as_slice().try_into()?);
+                            }
                         }
-                        */
                     }
                     Ok(Message::ShouldFlush) => return Ok((true, false)),
                     Ok(Message::Skip) => {
@@ -126,18 +204,10 @@ impl Transformer for ChaCha20Dec {
 
         if should_flush {
             self.input_buffer.put(buf.split());
-
-            if !self.input_buffer.is_empty() {
-                self.output_buffer.put(decrypt_chunk(
-                    &self.input_buffer.split(),
-                    self.decryption_key
-                        .as_ref()
-                        .ok_or_else(|| anyhow!("Missing decryption key"))?,
-                )?);
-            }
-
+            self.check_decrypt_chunk()?;
             buf.put(self.output_buffer.split().freeze());
             debug!(buf_len = buf.len(), "bytes flushed");
+            self.next_file()?;
             return Ok(());
         }
         // Only write if the buffer contains data and the current process is not finished
@@ -148,33 +218,19 @@ impl Transformer for ChaCha20Dec {
 
         if self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
             while self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
-                self.output_buffer.put(decrypt_chunk(
-                    &self.input_buffer.split_to(CIPHER_SEGMENT_SIZE),
-                    self.decryption_key
-                        .as_ref()
-                        .ok_or_else(|| anyhow!("Missing decryption key"))?,
-                )?)
+                self.check_decrypt_chunk()?;
             }
         } else if finished && !self.finished {
             if !self.input_buffer.is_empty() {
                 if self.input_buffer.len() > 28 {
                     self.finished = true;
-                    if !self.input_buffer.is_empty() {
-                        self.output_buffer.put(decrypt_chunk(
-                            &self.input_buffer.split(),
-                            self.decryption_key
-                                .as_ref()
-                                .ok_or_else(|| anyhow!("Missing decryption key"))?,
-                        )?);
-                    }
+                    self.check_decrypt_chunk()?;
                 } else {
                     info!(
                         len = self.input_buffer.len(),
                         self.backoff_counter, "Buffer too small, backoff"
                     );
-
                     self.backoff_counter += 1;
-
                     if self.backoff_counter > 10 {
                         self.input_buffer.clear();
                         self.finished = true;
@@ -190,7 +246,6 @@ impl Transformer for ChaCha20Dec {
             }
         };
         buf.put(self.output_buffer.split().freeze());
-
         if self.finished && self.input_buffer.is_empty() && self.output_buffer.is_empty() {
             if let Some(notifier) = &self.notifier {
                 notifier.send_next(
@@ -213,7 +268,7 @@ impl Transformer for ChaCha20Dec {
 
 #[tracing::instrument(level = "trace", skip(chunk, decryption_key))]
 #[inline]
-pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
+pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8; 32]) -> Result<Bytes> {
     if chunk.len() < 15 {
         error!(len = chunk.len(), "Unexpected chunk size < 15");
         bail!("[CHACHA_DECRYPT] Unexpected chunk size < 15")
@@ -269,15 +324,13 @@ pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8]) -> Result<Bytes> {
             aad: b"",
         },
     };
-
     Ok(ChaCha20Poly1305::new_from_slice(decryption_key)
         .map_err(|e| {
             error!(?e, "Unable to initialize decryptor");
             anyhow::anyhow!("[CHACHA_DECRYPT] Unable to initialize decryptor")
         })?
         .decrypt(nonce_slice.into(), payload)
-        .map_err(|e| {
-            error!(?e, "Unable to initialize decryptor");
+        .map_err(|_| {
             anyhow::anyhow!("[CHACHA_DECRYPT] Unable to decrypt chunk")
         })?
         .into())

@@ -7,10 +7,9 @@ use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use futures_util::StreamExt;
 use std::io::SeekFrom;
-
 use async_channel::TryRecvError;
 use pithos_lib::helpers::footer_parser::{Footer, FooterParser, FooterParserState};
-use pithos_lib::helpers::notifications::Message;
+use pithos_lib::helpers::notifications::{DirOrFileIdx, Message};
 use pithos_lib::helpers::structs::FileContext;
 use pithos_lib::pithos::pithosreader::PithosReader;
 use pithos_lib::pithos::pithoswriter::PithosWriter;
@@ -25,6 +24,7 @@ use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Semaphore;
 use tokio::{pin, task};
+use tokio_util::io::ReaderStream;
 use utils::conversion::evaluate_log_level;
 
 #[derive(Clone, ValueEnum)]
@@ -297,18 +297,31 @@ async fn main() -> Result<()> {
                 // Create PithosReader for each file
                 let sem = Arc::new(Semaphore::new(16));
                 let mut process_handles = Vec::with_capacity(footer.table_of_contents.files.len());
-                for (idx, file_ctx_variant) in
-                    footer.table_of_contents.files.into_iter().enumerate()
-                {
+
+                let keys = footer.encryption_keys.map(|keys| keys.keys.iter().filter_map(
+                    |(k, idx)| {
+                        if let DirOrFileIdx::File(i) = idx {
+                            Some((k.clone(), *i))
+                        } else {
+                            None
+                        }
+                    }
+                ).collect::<Vec<_>>())
+                    .unwrap_or_default();
+
+                for (idx, file_ctx_variant) in footer.table_of_contents.files.into_iter().enumerate() {
                     let permit = Arc::clone(&sem).acquire_owned().await;
                     let base_path_clone = Arc::clone(&base_path);
                     let file_clone = file.clone();
-
+                    let key_clone = keys.clone();
                     if let FileContextVariants::FileDecrypted(file_ctx) = file_ctx_variant {
                         process_handles.push(task::spawn(async move {
                             let _permit = permit;
                             let file_path = base_path_clone.join(file_ctx.file_path);
                             let file_handle = File::create(&file_path).await?;
+
+                            // Generate FileContext without encryption keys
+                            let (ctx, _) = FileContext::from_meta(idx, &file_path, (None, None), vec![]).await?;
 
                             // Open pithos file handle and read file range
                             let mut pithos_file = File::open(file_clone).await?;
@@ -316,23 +329,35 @@ async fn main() -> Result<()> {
                                 .seek(SeekFrom::Start(file_ctx.file_start))
                                 .await?;
 
-                            //ToDo: Generate FileContext
-                            let (ctx, _) =
-                                FileContext::from_meta(idx, &file_path, (None, None), vec![])
-                                    .await?;
+                            // Send at least file_ctx.compressed_size bytes pithos_file
+                            let (data_sender, data_receiver) = async_channel::bounded(3);
+                            tokio::spawn(async move {
+                                let mut remaining = ctx.compressed_size as i64;
+                                let mut input_stream = ReaderStream::new(pithos_file);
 
-                            let (data_sender, data_receiver) = async_channel::unbounded();
-                            //ToDo: Send pithos_file bytes until file_ctx.file_end in data_sender
+                                while let Some(bytes) = input_stream.next().await {
+                                    let bytes = bytes?;
+                                    remaining -= bytes.len() as i64;
+                                    data_sender.send(Ok(bytes)).await?;
+
+                                    if remaining <= 0 {
+                                        break
+                                    }
+                                }
+
+                                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+                            });
 
                             pin!(data_receiver);
                             let mut reader = PithosReader::new_with_writer(
                                 data_receiver,
                                 file_handle,
                                 ctx,
-                                None,
+                                key_clone,
+                                None
                             )
-                            .await?;
-                            reader.process_bytes();
+                                .await?;
+                            reader.process_bytes().await?;
 
                             Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
                         }));

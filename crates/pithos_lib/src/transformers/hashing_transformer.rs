@@ -25,17 +25,17 @@ where
     #[tracing::instrument(level = "trace", skip(hasher))]
     #[allow(dead_code)]
     pub fn new(hasher: T, hasher_type: String, file_specific: bool) -> HashingTransformer<T> {
-        let file_queue = if file_specific {
-            Some(VecDeque::new())
+        let (file_queue, counter) = if file_specific {
+            (Some(VecDeque::new()), 0)
         } else {
-            None
+            (None, u64::MAX)
         };
 
         HashingTransformer {
             idx: None,
             hasher,
             hasher_type,
-            counter: 0,
+            counter,
             file_queue,
             msg_receiver: None,
             notifier: None,
