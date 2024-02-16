@@ -44,15 +44,15 @@ impl<
         input_stream: R,           // Only contains the data payload of the specific file
         writer: W,                 // Output target
         file_context: FileContext, // Parsed from footer and filtered by user input
-        encryption_keys: Vec<([u8;32], usize)>,
+        encryption_keys: Vec<([u8; 32], usize)>,
         range_filter: Option<Vec<u64>>,
     ) -> Result<Self> {
         // Reverse PithosTransformer
         let mut stream_read_writer = GenericStreamReadWriter::new_with_writer(input_stream, writer);
 
         if !encryption_keys.is_empty() {
-            stream_read_writer =
-                stream_read_writer.add_transformer(ChaCha20Dec::new_with_fixed_list(encryption_keys)?);
+            stream_read_writer = stream_read_writer
+                .add_transformer(ChaCha20Dec::new_with_fixed_list(encryption_keys)?);
         } else if let Some(key) = file_context.encryption_key.get_data_key() {
             stream_read_writer =
                 stream_read_writer.add_transformer(ChaCha20Dec::new_with_fixed(key)?);

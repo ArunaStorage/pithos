@@ -15,7 +15,7 @@ use digest::Digest;
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{debug, error};
+use tracing::error;
 
 pub struct FooterGenerator {
     hasher: Sha256,
@@ -34,10 +34,9 @@ pub struct FooterGenerator {
 }
 
 impl FooterGenerator {
-    #[tracing::instrument(level = "trace")]
+    #[tracing::instrument(level = "trace", skip(writer_private_key))]
     #[allow(dead_code)]
     pub fn new(writer_private_key: Option<[u8; 32]>) -> FooterGenerator {
-        debug!("new FooterGenerator");
         FooterGenerator {
             hasher: Sha256::new(),
             counter: 0,
@@ -308,7 +307,7 @@ impl Transformer for FooterGenerator {
         (TransformerType::FooterGenerator, sx)
     }
 
-    #[tracing::instrument(level = "trace", skip(self))]
+    #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
         // Update overall hash & size counter
         self.hasher.update(buf.as_ref());

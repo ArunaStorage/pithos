@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use crate::helpers::notifications::{Message, Notifier};
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
@@ -14,6 +13,7 @@ use chacha20poly1305::{
     aead::{Aead, KeyInit, Payload},
     ChaCha20Poly1305,
 };
+use std::collections::VecDeque;
 use std::sync::Arc;
 use tracing::debug;
 use tracing::error;
@@ -29,8 +29,8 @@ pub struct ChaCha20Dec {
     notifier: Option<Arc<Notifier>>,
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
-    decryption_key: Option<[u8;32]>,
-    available_keys: Option<VecDeque<([u8;32], usize)>>, // File data+meta keys
+    decryption_key: Option<[u8; 32]>,
+    available_keys: Option<VecDeque<([u8; 32], usize)>>, // File data+meta keys
     _key_is_fixed: bool,
     finished: bool,
     backoff_counter: usize,
@@ -77,7 +77,6 @@ impl ChaCha20Dec {
         })
     }
 
-
     #[tracing::instrument(level = "trace")]
     #[allow(dead_code)]
     pub fn new_with_fixed_list(keys: Vec<([u8; 32], usize)>) -> Result<Self> {
@@ -86,7 +85,11 @@ impl ChaCha20Dec {
             output_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
             finished: false,
             backoff_counter: 0,
-            decryption_key: Some(keys.first().ok_or_else(|| anyhow!("Empty key list provided"))?.0),
+            decryption_key: Some(
+                keys.first()
+                    .ok_or_else(|| anyhow!("Empty key list provided"))?
+                    .0,
+            ),
             available_keys: Some(VecDeque::from(keys)),
             _key_is_fixed: true,
             skip_me: false,
@@ -106,24 +109,19 @@ impl ChaCha20Dec {
         };
         if let Some(key) = self.decryption_key {
             if !self.input_buffer.is_empty() {
-                let mut maybe_chunk = decrypt_chunk(
-                    &self.input_buffer.split_to(split_len),
-                    &key,
-                );
+                let mut maybe_chunk = decrypt_chunk(&self.input_buffer.split_to(split_len), &key);
                 if let Ok(chunk) = maybe_chunk {
                     self.output_buffer.put(chunk);
-                    return Ok(())
+                    return Ok(());
                 } else {
                     if let Some(k) = &self.available_keys {
                         for (key, _) in k {
-                            maybe_chunk = decrypt_chunk(
-                                &self.input_buffer.split_to(split_len),
-                                &key
-                            );
+                            maybe_chunk =
+                                decrypt_chunk(&self.input_buffer.split_to(split_len), &key);
                             if let Ok(chunk) = maybe_chunk {
                                 self.decryption_key = Some(key.clone());
                                 self.output_buffer.put(chunk);
-                                return Ok(())
+                                return Ok(());
                             }
                         }
                     }
@@ -153,7 +151,10 @@ impl ChaCha20Dec {
                             if let Some(key) = self.available_keys.as_mut() {
                                 key.push_back((data_key.as_slice().try_into()?, ctx.idx));
                             } else {
-                                self.available_keys = Some(VecDeque::from([(data_key.as_slice().try_into()?, ctx.idx)]));
+                                self.available_keys = Some(VecDeque::from([(
+                                    data_key.as_slice().try_into()?,
+                                    ctx.idx,
+                                )]));
                             }
 
                             if self.decryption_key.is_none() {
@@ -330,8 +331,6 @@ pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8; 32]) -> Result<Bytes> {
             anyhow::anyhow!("[CHACHA_DECRYPT] Unable to initialize decryptor")
         })?
         .decrypt(nonce_slice.into(), payload)
-        .map_err(|_| {
-            anyhow::anyhow!("[CHACHA_DECRYPT] Unable to decrypt chunk")
-        })?
+        .map_err(|_| anyhow::anyhow!("[CHACHA_DECRYPT] Unable to decrypt chunk"))?
         .into())
 }

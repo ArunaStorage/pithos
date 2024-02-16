@@ -223,7 +223,6 @@ impl PithosTransformer {
         let mut to_read: isize = final_size as isize - current_size as isize - 20;
 
         let mut result = BytesMut::new();
-
         while !self.capture_buf.is_empty() {
             let bytes = if to_read > self.capture_buf.len() as isize {
                 self.advance_file(self.capture_buf.len());
@@ -299,7 +298,7 @@ impl Transformer for PithosTransformer {
         };
         self.capture_buf.put(buf.split());
 
-        // self.capture_buf would be empty at this point as it was put in buf?
+        // Evaluate compression state
         let Some(probe_result) = self.try_probe_compression(finished).await? else {
             return Ok(());
         };
@@ -346,6 +345,12 @@ impl Transformer for PithosTransformer {
         }
         if finished {
             if let Some(notifier) = &self.notifier {
+                if let Some(file) = self.file_queue.pop_front() {
+                    notifier.send_all_type(
+                        TransformerType::FooterGenerator,
+                        Message::CompressionInfo(file.into()),
+                    )?;
+                }
                 notifier.send_next(
                     self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
                     Message::Finished,

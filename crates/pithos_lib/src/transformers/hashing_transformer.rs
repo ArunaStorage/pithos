@@ -117,7 +117,6 @@ where
         let Ok(finished) = self.process_messages() else {
             return Err(anyhow!("[HashingTransformer] Error processing messages"));
         };
-
         self.counter -= buf.len() as u64;
         if self.counter == 0 {
             let to_keep = buf.len() + self.counter as usize;

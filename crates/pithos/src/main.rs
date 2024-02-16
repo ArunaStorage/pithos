@@ -4,10 +4,9 @@ mod utils;
 
 use crate::io::utils::load_key_from_pem;
 use anyhow::{anyhow, Result};
+use async_channel::TryRecvError;
 use clap::{Parser, Subcommand, ValueEnum};
 use futures_util::StreamExt;
-use std::io::SeekFrom;
-use async_channel::TryRecvError;
 use pithos_lib::helpers::footer_parser::{Footer, FooterParser, FooterParserState};
 use pithos_lib::helpers::notifications::{DirOrFileIdx, Message};
 use pithos_lib::helpers::structs::FileContext;
@@ -18,6 +17,7 @@ use pithos_lib::pithos::structs::{
 };
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
+use std::io::SeekFrom;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs::File;
@@ -189,13 +189,9 @@ async fn main() -> Result<()> {
     // Initialize logger
     tracing::subscriber::set_global_default(
         tracing_subscriber::fmt()
-            // Use a more compact, abbreviated log format
             .compact()
-            // Set LOG_LEVEL to
             .with_max_level(log_level)
-            // Display source code file paths
             .with_file(true)
-            // Display source code line numbers
             .with_line_number(true)
             .with_target(false)
             .finish(),
@@ -298,18 +294,25 @@ async fn main() -> Result<()> {
                 let sem = Arc::new(Semaphore::new(16));
                 let mut process_handles = Vec::with_capacity(footer.table_of_contents.files.len());
 
-                let keys = footer.encryption_keys.map(|keys| keys.keys.iter().filter_map(
-                    |(k, idx)| {
-                        if let DirOrFileIdx::File(i) = idx {
-                            Some((k.clone(), *i))
-                        } else {
-                            None
-                        }
-                    }
-                ).collect::<Vec<_>>())
+                let keys = footer
+                    .encryption_keys
+                    .map(|keys| {
+                        keys.keys
+                            .iter()
+                            .filter_map(|(k, idx)| {
+                                if let DirOrFileIdx::File(i) = idx {
+                                    Some((k.clone(), *i))
+                                } else {
+                                    None
+                                }
+                            })
+                            .collect::<Vec<_>>()
+                    })
                     .unwrap_or_default();
 
-                for (idx, file_ctx_variant) in footer.table_of_contents.files.into_iter().enumerate() {
+                for (idx, file_ctx_variant) in
+                    footer.table_of_contents.files.into_iter().enumerate()
+                {
                     let permit = Arc::clone(&sem).acquire_owned().await;
                     let base_path_clone = Arc::clone(&base_path);
                     let file_clone = file.clone();
@@ -321,7 +324,9 @@ async fn main() -> Result<()> {
                             let file_handle = File::create(&file_path).await?;
 
                             // Generate FileContext without encryption keys
-                            let (ctx, _) = FileContext::from_meta(idx, &file_path, (None, None), vec![]).await?;
+                            let (ctx, _) =
+                                FileContext::from_meta(idx, &file_path, (None, None), vec![])
+                                    .await?;
 
                             // Open pithos file handle and read file range
                             let mut pithos_file = File::open(file_clone).await?;
@@ -341,7 +346,7 @@ async fn main() -> Result<()> {
                                     data_sender.send(Ok(bytes)).await?;
 
                                     if remaining <= 0 {
-                                        break
+                                        break;
                                     }
                                 }
 
@@ -354,9 +359,9 @@ async fn main() -> Result<()> {
                                 file_handle,
                                 ctx,
                                 key_clone,
-                                None
+                                None,
                             )
-                                .await?;
+                            .await?;
                             reader.process_bytes().await?;
 
                             Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
@@ -368,8 +373,8 @@ async fn main() -> Result<()> {
                 futures::future::join_all(process_handles).await;
             }
             ReadCommands::ContentList { file } => {
-                // Open file
-                let mut input_file = File::open(file).await?;
+                // Parse Footer
+                let mut input_file = File::open(file.clone()).await?;
                 let file_meta = input_file.metadata().await?;
 
                 let footer_prediction = if file_meta.len() < 65536 * 2 {
@@ -386,14 +391,23 @@ async fn main() -> Result<()> {
                 input_file.read_exact(buf).await?;
 
                 let mut parser = FooterParser::new(buf)?;
-                if let Some(_) = private_key {
-                    //todo!("Add recipient to parser")
+                if let Some(p_key) = private_key.as_ref() {
+                    parser = parser.add_recipient(p_key)
                 };
+                parser = parser.parse()?;
 
                 // Check if bytes are missing
+                let mut missing_buf;
                 if let FooterParserState::Missing(missing_bytes) = parser.state {
-                    let _needed_bytes = footer_prediction + missing_bytes as u64;
-                    todo!()
+                    let needed_bytes = footer_prediction + missing_bytes as u64;
+                    input_file
+                        .seek(SeekFrom::End(-(needed_bytes as i64)))
+                        .await?;
+                    missing_buf = vec![0; missing_bytes as usize]; // Has to be vec as length is defined by dynamic value
+                    input_file.read_exact(&mut missing_buf).await?;
+
+                    parser = parser.add_bytes(&missing_buf)?;
+                    parser = parser.parse()?
                 }
 
                 // Parse the footer bytes and display Table of Contents
@@ -405,10 +419,10 @@ async fn main() -> Result<()> {
             ReadCommands::Search { .. } => {}
         },
         PithosCommands::Create {
-            metadata,
-            range_files,
-            auto_generate_ranges,
-            ranges_regex,
+            metadata: _,
+            range_files: _,
+            auto_generate_ranges: _,
+            ranges_regex: _,
             files,
             reader_public_keys,
         } => {
@@ -434,31 +448,17 @@ async fn main() -> Result<()> {
             let (ctx_sender, ctx_receiver) = async_channel::unbounded(); // Channel cap?
             let (stream_sender, stream_receiver) = async_channel::bounded(10); // Channel cap?
 
-            // Send first file ctx as head start
-            //ToDo: Check for metadata
-            //ToDo: Check for custom ranges
-            let (file_context, stream_reader) = FileContext::from_meta(
-                0,
-                files
-                    .first()
-                    .ok_or_else(|| anyhow!("No input files provided."))?,
-                (Some(key), Some(key)),
-                recipient_keys.clone(),
-            )
-            .await?;
-            ctx_sender.send(Message::FileContext(file_context)).await?;
-            stream_sender.send(stream_reader).await?;
-
-            // Async send the following file contexts
+            // Async send the file contexts
             tokio::spawn(async move {
-                for (i, file_path) in files[1..].iter().enumerate() {
+                for (i, file_path) in files.iter().enumerate() {
                     let (file_context, stream_reader) = FileContext::from_meta(
-                        i + 1,
+                        i,
                         file_path,
                         (Some(key), Some(key)),
                         recipient_keys.clone(),
                     )
                     .await?;
+
                     ctx_sender.send(Message::FileContext(file_context)).await?;
                     stream_sender.send(stream_reader).await?;
                 }
@@ -550,7 +550,7 @@ async fn main() -> Result<()> {
             }
         }
         PithosCommands::Modify { .. } => {}
-        PithosCommands::Export { format } => {}
+        PithosCommands::Export { .. } => {}
     }
 
     // Continued program logic goes here...

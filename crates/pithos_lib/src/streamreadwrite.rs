@@ -3,7 +3,7 @@ use crate::helpers::structs::FileContext;
 use crate::transformer::{ReadWriter, Sink, Transformer};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::{anyhow, bail, Result};
-use async_channel::{Receiver, Sender, TryRecvError};
+use async_channel::{Receiver, RecvError, Sender, TryRecvError};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{Stream, StreamExt};
 use std::collections::VecDeque;
@@ -98,8 +98,29 @@ impl<
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
-    pub fn process_messages(&mut self) -> Result<bool> {
+    pub async fn process_messages(&mut self) -> Result<bool> {
         while let Some(rx) = &self.external_receiver {
+            if self.context_queue.is_empty() {
+                match rx.recv().await {
+                    Ok(Message::FileContext(context)) => {
+                        let mut context = context.clone();
+                        if context.is_dir {
+                            context.idx = self.dir_counter;
+                            self.dir_counter += 1;
+                        } else if context.symlink_target.is_none() {
+                            context.idx = self.file_counter;
+                            self.file_counter += 1;
+                        }
+                        self.context_queue.push_back(context);
+                    }
+                    Ok(Message::Completed) => {
+                        return Ok(true);
+                    }
+                    Err(RecvError) => break,
+                    _ => {}
+                }
+            }
+
             match rx.try_recv() {
                 Err(TryRecvError::Empty) => break,
                 Ok(ref msg) => match &msg {
@@ -172,6 +193,7 @@ impl<
         let mut read_bytes: usize = 0;
         let mut empty_counter: Option<u8> = Some(0);
         let mut finished = false;
+
         self.transformers
             .push(self.sink.take().ok_or_else(|| anyhow!("No sink!"))?);
 
@@ -182,7 +204,7 @@ impl<
             t.set_notifier(notifier.clone()).await?;
         }
 
-        let _ = self.process_messages()?;
+        let _ = self.process_messages().await?;
         let mut file_ctx = self.context_queue.pop_front();
 
         if let Some(ctx) = &file_ctx {
@@ -209,18 +231,17 @@ impl<
                 }
                 read_buf.put(data);
             } else if read_buf.is_empty() {
+                // Swap hold buffer back to read buffer
                 mem::swap(&mut hold_buffer, &mut read_buf);
-                if let Some(ctx) = &file_ctx {
-                    notifier.send_all(Message::FileContext(ctx.clone()))?;
-                    notifier.send_all(Message::ShouldFlush)?;
-                } else {
+                // If no file is available discard the remaining hold buffer bytes
+                if file_ctx.is_none() {
                     hold_buffer.clear();
                     notifier.send_first(Message::Finished)?;
                     finished = true;
                 }
             }
 
-            let completed = self.process_messages()?;
+            let completed = self.process_messages().await?;
 
             if let Some(context) = &file_ctx {
                 self.size_counter += read_bytes;
@@ -237,11 +258,28 @@ impl<
                     hold_buffer = read_buf.split_to(diff);
                     mem::swap(&mut read_buf, &mut hold_buffer);
                     self.size_counter -= context.compressed_size as usize;
+
+                    // Fetch next file context and send to transformers if present
                     file_ctx = self.context_queue.pop_front();
+                    if let Some(ctx) = &file_ctx {
+                        notifier.send_all(Message::FileContext(ctx.clone()))?;
+                    }
+                    // Send flush
+                    notifier.send_all(Message::ShouldFlush)?;
+                    // Reset counter
+                    self.size_counter = 0;
                 } else if self.size_counter == context.compressed_size as usize
                     && hold_buffer.is_empty()
                 {
+                    // Fetch next file context and send to transformers if present
                     file_ctx = self.context_queue.pop_front();
+                    if let Some(ctx) = &file_ctx {
+                        notifier.send_all(Message::FileContext(ctx.clone()))?;
+                    }
+                    // Send flush
+                    notifier.send_all(Message::ShouldFlush)?;
+                    // Reset counter
+                    self.size_counter = 0;
                 }
             }
 
