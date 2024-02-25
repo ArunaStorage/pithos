@@ -4,12 +4,12 @@ use crate::helpers::structs::FileContext;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
 use anyhow::anyhow;
-use anyhow::bail;
 use anyhow::Result;
 use async_channel::Receiver;
 use async_channel::Sender;
 use async_channel::TryRecvError;
 use bytes::BufMut;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::SystemTime;
@@ -17,13 +17,12 @@ use tar::Header;
 use tracing::error;
 
 pub struct TarEnc {
-    header: Option<Header>,
+    header: VecDeque<(Header, usize)>,
+    current_padding: Option<usize>,
     notifier: Option<Arc<Notifier>>,
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
-    padding: usize,
     finished: bool,
-    init: bool,
 }
 
 impl TryFrom<FileContext> for Header {
@@ -58,13 +57,12 @@ impl TarEnc {
     #[tracing::instrument(level = "trace", skip())]
     pub fn new() -> TarEnc {
         TarEnc {
-            header: None,
+            header: VecDeque::new(),
+            current_padding: None,
             notifier: None,
             msg_receiver: None,
             idx: None,
-            padding: 0,
             finished: false,
-            init: true,
         }
     }
 
@@ -74,18 +72,13 @@ impl TarEnc {
             loop {
                 match rx.try_recv() {
                     Ok(Message::FileContext(ctx)) => {
-                        if self.header.is_none() {
-                            if ctx.is_dir || ctx.symlink_target.is_some() {
-                                self.padding = 0;
+                            let padding: usize = if ctx.is_dir || ctx.symlink_target.is_some() {
+                                0
                             } else {
-                                self.padding = 512 - ctx.decompressed_size as usize % 512;
-                            }
-                            self.header = Some(TryInto::<Header>::try_into(ctx.clone())?);
-                        } else {
-                            error!("A Header is still present");
-                            bail!("[TAR] A Header is still present")
+                               512 - ctx.decompressed_size as usize % 512
+                            };
+                            self.header.push_back((TryInto::<Header>::try_into(ctx.clone())?, padding));
                         }
-                    }
                     Ok(Message::ShouldFlush) => return Ok((true, false)),
                     Ok(Message::Finished) => return Ok((false, true)),
                     Ok(_) => {}
@@ -126,25 +119,40 @@ impl Transformer for TarEnc {
             return Err(anyhow!("Error processing messages"));
         };
 
-        if should_flush {
-            if self.padding > 0 {
-                buf.put(vec![0u8; self.padding].as_ref());
+
+        let should_pop = if let Some((head, _)) = self.header.front() {
+            if head.size()? == 0 {
+                true
+            } else if self.current_padding.is_some() {
+                false
+            } else {
+                true
             }
-            self.padding = 0;
-            return Ok(());
+        }else{
+            false
+        };
+
+        if should_pop {
+            if let Some((header, padding)) = &self.header.pop_front() {
+                let temp = buf.split();
+                buf.put(header.as_bytes().as_slice());
+                buf.put(temp);
+                self.current_padding = Some(*padding);
+            }
         }
-        if let Some(header) = &self.header {
-            let temp = buf.split();
-            if self.init {
-                self.init = false;
+
+        if should_flush {
+            if let Some(pad) = self.current_padding {
+                if pad > 0 {
+                    buf.put(vec![0u8; pad].as_ref());
+                }
             }
-            buf.put(header.as_bytes().as_slice());
-            buf.put(temp);
-            self.header = None;
+            self.current_padding = None;
+            return Ok(());
         }
 
         if finished && !self.finished {
-            buf.put(vec![0u8; self.padding].as_ref());
+            buf.put(vec![0u8; self.current_padding.unwrap_or(0)].as_ref());
             buf.put([0u8; 1024].as_slice());
             self.finished = true;
             if let Some(notifier) = &self.notifier {

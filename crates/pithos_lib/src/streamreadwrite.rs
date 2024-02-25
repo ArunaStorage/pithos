@@ -101,7 +101,10 @@ impl<
     pub async fn process_messages(&mut self) -> Result<bool> {
         while let Some(rx) = &self.external_receiver {
             if self.context_queue.is_empty() {
-                match rx.recv().await {
+                match rx.try_recv() {
+                    Ok(Message::Completed) => {
+                        return Ok(true);
+                    }
                     Ok(Message::FileContext(context)) => {
                         let mut context = context.clone();
                         if context.is_dir {
@@ -113,10 +116,8 @@ impl<
                         }
                         self.context_queue.push_back(context);
                     }
-                    Ok(Message::Completed) => {
-                        return Ok(true);
-                    }
-                    Err(RecvError) => break,
+                    Err(TryRecvError::Empty) =>
+                     {break},
                     _ => {}
                 }
             }

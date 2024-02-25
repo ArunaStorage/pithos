@@ -15,7 +15,7 @@ use digest::Digest;
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::{error, trace};
+use tracing::error;
 
 pub struct FooterGenerator {
     hasher: Sha256,

@@ -17,7 +17,7 @@ use bytes::{BufMut, Bytes};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
-use tracing::{error, trace};
+use tracing::error;
 
 const CHUNK: u32 = 65_536;
 

@@ -41,7 +41,7 @@ impl GzipEnc {
         if let Some(rx) = &self.msg_receiver {
             loop {
                 match rx.try_recv() {
-                    Ok(Message::Finished) | Ok(Message::ShouldFlush) => return Ok(true),
+                    Ok(Message::Finished) => return Ok(true),
                     Ok(_) => {}
                     Err(TryRecvError::Empty) => {
                         break;
@@ -78,11 +78,12 @@ impl Transformer for GzipEnc {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
         self.size_counter += buf.len();
         self.internal_buf.write_all_buf(buf).await?;
+        
 
         let Ok(finished) = self.process_messages() else {
             return Err(anyhow!("GzipEnc: Error processing messages"));
         };
-        if finished && self.size_counter != 0 {
+        if finished && self.size_counter != 0 && buf.is_empty() {
             debug!("finished");
             self.internal_buf.shutdown().await?;
             buf.put(self.internal_buf.get_ref().as_slice());
