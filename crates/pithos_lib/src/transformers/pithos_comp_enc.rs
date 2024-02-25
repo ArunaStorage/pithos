@@ -17,7 +17,7 @@ use bytes::{BufMut, Bytes};
 use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::io::AsyncWriteExt;
-use tracing::error;
+use tracing::{error, trace};
 
 const CHUNK: u32 = 65_536;
 
@@ -213,36 +213,39 @@ impl PithosTransformer {
     }
 
     async fn smart_compress(&mut self, flush: bool) -> Result<Bytes> {
-        let mut current_size: usize = 0;
+        let mut current_size: usize = self.internal_buf.get_ref().len();
         let final_size = CHUNK
             * self
                 .file_queue
                 .front()
                 .map(|f| f.multiplier)
                 .unwrap_or_else(|| 1);
-        let mut to_read: isize = final_size as isize - current_size as isize - 20;
+        let mut to_read: usize = (final_size as usize).saturating_sub(current_size).saturating_sub(20);
 
         let mut result = BytesMut::new();
         while !self.capture_buf.is_empty() {
-            let bytes = if to_read > self.capture_buf.len() as isize {
+            let bytes = if to_read > self.capture_buf.len() {
                 self.advance_file(self.capture_buf.len());
                 self.capture_buf.split()
             } else {
-                self.advance_file(to_read as usize);
-                self.capture_buf.split_to(to_read as usize)
+                self.advance_file(to_read);
+                self.capture_buf.split_to(to_read)
             };
 
-            self.internal_buf.write_all(&bytes).await.unwrap();
-            self.internal_buf.flush().await.unwrap();
+            self.internal_buf.write_all(&bytes).await?;
+            self.internal_buf.flush().await?;
             current_size = self.internal_buf.get_ref().len();
-            to_read = final_size as isize - current_size as isize - 20;
-
-            if to_read <= 0 {
+            to_read = (final_size as usize).saturating_sub(current_size).saturating_sub(20);
+            if to_read == 0 {
                 self.next_chunk();
                 self.internal_buf.shutdown().await?;
                 let internal_buf_len = self.internal_buf.get_ref().len();
+                trace!(?internal_buf_len);
                 // Skippable frame to x*65Kib
                 let remaining = CHUNK as usize - (internal_buf_len % CHUNK as usize);
+                if remaining < 8 {
+                    trace!(rem = ?remaining, ?to_read, ?current_size, ?final_size, buf_len = ?internal_buf_len, flush = flush, "Remaining");
+                }
                 result.put(self.internal_buf.get_ref().as_ref());
                 result.put(create_skippable_padding_frame(remaining)?.as_ref());
                 self.internal_buf = ZstdEncoder::new(Vec::with_capacity(CHUNK as usize));

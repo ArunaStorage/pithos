@@ -15,7 +15,7 @@ use chacha20poly1305::{
 };
 use std::collections::VecDeque;
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, trace};
 use tracing::error;
 use tracing::info;
 
@@ -108,8 +108,10 @@ impl ChaCha20Dec {
             self.input_buffer.len()
         };
         if let Some(key) = self.decryption_key {
+            trace!(buf_len = ?self.input_buffer.len(), split_len, "Decrypting chunk");
             if !self.input_buffer.is_empty() {
-                let mut maybe_chunk = decrypt_chunk(&self.input_buffer.split_to(split_len), &key);
+                let buffer_bytes = self.input_buffer.split_to(split_len);
+                let mut maybe_chunk = decrypt_chunk(&buffer_bytes, &key);
                 if let Ok(chunk) = maybe_chunk {
                     self.output_buffer.put(chunk);
                     return Ok(());
@@ -117,7 +119,7 @@ impl ChaCha20Dec {
                     if let Some(k) = &self.available_keys {
                         for (key, _) in k {
                             maybe_chunk =
-                                decrypt_chunk(&self.input_buffer.split_to(split_len), &key);
+                                decrypt_chunk(&buffer_bytes, &key);
                             if let Ok(chunk) = maybe_chunk {
                                 self.decryption_key = Some(key.clone());
                                 self.output_buffer.put(chunk);
