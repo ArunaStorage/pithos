@@ -220,7 +220,9 @@ impl PithosTransformer {
                 .front()
                 .map(|f| f.multiplier)
                 .unwrap_or_else(|| 1);
-        let mut to_read: usize = (final_size as usize).saturating_sub(current_size).saturating_sub(20);
+        let mut to_read: usize = (final_size as usize)
+            .saturating_sub(current_size)
+            .saturating_sub(20);
 
         let mut result = BytesMut::new();
         while !self.capture_buf.is_empty() {
@@ -235,7 +237,9 @@ impl PithosTransformer {
             self.internal_buf.write_all(&bytes).await?;
             self.internal_buf.flush().await?;
             current_size = self.internal_buf.get_ref().len();
-            to_read = (final_size as usize).saturating_sub(current_size).saturating_sub(20);
+            to_read = (final_size as usize)
+                .saturating_sub(current_size)
+                .saturating_sub(20);
             if to_read == 0 {
                 self.next_chunk();
                 self.internal_buf.shutdown().await?;

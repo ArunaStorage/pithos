@@ -1,5 +1,5 @@
 use crate::helpers::notifications::DirOrFileIdx;
-use crate::helpers::structs::FileContext;
+use crate::helpers::structs::{EncryptionKey, FileContext};
 use anyhow::{anyhow, Result};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chacha20poly1305::aead::OsRng;
@@ -285,6 +285,37 @@ pub struct FileContextHeader {
     pub metadata: Option<String>,
     pub symlinks: Option<Vec<SymlinkContextHeader>>,
     pub custom_ranges: Option<Vec<CustomRange>>,
+}
+
+impl FileContextHeader {
+    pub fn try_into_file_context(self, idx: usize) -> Result<FileContext> {
+        Ok(FileContext {
+            idx,
+            file_path: self.file_path,
+            compressed_size: self.file_end - self.file_start,
+            decompressed_size: self.raw_size,
+            uid: self.file_info.as_ref().and_then(|x| x.uid),
+            gid: self.file_info.as_ref().and_then(|x| x.gid),
+            mode: self.file_info.as_ref().and_then(|x| x.mode),
+            mtime: self.file_info.as_ref().and_then(|x| x.mtime),
+            compression: self.compressed,
+            chunk_multiplier: Some(self.block_scale),
+            encryption_key: EncryptionKey::None,
+            recipients_pubkeys: vec![],
+            is_dir: false,
+            symlink_target: None,
+            expected_sha256: self
+                .hashes
+                .as_ref()
+                .and_then(|x| x.sha256.and_then(|x| Some(hex::encode(x.as_slice())))),
+            expected_md5: self
+                .hashes
+                .as_ref()
+                .and_then(|x| x.md5.and_then(|x| Some(hex::encode(x.as_slice())))),
+            semantic_metadata: self.metadata,
+            custom_ranges: self.custom_ranges,
+        })
+    }
 }
 
 impl TryFrom<FileContext> for FileContextHeader {

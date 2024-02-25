@@ -25,6 +25,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Semaphore;
 use tokio::{pin, task};
 use tokio_util::io::ReaderStream;
+use tracing::trace;
 use utils::conversion::evaluate_log_level;
 
 #[derive(Clone, ValueEnum)]
@@ -328,6 +329,8 @@ async fn main() -> Result<()> {
                                 FileContext::from_meta(idx, &file_path, (None, None), vec![])
                                     .await?;
 
+                            trace!(?ctx);
+
                             // Open pithos file handle and read file range
                             let mut pithos_file = File::open(file_clone).await?;
                             pithos_file
@@ -338,6 +341,7 @@ async fn main() -> Result<()> {
                             let (data_sender, data_receiver) = async_channel::bounded(3);
                             tokio::spawn(async move {
                                 let mut remaining = ctx.compressed_size as i64;
+                                trace!(?remaining);
                                 let mut input_stream = ReaderStream::new(pithos_file);
 
                                 while let Some(bytes) = input_stream.next().await {

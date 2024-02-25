@@ -15,9 +15,9 @@ use chacha20poly1305::{
 };
 use std::collections::VecDeque;
 use std::sync::Arc;
-use tracing::{debug, trace};
 use tracing::error;
 use tracing::info;
+use tracing::{debug, trace};
 
 const ENCRYPTION_BLOCK_SIZE: usize = 65_536;
 const CIPHER_DIFF: usize = 28;
@@ -118,8 +118,7 @@ impl ChaCha20Dec {
                 } else {
                     if let Some(k) = &self.available_keys {
                         for (key, _) in k {
-                            maybe_chunk =
-                                decrypt_chunk(&buffer_bytes, &key);
+                            maybe_chunk = decrypt_chunk(&buffer_bytes, &key);
                             if let Ok(chunk) = maybe_chunk {
                                 self.decryption_key = Some(key.clone());
                                 self.output_buffer.put(chunk);
@@ -196,6 +195,7 @@ impl Transformer for ChaCha20Dec {
 
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
+        trace!(buf = ?buf.len(), "Processing bytes");
         if self.skip_me {
             debug!("skipped");
             return Ok(());
@@ -221,9 +221,11 @@ impl Transformer for ChaCha20Dec {
 
         if self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
             while self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
+                trace!(buf_len = self.input_buffer.len(), "Decrypting chunk");
                 self.check_decrypt_chunk()?;
             }
         } else if finished && !self.finished {
+            trace!(finished, self.finished);
             if !self.input_buffer.is_empty() {
                 if self.input_buffer.len() > 28 {
                     self.finished = true;
