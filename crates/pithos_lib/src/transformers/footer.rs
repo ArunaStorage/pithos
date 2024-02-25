@@ -15,7 +15,7 @@ use digest::Digest;
 use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::error;
+use tracing::{error, trace};
 
 pub struct FooterGenerator {
     hasher: Sha256,
@@ -211,6 +211,7 @@ impl FooterGenerator {
                         if mut_ctx.raw_size == 0 {
                             mut_ctx.raw_size = compression_info.raw_size;
                         } else if mut_ctx.raw_size != compression_info.raw_size {
+                            error!(ctx_raw = mut_ctx.raw_size, comp_raw = compression_info.raw_size, "Raw size does not match file disk size");
                             bail!("Compression size does not match file disk size");
                         }
                         mut_ctx.file_end = compression_info.compressed_size;

@@ -202,7 +202,7 @@ impl FileContext {
         Ok((
             FileContext {
                 idx,
-                file_path: file_path.to_str().unwrap().to_string(),
+                file_path: file_path.file_name().unwrap().to_str().unwrap().to_string(),
                 compressed_size: file_metadata.len(),
                 decompressed_size: file_metadata.len(),
                 uid: Some(file_metadata.uid().into()),

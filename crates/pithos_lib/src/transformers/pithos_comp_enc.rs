@@ -253,10 +253,8 @@ impl PithosTransformer {
         }
 
         if flush {
-            self.next_chunk();
-            
+            self.next_chunk();            
             self.internal_buf.shutdown().await?;
-            trace!(len = self.internal_buf.get_ref().len(), "Flushing");
             result.put(self.internal_buf.get_ref().as_ref());
             self.internal_buf = ZstdEncoder::new(Vec::with_capacity(CHUNK as usize));
         }
@@ -316,8 +314,9 @@ impl Transformer for PithosTransformer {
             let to_read = if flush {
                 self.capture_buf.len()
             } else {
-                (self.capture_buf.len() % CHUNK as usize) * CHUNK as usize
+                (self.capture_buf.len() / CHUNK as usize) * CHUNK as usize
             };
+            self.advance_file(to_read);
             self.capture_buf.split_to(to_read).freeze()
         };
 
