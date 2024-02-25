@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 use std::mem;
 use std::sync::Arc;
 use tokio::io::{AsyncWrite, BufWriter};
-use tracing::{error, trace};
+use tracing::error;
 
 pub struct GenericStreamReadWriter<
     'a,
@@ -224,7 +224,6 @@ impl<
                     if let Some(counter) = &mut empty_counter {
                         *counter += 1;
                         if *counter > 5 {
-                            trace!(?counter, "Empty input stream detected!");
                             notifier.send_first(Message::Finished)?;
                             empty_counter = None;
                         }

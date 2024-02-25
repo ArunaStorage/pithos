@@ -17,6 +17,7 @@ use pithos_lib::pithos::structs::{
 };
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
+use tracing::trace;
 use std::io::SeekFrom;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -25,7 +26,6 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Semaphore;
 use tokio::{pin, task};
 use tokio_util::io::ReaderStream;
-use tracing::trace;
 use utils::conversion::evaluate_log_level;
 
 #[derive(Clone, ValueEnum)]
@@ -321,15 +321,11 @@ async fn main() -> Result<()> {
                     if let FileContextVariants::FileDecrypted(file_ctx) = file_ctx_variant {
                         process_handles.push(task::spawn(async move {
                             let _permit = permit;
-                            let file_path = base_path_clone.join(file_ctx.file_path);
+                            trace!(base = ?base_path_clone);
+                            let file_path = base_path_clone.join(file_ctx.file_path.to_string().trim_start_matches('/'));
+
+                            trace!(file_path = ?file_path, "Processing file");
                             let file_handle = File::create(&file_path).await?;
-
-                            // Generate FileContext without encryption keys
-                            let (ctx, _) =
-                                FileContext::from_meta(idx, &file_path, (None, None), vec![])
-                                    .await?;
-
-                            trace!(?ctx);
 
                             // Open pithos file handle and read file range
                             let mut pithos_file = File::open(file_clone).await?;
@@ -337,25 +333,31 @@ async fn main() -> Result<()> {
                                 .seek(SeekFrom::Start(file_ctx.file_start))
                                 .await?;
 
+                            let disk_size: usize =
+                                (file_ctx.file_end - file_ctx.file_start).try_into()?;
+
                             // Send at least file_ctx.compressed_size bytes pithos_file
                             let (data_sender, data_receiver) = async_channel::bounded(3);
                             tokio::spawn(async move {
-                                let mut remaining = ctx.compressed_size as i64;
-                                trace!(?remaining);
+                                let mut remaining = disk_size;
                                 let mut input_stream = ReaderStream::new(pithos_file);
-
                                 while let Some(bytes) = input_stream.next().await {
-                                    let bytes = bytes?;
-                                    remaining -= bytes.len() as i64;
-                                    data_sender.send(Ok(bytes)).await?;
-
-                                    if remaining <= 0 {
+                                    let mut bytes = bytes?;
+                                    if bytes.len() < remaining {
+                                        remaining = remaining.saturating_sub(bytes.len());
+                                        data_sender.send(Ok(bytes)).await?;
+                                    }else{
+                                        data_sender
+                                            .send(Ok(bytes.split_to(remaining as usize)))
+                                            .await?;
                                         break;
                                     }
                                 }
-
                                 Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
                             });
+
+                            // Generate FileContext without encryption keys
+                            let ctx = file_ctx.try_into_file_context(idx)?;
 
                             pin!(data_receiver);
                             let mut reader = PithosReader::new_with_writer(
@@ -374,7 +376,7 @@ async fn main() -> Result<()> {
                 }
 
                 // Await all readers
-                futures::future::join_all(process_handles).await;
+                futures::future::join_all(process_handles).await.into_iter().for_each(|e| e.unwrap().unwrap());
             }
             ReadCommands::ContentList { file } => {
                 // Parse Footer

@@ -244,12 +244,8 @@ impl PithosTransformer {
                 self.next_chunk();
                 self.internal_buf.shutdown().await?;
                 let internal_buf_len = self.internal_buf.get_ref().len();
-                trace!(?internal_buf_len);
                 // Skippable frame to x*65Kib
                 let remaining = CHUNK as usize - (internal_buf_len % CHUNK as usize);
-                if remaining < 8 {
-                    trace!(rem = ?remaining, ?to_read, ?current_size, ?final_size, buf_len = ?internal_buf_len, flush = flush, "Remaining");
-                }
                 result.put(self.internal_buf.get_ref().as_ref());
                 result.put(create_skippable_padding_frame(remaining)?.as_ref());
                 self.internal_buf = ZstdEncoder::new(Vec::with_capacity(CHUNK as usize));
@@ -258,7 +254,9 @@ impl PithosTransformer {
 
         if flush {
             self.next_chunk();
+            
             self.internal_buf.shutdown().await?;
+            trace!(len = self.internal_buf.get_ref().len(), "Flushing");
             result.put(self.internal_buf.get_ref().as_ref());
             self.internal_buf = ZstdEncoder::new(Vec::with_capacity(CHUNK as usize));
         }
@@ -313,7 +311,7 @@ impl Transformer for PithosTransformer {
         // Compression
         let compressed_bytes = if let ProbeResult::Compression = probe_result {
             // "Smart" compress
-            self.smart_compress(flush).await?
+            self.smart_compress(flush || finished).await?
         } else {
             let to_read = if flush {
                 self.capture_buf.len()
@@ -339,18 +337,7 @@ impl Transformer for PithosTransformer {
         }
         self.add_compressed_bytes(buf.len());
 
-        if flush {
-            let file = self.file_queue.pop_front();
-            if let Some(file) = file {
-                if let Some(notifier) = &self.notifier {
-                    notifier.send_all_type(
-                        TransformerType::FooterGenerator,
-                        Message::CompressionInfo(file.into()),
-                    )?;
-                }
-            }
-        }
-        if finished {
+        if flush || finished {
             if let Some(notifier) = &self.notifier {
                 if let Some(file) = self.file_queue.pop_front() {
                     notifier.send_all_type(
@@ -358,10 +345,12 @@ impl Transformer for PithosTransformer {
                         Message::CompressionInfo(file.into()),
                     )?;
                 }
-                notifier.send_next(
-                    self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
-                    Message::Finished,
-                )?;
+                if finished {
+                    notifier.send_next(
+                        self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
+                        Message::Finished,
+                    )?;
+                }
             }
         }
         Ok(())

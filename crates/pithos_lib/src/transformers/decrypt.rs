@@ -36,6 +36,7 @@ pub struct ChaCha20Dec {
     backoff_counter: usize,
     skip_me: bool,
     file_idx: VecDeque<usize>,
+    debug_counter: usize,
 }
 
 impl ChaCha20Dec {
@@ -55,6 +56,7 @@ impl ChaCha20Dec {
             msg_receiver: None,
             idx: None,
             file_idx: VecDeque::from([0]),
+            debug_counter: 0,
         })
     }
 
@@ -74,6 +76,7 @@ impl ChaCha20Dec {
             msg_receiver: None,
             idx: None,
             file_idx: VecDeque::from([0]),
+            debug_counter: 0,
         })
     }
 
@@ -97,18 +100,19 @@ impl ChaCha20Dec {
             msg_receiver: None,
             idx: None,
             file_idx: VecDeque::from([0]),
+            debug_counter: 0,
         })
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn check_decrypt_chunk(&mut self) -> Result<()> {
         let split_len = if self.input_buffer.len() > CIPHER_SEGMENT_SIZE {
+            self.debug_counter += 1;
             CIPHER_SEGMENT_SIZE
         } else {
             self.input_buffer.len()
         };
         if let Some(key) = self.decryption_key {
-            trace!(buf_len = ?self.input_buffer.len(), split_len, "Decrypting chunk");
             if !self.input_buffer.is_empty() {
                 let buffer_bytes = self.input_buffer.split_to(split_len);
                 let mut maybe_chunk = decrypt_chunk(&buffer_bytes, &key);
@@ -195,7 +199,6 @@ impl Transformer for ChaCha20Dec {
 
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
-        trace!(buf = ?buf.len(), "Processing bytes");
         if self.skip_me {
             debug!("skipped");
             return Ok(());
@@ -221,7 +224,6 @@ impl Transformer for ChaCha20Dec {
 
         if self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
             while self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
-                trace!(buf_len = self.input_buffer.len(), "Decrypting chunk");
                 self.check_decrypt_chunk()?;
             }
         } else if finished && !self.finished {
