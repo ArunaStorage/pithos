@@ -18,7 +18,9 @@ use pithos_lib::pithos::structs::{
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use tracing::trace;
+use std::fmt::Write;
 use std::io::SeekFrom;
+use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs::File;
@@ -27,6 +29,7 @@ use tokio::sync::Semaphore;
 use tokio::{pin, task};
 use tokio_util::io::ReaderStream;
 use utils::conversion::evaluate_log_level;
+use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};
 
 #[derive(Clone, ValueEnum)]
 enum KeyFormat {
@@ -311,6 +314,12 @@ async fn main() -> Result<()> {
                     })
                     .unwrap_or_default();
 
+                    let m = Arc::new(MultiProgress::new());
+                    ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+                    ?
+                    .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())
+                    .progress_chars("#>-");
+
                 for (idx, file_ctx_variant) in
                     footer.table_of_contents.files.into_iter().enumerate()
                 {
@@ -454,6 +463,13 @@ async fn main() -> Result<()> {
             let (ctx_sender, ctx_receiver) = async_channel::unbounded(); // Channel cap?
             let (stream_sender, stream_receiver) = async_channel::bounded(10); // Channel cap?
 
+
+            let pb = Arc::new(ProgressBar::new(files.iter().map(|f| f.metadata().map(|m| m.size()).unwrap_or(0)).sum::<u64>()));
+            pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+                ?
+                .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())
+                .progress_chars("#>-"));
+
             // Async send the file contexts
             tokio::spawn(async move {
                 for (i, file_path) in files.iter().enumerate() {
@@ -472,6 +488,8 @@ async fn main() -> Result<()> {
                 Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
             });
 
+            let pb_clone = pb.clone();
+
             // Send all file data into channel
             let (data_sender, data_receiver) = async_channel::bounded(100); // Channel cap?
             tokio::spawn(async move {
@@ -479,6 +497,7 @@ async fn main() -> Result<()> {
                     match stream_receiver.try_recv() {
                         Ok(mut input_stream) => {
                             while let Some(bytes) = input_stream.next().await {
+                                pb_clone.inc(bytes.as_ref().map(|a| a.len()).unwrap_or(0) as u64);
                                 data_sender.send(Ok(bytes?)).await?
                             }
                         }
