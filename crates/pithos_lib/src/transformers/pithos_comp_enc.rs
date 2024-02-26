@@ -253,7 +253,7 @@ impl PithosTransformer {
         }
 
         if flush {
-            self.next_chunk();            
+            self.next_chunk();
             self.internal_buf.shutdown().await?;
             result.put(self.internal_buf.get_ref().as_ref());
             self.internal_buf = ZstdEncoder::new(Vec::with_capacity(CHUNK as usize));

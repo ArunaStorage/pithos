@@ -116,8 +116,7 @@ impl<
                         }
                         self.context_queue.push_back(context);
                     }
-                    Err(TryRecvError::Empty) =>
-                     {break},
+                    Err(TryRecvError::Empty) => break,
                     _ => {}
                 }
             }

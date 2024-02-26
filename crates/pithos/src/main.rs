@@ -7,6 +7,7 @@ use anyhow::{anyhow, Result};
 use async_channel::TryRecvError;
 use clap::{Parser, Subcommand, ValueEnum};
 use futures_util::StreamExt;
+use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};
 use pithos_lib::helpers::footer_parser::{Footer, FooterParser, FooterParserState};
 use pithos_lib::helpers::notifications::{DirOrFileIdx, Message};
 use pithos_lib::helpers::structs::FileContext;
@@ -17,7 +18,6 @@ use pithos_lib::pithos::structs::{
 };
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
-use tracing::trace;
 use std::fmt::Write;
 use std::io::SeekFrom;
 use std::os::unix::fs::MetadataExt;
@@ -28,8 +28,8 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::Semaphore;
 use tokio::{pin, task};
 use tokio_util::io::ReaderStream;
+use tracing::trace;
 use utils::conversion::evaluate_log_level;
-use indicatif::{MultiProgress, ProgressBar, ProgressState, ProgressStyle};
 
 #[derive(Clone, ValueEnum)]
 enum KeyFormat {
@@ -314,8 +314,8 @@ async fn main() -> Result<()> {
                     })
                     .unwrap_or_default();
 
-                    let m = Arc::new(MultiProgress::new());
-                    ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+                let m = Arc::new(MultiProgress::new());
+                let style = ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
                     ?
                     .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())
                     .progress_chars("#>-");
@@ -327,11 +327,15 @@ async fn main() -> Result<()> {
                     let base_path_clone = Arc::clone(&base_path);
                     let file_clone = file.clone();
                     let key_clone = keys.clone();
+                    let style = style.clone();
+                    let m = m.clone();
                     if let FileContextVariants::FileDecrypted(file_ctx) = file_ctx_variant {
                         process_handles.push(task::spawn(async move {
                             let _permit = permit;
                             trace!(base = ?base_path_clone);
-                            let file_path = base_path_clone.join(file_ctx.file_path.to_string().trim_start_matches('/'));
+
+                            let file_path = base_path_clone
+                                .join(file_ctx.file_path.to_string().trim_start_matches('/'));
 
                             trace!(file_path = ?file_path, "Processing file");
                             let file_handle = File::create(&file_path).await?;
@@ -345,6 +349,9 @@ async fn main() -> Result<()> {
                             let disk_size: usize =
                                 (file_ctx.file_end - file_ctx.file_start).try_into()?;
 
+                            let pb = m.add(ProgressBar::new(disk_size as u64));
+                            pb.set_style(style);
+
                             // Send at least file_ctx.compressed_size bytes pithos_file
                             let (data_sender, data_receiver) = async_channel::bounded(3);
                             tokio::spawn(async move {
@@ -352,10 +359,11 @@ async fn main() -> Result<()> {
                                 let mut input_stream = ReaderStream::new(pithos_file);
                                 while let Some(bytes) = input_stream.next().await {
                                     let mut bytes = bytes?;
+                                    pb.inc(bytes.len() as u64);
                                     if bytes.len() < remaining {
                                         remaining = remaining.saturating_sub(bytes.len());
                                         data_sender.send(Ok(bytes)).await?;
-                                    }else{
+                                    } else {
                                         data_sender
                                             .send(Ok(bytes.split_to(remaining as usize)))
                                             .await?;
@@ -385,7 +393,10 @@ async fn main() -> Result<()> {
                 }
 
                 // Await all readers
-                futures::future::join_all(process_handles).await.into_iter().for_each(|e| e.unwrap().unwrap());
+                futures::future::join_all(process_handles)
+                    .await
+                    .into_iter()
+                    .for_each(|e| e.unwrap().unwrap());
             }
             ReadCommands::ContentList { file } => {
                 // Parse Footer
@@ -463,8 +474,12 @@ async fn main() -> Result<()> {
             let (ctx_sender, ctx_receiver) = async_channel::unbounded(); // Channel cap?
             let (stream_sender, stream_receiver) = async_channel::bounded(10); // Channel cap?
 
-
-            let pb = Arc::new(ProgressBar::new(files.iter().map(|f| f.metadata().map(|m| m.size()).unwrap_or(0)).sum::<u64>()));
+            let pb = Arc::new(ProgressBar::new(
+                files
+                    .iter()
+                    .map(|f| f.metadata().map(|m| m.size()).unwrap_or(0))
+                    .sum::<u64>(),
+            ));
             pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
                 ?
                 .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())

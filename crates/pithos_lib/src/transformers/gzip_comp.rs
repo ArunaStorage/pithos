@@ -78,7 +78,6 @@ impl Transformer for GzipEnc {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
         self.size_counter += buf.len();
         self.internal_buf.write_all_buf(buf).await?;
-        
 
         let Ok(finished) = self.process_messages() else {
             return Err(anyhow!("GzipEnc: Error processing messages"));

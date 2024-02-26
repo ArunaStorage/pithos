@@ -72,13 +72,14 @@ impl TarEnc {
             loop {
                 match rx.try_recv() {
                     Ok(Message::FileContext(ctx)) => {
-                            let padding: usize = if ctx.is_dir || ctx.symlink_target.is_some() {
-                                0
-                            } else {
-                               512 - ctx.decompressed_size as usize % 512
-                            };
-                            self.header.push_back((TryInto::<Header>::try_into(ctx.clone())?, padding));
-                        }
+                        let padding: usize = if ctx.is_dir || ctx.symlink_target.is_some() {
+                            0
+                        } else {
+                            512 - ctx.decompressed_size as usize % 512
+                        };
+                        self.header
+                            .push_back((TryInto::<Header>::try_into(ctx.clone())?, padding));
+                    }
                     Ok(Message::ShouldFlush) => return Ok((true, false)),
                     Ok(Message::Finished) => return Ok((false, true)),
                     Ok(_) => {}
@@ -119,7 +120,6 @@ impl Transformer for TarEnc {
             return Err(anyhow!("Error processing messages"));
         };
 
-
         let should_pop = if let Some((head, _)) = self.header.front() {
             if head.size()? == 0 {
                 true
@@ -128,7 +128,7 @@ impl Transformer for TarEnc {
             } else {
                 true
             }
-        }else{
+        } else {
             false
         };
 

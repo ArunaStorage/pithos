@@ -211,7 +211,11 @@ impl FooterGenerator {
                         if mut_ctx.raw_size == 0 {
                             mut_ctx.raw_size = compression_info.raw_size;
                         } else if mut_ctx.raw_size != compression_info.raw_size {
-                            error!(ctx_raw = mut_ctx.raw_size, comp_raw = compression_info.raw_size, "Raw size does not match file disk size");
+                            error!(
+                                ctx_raw = mut_ctx.raw_size,
+                                comp_raw = compression_info.raw_size,
+                                "Raw size does not match file disk size"
+                            );
                             bail!("Compression size does not match file disk size");
                         }
                         mut_ctx.file_end = compression_info.compressed_size;
