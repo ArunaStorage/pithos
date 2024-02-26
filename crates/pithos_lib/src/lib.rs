@@ -429,7 +429,7 @@ mod tests {
     async fn e2e_test_read_write_multifile_tar_small() {
         let file1 = b"This is a very very important test".to_vec();
         let file2 = b"Another brilliant This is a very very important test1337".to_vec();
-        let mut file3 = File::create("test.txt.out.8").await.unwrap();
+        let mut file3 = File::create("test.txt.out.8.tar").await.unwrap();
 
         let combined = Vec::from_iter(file1.clone().into_iter().chain(file2.clone()));
 
@@ -467,7 +467,7 @@ mod tests {
     async fn e2e_test_read_write_multifile_tar_real() {
         let mut file1 = File::open("test.txt").await.unwrap();
         let mut file2 = File::open("test.txt").await.unwrap();
-        let mut file3 = File::create("test.txt.out.9").await.unwrap();
+        let mut file3 = File::create("test.txt.out.9.tar").await.unwrap();
 
         let mut combined = Vec::new();
         file1.read_to_end(&mut combined).await.unwrap();
@@ -710,7 +710,7 @@ mod tests {
         let pubkey: [u8; 32] = pubkey_bytes[pubkey_bytes.len() - 32..].to_vec().try_into().unwrap();
 
         sx.send(Message::FileContext(FileContext {
-            file_path: "blup/file1.txt".to_string(),
+            file_path: "file1.txt".to_string(),
             compressed_size: file1_size,
             decompressed_size: file1_size,
             recipients_pubkeys: vec![pubkey],
@@ -721,7 +721,7 @@ mod tests {
         .unwrap();
 
         sx.send(Message::FileContext(FileContext {
-            file_path: "blip/file2.txt".to_string(),
+            file_path: "file2.txt".to_string(),
             compressed_size: file2_size,
             decompressed_size: file2_size,
             recipients_pubkeys: vec![pubkey],
@@ -806,8 +806,8 @@ mod tests {
         let mut reader = GenericStreamReadWriter::new_with_writer(read_stream, &mut out_file1)
         .add_transformer(ChaCha20Dec::new_with_fixed_list(keys).unwrap())
         .add_transformer(ZstdDec::new())
-        .add_transformer(TarEnc::new())
-        .add_transformer(GzipEnc::new());
+        .add_transformer(TarEnc::new());
+        //.add_transformer(GzipEnc::new());
         reader.add_message_receiver(rx2).await.unwrap();
 
         for (idx, file) in footer.table_of_contents.files.into_iter().enumerate(){

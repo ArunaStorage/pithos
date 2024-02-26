@@ -110,8 +110,13 @@ impl Transformer for ZstdDec {
             return Err(anyhow!("Error processing messages"));
         };
         if should_flush {
-            debug!("flushed zstd decoder");
-            self.internal_buf.write_all_buf(buf).await?;
+            self.internal_buf.write_buf(buf).await?;
+            while !buf.is_empty() {
+                self.internal_buf.shutdown().await?;
+                self.prev_buf.put(self.internal_buf.get_ref().as_slice());
+                self.internal_buf = ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
+                self.internal_buf.write_buf(buf).await?;
+            }
             self.internal_buf.shutdown().await?;
             self.prev_buf.put(self.internal_buf.get_ref().as_slice());
             self.internal_buf = ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));

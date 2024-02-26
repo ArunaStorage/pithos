@@ -23,6 +23,7 @@ pub struct TarEnc {
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
     finished: bool,
+    initial: bool,
 }
 
 impl TryFrom<FileContext> for Header {
@@ -63,6 +64,7 @@ impl TarEnc {
             msg_receiver: None,
             idx: None,
             finished: false,
+            initial: true,
         }
     }
 
@@ -120,34 +122,32 @@ impl Transformer for TarEnc {
             return Err(anyhow!("Error processing messages"));
         };
 
-        let should_pop = if let Some((head, _)) = self.header.front() {
-            if head.size()? == 0 {
-                true
-            } else if self.current_padding.is_some() {
-                false
-            } else {
-                true
-            }
-        } else {
-            false
-        };
-
-        if should_pop {
+        if self.initial {
+            let temp = buf.split();
             if let Some((header, padding)) = &self.header.pop_front() {
-                let temp = buf.split();
                 buf.put(header.as_bytes().as_slice());
-                buf.put(temp);
-                self.current_padding = Some(*padding);
+                if header.size()? > 0 {
+                    self.current_padding = Some(*padding);
+                }
             }
+            buf.put(temp);
+            self.initial = false;
         }
 
         if should_flush {
             if let Some(pad) = self.current_padding {
-                if pad > 0 {
-                    buf.put(vec![0u8; pad].as_ref());
+                buf.put(vec![0u8; pad].as_ref());
+            }
+
+
+
+            if let Some((header, padding)) = &self.header.pop_front() {
+                buf.put(header.as_bytes().as_slice());
+                if header.size()? > 0 {
+                    self.current_padding = Some(*padding);
                 }
             }
-            self.current_padding = None;
+
             return Ok(());
         }
 

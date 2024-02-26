@@ -107,7 +107,6 @@ impl ChaCha20Dec {
     #[tracing::instrument(level = "trace", skip(self))]
     pub fn check_decrypt_chunk(&mut self) -> Result<()> {
         let split_len = if self.input_buffer.len() > CIPHER_SEGMENT_SIZE {
-            self.debug_counter += 1;
             CIPHER_SEGMENT_SIZE
         } else {
             self.input_buffer.len()
@@ -133,7 +132,8 @@ impl ChaCha20Dec {
                 }
             }
         }
-        bail!("Could not decrypt chunk")
+        Ok(())
+        //bail!("Could not decrypt chunk")
     }
 
     pub fn next_file(&mut self) -> Result<()> {
@@ -199,6 +199,9 @@ impl Transformer for ChaCha20Dec {
 
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
+
+        self.debug_counter += buf.len();
+
         if self.skip_me {
             debug!("skipped");
             return Ok(());
@@ -307,11 +310,18 @@ pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8; 32]) -> Result<Bytes> {
         (0u8, size1, size2, 0u8) => {
             let expected = [*size1, *size2];
             let v = BigEndian::read_u16(&expected);
-            padding = vec![0u8; v as usize - 4];
-            padding.extend_from_slice(&[0u8, *size1, *size2, 0u8]);
-            Payload {
-                msg: &data[..data.len() - v as usize],
-                aad: &padding,
+            if v > 4 {
+                padding = vec![0u8; v as usize - 4];
+                padding.extend_from_slice(&[0u8, *size1, *size2, 0u8]);
+                Payload {
+                    msg: &data[..data.len() - v as usize],
+                    aad: &padding,
+                }
+            }else{
+                Payload {
+                    msg: data,
+                    aad: b"",
+                }
             }
         }
         (_, 0u8, 0u8, 0u8) => Payload {

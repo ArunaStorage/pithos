@@ -67,7 +67,6 @@ impl Transformer for SizeProbe {
 
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
-        dbg!(buf.len());
         self.size_counter += buf.len() as u64;
 
         if buf.is_empty() {
