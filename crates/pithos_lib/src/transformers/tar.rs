@@ -137,6 +137,7 @@ impl Transformer for TarEnc {
         if should_flush {
             if let Some(pad) = self.current_padding {
                 buf.put(vec![0u8; pad].as_ref());
+                self.current_padding = None;
             }
 
 
