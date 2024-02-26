@@ -8,9 +8,13 @@ pub mod transformers;
 
 #[cfg(test)]
 mod tests {
+    use std::io::SeekFrom;
+
+    use crate::helpers::footer_parser::{Footer, FooterParser, FooterParserState};
     //use crate::helpers::footer_parser::{FooterParser, Range};
-    use crate::helpers::notifications::Message;
+    use crate::helpers::notifications::{DirOrFileIdx, Message};
     use crate::helpers::structs::{EncryptionKey, FileContext, Range};
+    use crate::pithos::structs::FileContextVariants;
     use crate::readwrite::GenericReadWriter;
     use crate::streamreadwrite::GenericStreamReadWriter;
     use crate::transformer::ReadWriter;
@@ -19,10 +23,12 @@ mod tests {
     use crate::transformers::filter::Filter;
     use crate::transformers::footer::FooterGenerator;
     use crate::transformers::gzip_comp::GzipEnc;
+    use crate::transformers::pithos_comp_enc::PithosTransformer;
     use crate::transformers::size_probe::SizeProbe;
     use crate::transformers::tar::TarEnc;
     use crate::transformers::zstd_comp::ZstdEnc;
     use crate::transformers::zstd_decomp::ZstdDec;
+    use base64::prelude::*;
     use bytes::Bytes;
     use digest::Digest;
     use futures::{StreamExt, TryStreamExt};
@@ -675,5 +681,140 @@ mod tests {
         aswr.add_message_receiver(rx).await.unwrap();
         //.add_transformer(GzipEnc::new());
         aswr.process().await.unwrap();
+    }
+
+
+    #[tokio::test]
+    async fn e2e_pithos_tar_gz() {
+        let file1 = File::open("test.txt").await.unwrap();
+        let file2 = File::open("test.txt").await.unwrap();
+
+        let file1_size = file1.metadata().await.unwrap().len();
+        let file2_size = file2.metadata().await.unwrap().len();
+
+        let stream1 = tokio_util::io::ReaderStream::new(file1);
+        let stream2 = tokio_util::io::ReaderStream::new(file2);
+
+        let chained = stream1.chain(stream2);
+        let mapped = chained.map_err(|_| {
+            Box::<(dyn std::error::Error + Send + Sync + 'static)>::from("a_str_error")
+        });
+        let mut file3 = File::create("test.txt.out.pto").await.unwrap();
+
+        let (sx, rx) = async_channel::bounded(10);
+
+        let privkey_bytes = BASE64_STANDARD.decode("MC4CAQAwBQYDK2VuBCIEIFDnbf0aEpZxwEdy1qG4xpV8gVNq7zEREtMjLzCE6R5x").unwrap();
+        let privkey: [u8; 32] = privkey_bytes[privkey_bytes.len() - 32..].to_vec().try_into().unwrap();
+
+        let pubkey_bytes = BASE64_STANDARD.decode("MCowBQYDK2VuAyEA2laqNukb4+2am7QdC6eDANu1DDuKdC5LPtYQM+XE5k8=").unwrap();
+        let pubkey: [u8; 32] = pubkey_bytes[pubkey_bytes.len() - 32..].to_vec().try_into().unwrap();
+
+        sx.send(Message::FileContext(FileContext {
+            file_path: "blup/file1.txt".to_string(),
+            compressed_size: file1_size,
+            decompressed_size: file1_size,
+            recipients_pubkeys: vec![pubkey],
+            encryption_key: EncryptionKey::Same(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+            ..Default::default()
+        }))
+        .await
+        .unwrap();
+
+        sx.send(Message::FileContext(FileContext {
+            file_path: "blip/file2.txt".to_string(),
+            compressed_size: file2_size,
+            decompressed_size: file2_size,
+            recipients_pubkeys: vec![pubkey],
+            encryption_key: EncryptionKey::Same(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+            ..Default::default()
+        }))
+        .await
+        .unwrap();
+
+        // Create a new GenericStreamReadWriter
+        let mut aswr = GenericStreamReadWriter::new_with_writer(mapped, &mut file3)
+            .add_transformer(PithosTransformer::new())
+            .add_transformer(FooterGenerator::new(None));
+        aswr.add_message_receiver(rx).await.unwrap();
+        aswr.process().await.unwrap();
+
+        let mut file3 = File::open("test.txt.out.pto").await.unwrap();
+
+        // Parse Footer
+        let file_meta = file3.metadata().await.unwrap();
+
+        let footer_prediction = if file_meta.len() < 65536 * 2 {
+            file_meta.len() // 131072 always fits in i64 ...
+        } else {
+            65536 * 2
+        };
+
+        // Read footer bytes in FooterParser
+        file3
+            .seek(SeekFrom::End(-(footer_prediction as i64)))
+            .await.unwrap();
+        let buf = &mut vec![0; footer_prediction as usize]; // Has to be vec as length is defined by dynamic value
+        file3.read_exact(buf).await.unwrap();
+
+        let mut parser = FooterParser::new(buf).unwrap();
+        parser = parser.add_recipient(&privkey);
+        parser = parser.parse().unwrap();
+
+        // Check if bytes are missing
+        let mut missing_buf;
+        if let FooterParserState::Missing(missing_bytes) = parser.state {
+            let needed_bytes = footer_prediction + missing_bytes as u64;
+            file3
+                .seek(SeekFrom::End(-(needed_bytes as i64)))
+                .await.unwrap();
+            missing_buf = vec![0; missing_bytes as usize]; // Has to be vec as length is defined by dynamic value
+            file3.read_exact(&mut missing_buf).await.unwrap();
+
+            parser = parser.add_bytes(&missing_buf).unwrap();
+            parser = parser.parse().unwrap()
+        }
+
+        // Parse the footer bytes and display Table of Contents
+        let footer: Footer = parser.try_into().unwrap();
+
+        let keys = footer
+        .encryption_keys
+        .map(|keys| {
+            keys.keys
+                .iter()
+                .filter_map(|(k, idx)| {
+                    if let DirOrFileIdx::File(i) = idx {
+                        Some((k.clone(), *i))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+        let (sx2, rx2) = async_channel::bounded(10);
+
+        let file3 = File::open("test.txt.out.pto").await.unwrap();
+
+        let mut out_file1 = File::create("test.txt.out.pto.tar.gz").await.unwrap();
+
+        let read_stream = tokio_util::io::ReaderStream::new(file3).map_err(|_| {
+            Box::<(dyn std::error::Error + Send + Sync + 'static)>::from("a_str_error")
+        });
+
+        let mut reader = GenericStreamReadWriter::new_with_writer(read_stream, &mut out_file1)
+        .add_transformer(ChaCha20Dec::new_with_fixed_list(keys).unwrap())
+        .add_transformer(ZstdDec::new())
+        .add_transformer(TarEnc::new())
+        .add_transformer(GzipEnc::new());
+        reader.add_message_receiver(rx2).await.unwrap();
+
+        for (idx, file) in footer.table_of_contents.files.into_iter().enumerate(){
+            if let FileContextVariants::FileDecrypted(file) = file{
+                sx2.send(Message::FileContext(file.try_into_file_context(idx).unwrap())).await.unwrap();
+            }
+        }
+        reader.process().await.unwrap();
     }
 }

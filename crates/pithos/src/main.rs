@@ -1,6 +1,6 @@
 mod io;
 mod structs;
-mod utils;
+pub mod utils;
 
 use crate::io::utils::load_key_from_pem;
 use anyhow::{anyhow, Result};

@@ -267,7 +267,7 @@ impl<
                     // Send flush
                     notifier.send_all(Message::ShouldFlush)?;
                     // Reset counter
-                    self.size_counter = 0;
+                    self.size_counter = hold_buffer.len();
                 } else if self.size_counter == context.compressed_size as usize
                     && hold_buffer.is_empty()
                 {

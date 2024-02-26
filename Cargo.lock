@@ -1420,6 +1420,7 @@ dependencies = [
  "itertools 0.12.1",
  "md-5",
  "pin-project",
+ "pithos",
  "rand_core",
  "scrypt",
  "sha1",
