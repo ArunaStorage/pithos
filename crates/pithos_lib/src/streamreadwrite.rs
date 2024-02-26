@@ -3,7 +3,7 @@ use crate::helpers::structs::FileContext;
 use crate::transformer::{ReadWriter, Sink, Transformer};
 use crate::transformers::writer_sink::WriterSink;
 use anyhow::{anyhow, bail, Result};
-use async_channel::{Receiver, RecvError, Sender, TryRecvError};
+use async_channel::{Receiver, Sender, TryRecvError};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{Stream, StreamExt};
 use std::collections::VecDeque;

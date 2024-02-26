@@ -1,5 +1,5 @@
 use crate::helpers::notifications::DirOrFileIdx;
-use crate::helpers::structs::{EncryptionKey, FileContext};
+use crate::helpers::structs::{EncryptionKey, FileContext, Range};
 use anyhow::{anyhow, Result};
 use borsh::{BorshDeserialize, BorshSerialize};
 use chacha20poly1305::aead::OsRng;
@@ -270,7 +270,7 @@ pub struct CustomRange {
     pub end: u64,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
 pub struct FileContextHeader {
     pub file_path: String, // FilePath empty = SKIP
     pub raw_size: u64,
@@ -315,6 +315,48 @@ impl FileContextHeader {
             semantic_metadata: self.metadata,
             custom_ranges: self.custom_ranges,
         })
+    }
+
+    #[allow(dead_code)]
+    fn get_range_and_filter_by_range(&self, range: Range) -> (Range, Vec<u64>) {
+        let mut edit_list = vec![];
+        let size = range.to - range.from;
+        let mut new_range = Range { from: 0, to: 0 };
+        let mut start_block = 0;
+        let mut end_block = 0;
+        let block_size = if self.encrypted {
+            self.block_scale as u64 * (65536 + 28)
+        } else {
+            self.block_scale as u64 * 65536
+        };
+        if self.compressed {
+            if let Some(idx_list) = self.index_list.as_ref() {
+                let mut sum = 0;
+                for (i, r) in idx_list.iter().enumerate() {
+                    sum += *r as u64;
+                    if sum >= range.from {
+                        if start_block == 0 {
+                            start_block = i as u64;
+                            edit_list.push(range.from - (sum - *r as u64));
+                        }
+                    }
+                    if sum >= range.to {
+                        end_block = (i as u64) + 1;
+                        break;
+                    }
+                }
+            }
+        } else {
+            start_block = range.from / 65536;
+            end_block = (range.to / 65536) + 1;
+            edit_list.push(range.from % 65536);
+        }
+
+        edit_list.push(size);
+
+        new_range.from = start_block * block_size;
+        new_range.to = end_block * block_size;
+        (new_range, edit_list)
     }
 }
 
@@ -469,5 +511,87 @@ impl TableOfContents {
             directories: Vec::new(),
             files: Vec::new(),
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use std::default;
+
+    use super::*;
+    use crate::helpers::structs::Range;
+
+    #[test]
+    fn test_file_context_header_try_into_file_context() {
+        let file_context_header = FileContextHeader {
+            file_path: "test".to_string(),
+            raw_size: 100,
+            file_start: 0,
+            file_end: 100,
+            compressed: false,
+            encrypted: false,
+            block_scale: 1,
+            index_list: None,
+            file_info: None,
+            hashes: None,
+            metadata: None,
+            symlinks: None,
+            custom_ranges: None,
+        };
+        let file_context = file_context_header.try_into_file_context(0).unwrap();
+        assert_eq!(file_context.idx, 0);
+        assert_eq!(file_context.file_path, "test");
+        assert_eq!(file_context.compressed_size, 100);
+        assert_eq!(file_context.decompressed_size, 100);
+        assert_eq!(file_context.compression, false);
+        assert_eq!(file_context.chunk_multiplier, Some(1));
+        assert_eq!(file_context.encryption_key, EncryptionKey::None);
+        assert_eq!(file_context.is_dir, false);
+        assert_eq!(file_context.symlink_target, None);
+        assert_eq!(file_context.expected_sha256, None);
+        assert_eq!(file_context.expected_md5, None);
+        assert_eq!(file_context.semantic_metadata, None);
+        assert_eq!(file_context.custom_ranges, None);
+    }
+
+    #[test]
+    fn test_file_context_header_get_range_and_filter_by_range() {
+        let file_context_header = FileContextHeader {
+            file_path: "test".to_string(),
+            raw_size: 128000,
+            file_start: 0,
+            file_end: 128000,
+            compressed: false,
+            encrypted: false,
+            block_scale: 1,
+            ..default::Default::default()
+        };
+        let (range, edit_list) = file_context_header.get_range_and_filter_by_range(Range {
+            from: 0,
+            to: 100,
+        });
+        assert_eq!(range.from, 0);
+        assert_eq!(range.to, 65536);
+        assert_eq!(edit_list, vec![0, 100]);
+
+        let file_context_header = FileContextHeader {
+            file_path: "test".to_string(),
+            raw_size: 128000,
+            file_start: 0,
+            file_end: 128000,
+            compressed: true,
+            encrypted: true,
+            block_scale: 1,
+            index_list: Some(vec![50, 123455]),
+            ..default::Default::default()
+        };
+        let (range, edit_list) = file_context_header.get_range_and_filter_by_range(Range {
+            from: 100,
+            to: 1000,
+        });
+        assert_eq!(range.from, 65564);
+        assert_eq!(range.to, 65564*2);
+        assert_eq!(edit_list, vec![50, 900]);
     }
 }

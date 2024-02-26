@@ -199,7 +199,6 @@ impl Transformer for ChaCha20Dec {
 
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
-
         self.debug_counter += buf.len();
 
         if self.skip_me {
@@ -317,7 +316,7 @@ pub fn decrypt_chunk(chunk: &[u8], decryption_key: &[u8; 32]) -> Result<Bytes> {
                     msg: &data[..data.len() - v as usize],
                     aad: &padding,
                 }
-            }else{
+            } else {
                 Payload {
                     msg: data,
                     aad: b"",

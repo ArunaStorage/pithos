@@ -140,8 +140,6 @@ impl Transformer for TarEnc {
                 self.current_padding = None;
             }
 
-
-
             if let Some((header, padding)) = &self.header.pop_front() {
                 buf.put(header.as_bytes().as_slice());
                 if header.size()? > 0 {
