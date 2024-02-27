@@ -104,7 +104,7 @@ impl EndOfFileMetadata {
 
 // -------------- EncryptionMetadata --------------
 
-#[derive(Debug, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, BorshSerialize, BorshDeserialize, Clone)]
 pub struct EncryptionMetadata {
     pub magic_bytes: [u8; 4], // Should be 0x51, 0x2A, 0x4D, 0x18
     pub len: u32,             // Required for zstd skippable frame
@@ -124,6 +124,11 @@ impl EncryptionMetadata {
             len: 0,
             packets: vec![],
         }
+    }
+
+    pub fn add_packet(&mut self, packet: EncryptionPacket) {
+        self.len += packet.len();
+        self.packets.push(packet);
     }
 }
 

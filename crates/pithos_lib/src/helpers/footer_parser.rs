@@ -20,6 +20,7 @@ pub struct FooterParser<'a> {
     eof_metadata: Option<EndOfFileMetadata>,
     encryption_keys: Option<DecryptedKeys>,
     table_of_contents: Option<TableOfContents>,
+    raw_encryption_packets: Option<EncryptionMetadata>,
 }
 
 impl<'a> TryFrom<FooterParser<'a>> for Footer {
@@ -34,6 +35,7 @@ impl<'a> TryFrom<FooterParser<'a>> for Footer {
                 table_of_contents: value
                     .table_of_contents
                     .ok_or_else(|| anyhow!("Table of Contents not found"))?,
+                raw_encryption_packets: value.raw_encryption_packets,
             }),
             _ => Err(anyhow!("Invalid State: Footer not yet decoded")),
         }
@@ -44,6 +46,7 @@ pub struct Footer {
     pub eof_metadata: EndOfFileMetadata,
     pub encryption_keys: Option<DecryptedKeys>,
     pub table_of_contents: TableOfContents,
+    pub raw_encryption_packets: Option<EncryptionMetadata>,
 }
 
 impl<'a> FooterParser<'a> {
@@ -59,6 +62,7 @@ impl<'a> FooterParser<'a> {
             eof_metadata: None,
             encryption_keys: None,
             table_of_contents: None,
+            raw_encryption_packets: None,
         })
     }
 
@@ -159,6 +163,8 @@ impl<'a> FooterParser<'a> {
     fn parse_encryption_metadata(&mut self, len_enc: u64) -> Result<()> {
         let (remaining, md) = self.buffer.split_at(self.buffer.len() - len_enc as usize);
         let encryption_data: EncryptionMetadata = borsh::from_slice(md)?;
+
+        self.raw_encryption_packets = Some(encryption_data.clone());
 
         for key in self.keys.clone() {
             for packet in encryption_data.packets.clone() {
