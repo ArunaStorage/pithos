@@ -24,22 +24,21 @@ pub struct Range {
 pub enum EncryptionKey {
     #[default]
     None,
-    Same(Vec<u8>),
-    DataOnly(Vec<u8>),
-    Individual((Vec<u8>, Vec<u8>)),
+    Same([u8; 32]),
+    DataOnly([u8; 32]),
+    Individual(([u8; 32], [u8; 32])),
 }
 
 impl EncryptionKey {
-
-    pub fn new_same_key(key: Vec<u8>) -> Self {
+    pub fn new_same_key(key: [u8; 32]) -> Self {
         EncryptionKey::Same(key)
     }
 
-    pub fn new_data_only_key(key: Vec<u8>) -> Self {
+    pub fn new_data_only_key(key: [u8; 32]) -> Self {
         EncryptionKey::DataOnly(key)
     }
 
-    pub fn new_individual_key(key: Vec<u8>, key2: Vec<u8>) -> Self {
+    pub fn new_individual_key(key: [u8; 32], key2: [u8; 32]) -> Self {
         EncryptionKey::Individual((key, key2))
     }
 
@@ -52,7 +51,7 @@ impl EncryptionKey {
         }
     }
 
-    pub fn get_data_key(&self) -> Option<Vec<u8>> {
+    pub fn get_data_key(&self) -> Option<[u8; 32]> {
         match self {
             EncryptionKey::None => None,
             EncryptionKey::Same(key) => Some(key.clone()),
@@ -61,17 +60,17 @@ impl EncryptionKey {
         }
     }
 
-    pub fn into_keys(&self) -> Result<Vec<[u8; 32]>> {
+    pub fn into_keys(&self) -> Vec<[u8; 32]> {
         let result: Vec<[u8; 32]> = match &self {
             EncryptionKey::None => vec![],
-            EncryptionKey::Same(key) => vec![key.as_slice().try_into()?],
-            EncryptionKey::DataOnly(key) => vec![key.as_slice().try_into()?],
+            EncryptionKey::Same(key) => vec![key.clone()],
+            EncryptionKey::DataOnly(key) => vec![key.clone()],
             EncryptionKey::Individual((key, key2)) => {
-                vec![key.as_slice().try_into()?, key2.as_slice().try_into()?]
+                vec![key.clone(), key2.clone()]
             }
         };
 
-        Ok(result)
+        result
     }
 }
 
@@ -202,13 +201,13 @@ impl FileContext {
         let enc_keys = match (encryption_keys.0, encryption_keys.1) {
             (Some(data_key), Some(meta_key)) => {
                 if data_key == meta_key {
-                    EncryptionKey::Same(data_key.to_vec())
+                    EncryptionKey::Same(data_key)
                 } else {
-                    EncryptionKey::Individual((data_key.to_vec(), meta_key.to_vec()))
+                    EncryptionKey::Individual((data_key, meta_key))
                 }
             }
-            (Some(data_key), None) => EncryptionKey::DataOnly(data_key.to_vec()),
-            (None, Some(meta_key)) => EncryptionKey::Same(meta_key.to_vec()), // ???
+            (Some(data_key), None) => EncryptionKey::DataOnly(data_key),
+            (None, Some(meta_key)) => EncryptionKey::Same(meta_key), // ???
             (None, None) => EncryptionKey::None,
         };
 

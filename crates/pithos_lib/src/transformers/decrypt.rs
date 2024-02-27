@@ -62,13 +62,13 @@ impl ChaCha20Dec {
 
     #[tracing::instrument(level = "trace")]
     #[allow(dead_code)]
-    pub fn new_with_fixed(key: Vec<u8>) -> Result<Self> {
+    pub fn new_with_fixed(key: [u8; 32]) -> Result<Self> {
         Ok(ChaCha20Dec {
             input_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
             output_buffer: BytesMut::with_capacity(5 * ENCRYPTION_BLOCK_SIZE),
             finished: false,
             backoff_counter: 0,
-            decryption_key: Some(key.as_slice().try_into()?),
+            decryption_key: Some(key),
             available_keys: None,
             _key_is_fixed: true,
             skip_me: false,

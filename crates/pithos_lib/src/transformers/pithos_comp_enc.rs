@@ -26,7 +26,7 @@ struct CurrentFile {
     raw_size_full: u64,
     compressed_size: u64,
     multiplier: u32,
-    encryption_key: Option<Vec<u8>>,
+    encryption_key: Option<[u8; 32]>,
     compression: ProbeResult,
     raw_size_current_chunk: u32,
     chunk_sizes: Vec<u32>,

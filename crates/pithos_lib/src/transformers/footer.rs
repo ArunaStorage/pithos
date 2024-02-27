@@ -136,7 +136,7 @@ impl FooterGenerator {
                         // Collect encryption keys
                         for recipient in &ctx.recipients_pubkeys {
                             let entry = self.encryption_keys.entry(*recipient).or_default();
-                            for key in ctx.encryption_key.into_keys()? {
+                            for key in ctx.encryption_key.into_keys() {
                                 if let Some(inner) = entry.get_mut(&key) {
                                     if inner.get_idx() < ctx.idx {
                                         *inner = DirOrFileIdx::from(&ctx);

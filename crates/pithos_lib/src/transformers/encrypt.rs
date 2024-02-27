@@ -26,7 +26,7 @@ pub struct ChaCha20Enc {
     notifier: Option<Arc<Notifier>>,
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
-    encryption_key: Option<Vec<u8>>,
+    encryption_key: Option<[u8; 32]>,
     key_is_fixed: bool,
     finished: bool,
 }
@@ -49,7 +49,7 @@ impl ChaCha20Enc {
 
     #[tracing::instrument(level = "trace")]
     #[allow(dead_code)]
-    pub fn new_with_fixed(key: Vec<u8>) -> Result<Self> {
+    pub fn new_with_fixed(key: [u8; 32]) -> Result<Self> {
         Ok(ChaCha20Enc {
             input_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),
             output_buf: BytesMut::with_capacity(2 * ENCRYPTION_BLOCK_SIZE),

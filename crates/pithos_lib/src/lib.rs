@@ -66,10 +66,24 @@ mod tests {
         // Create a new GenericReadWriter
         GenericReadWriter::new_with_writer(file.as_ref(), &mut file2)
             .add_transformer(
-                ChaCha20Enc::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Enc::new_with_fixed(
+                    b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new_with_fixed(
+                    b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .process()
             .await
@@ -86,10 +100,24 @@ mod tests {
         // Create a new GenericReadWriter
         GenericReadWriter::new_with_writer(file, file2)
             .add_transformer(
-                ChaCha20Enc::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Enc::new_with_fixed(
+                    b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new_with_fixed(
+                    b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .process()
             .await
@@ -114,16 +142,44 @@ mod tests {
             .add_transformer(ZstdEnc::new())
             .add_transformer(ZstdEnc::new())
             .add_transformer(
-                ChaCha20Enc::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Enc::new_with_fixed(
+                    b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Enc::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Enc::new_with_fixed(
+                    b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new_with_fixed(
+                    b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new_with_fixed(
+                    b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(ZstdDec::new())
             .add_transformer(ZstdDec::new())
@@ -150,16 +206,44 @@ mod tests {
             .add_transformer(ZstdEnc::new())
             .add_transformer(ZstdEnc::new()) // Double compression because we can
             .add_transformer(
-                ChaCha20Enc::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Enc::new_with_fixed(
+                    b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Enc::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Enc::new_with_fixed(
+                    b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new_with_fixed(
+                    b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new_with_fixed(
+                    b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(ZstdDec::new())
             .add_transformer(ZstdDec::new()) // Double decompression because we can
@@ -222,13 +306,22 @@ mod tests {
         GenericReadWriter::new_with_writer(file, file2)
             .add_transformer(ZstdEnc::new())
             .add_transformer(
-                ChaCha20Enc::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Enc::new_with_fixed(
+                    b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
                 FooterGenerator::new_with_ctx(FileContext {
                     file_path: "test.txt".to_string(),
                     encryption_key: EncryptionKey::Same(
-                        b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec(),
+                        b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                            .to_vec()
+                            .try_into()
+                            .unwrap(),
                     ),
                     ..Default::default()
                 })
@@ -275,16 +368,44 @@ mod tests {
             .add_transformer(ZstdEnc::new())
             .add_transformer(ZstdEnc::new()) // Double compression because we can
             .add_transformer(
-                ChaCha20Enc::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Enc::new_with_fixed(
+                    b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Enc::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Enc::new_with_fixed(
+                    b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new_with_fixed(
+                    b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new_with_fixed(
+                    b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(ZstdDec::new())
             .add_transformer(ZstdDec::new())
@@ -333,16 +454,44 @@ mod tests {
             .add_transformer(ZstdEnc::new())
             .add_transformer(ZstdEnc::new()) // Double compression because we can
             .add_transformer(
-                ChaCha20Enc::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Enc::new_with_fixed(
+                    b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Enc::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Enc::new_with_fixed(
+                    b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new_with_fixed(
+                    b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new_with_fixed(
+                    b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(ZstdDec::new())
             .add_transformer(ZstdDec::new())
@@ -372,16 +521,44 @@ mod tests {
             .add_transformer(ZstdEnc::new())
             .add_transformer(ZstdEnc::new()) // Double compression because we can
             .add_transformer(
-                ChaCha20Enc::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Enc::new_with_fixed(
+                    b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Enc::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Enc::new_with_fixed(
+                    b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new_with_fixed(
+                    b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(
-                ChaCha20Dec::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+                ChaCha20Dec::new_with_fixed(
+                    b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
             )
             .add_transformer(ZstdDec::new())
             .add_transformer(ZstdDec::new())
@@ -408,7 +585,13 @@ mod tests {
             compressed_size: file1.len() as u64,
             decompressed_size: file1.len() as u64,
             compression: true,
-            encryption_key: EncryptionKey::Same(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+            encryption_key: EncryptionKey::Same(
+                b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                    .to_vec()
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+            ),
             ..Default::default()
         }))
         .await
@@ -419,7 +602,13 @@ mod tests {
             compressed_size: file2.len() as u64,
             decompressed_size: file2.len() as u64,
             compression: false,
-            encryption_key: EncryptionKey::Same(b"xxwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+            encryption_key: EncryptionKey::Same(
+                b"xxwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                    .to_vec()
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+            ),
             ..Default::default()
         }))
         .await
@@ -448,7 +637,13 @@ mod tests {
             compressed_size: file1.metadata().await.unwrap().len(),
             decompressed_size: file1.metadata().await.unwrap().len(),
             compression: true,
-            encryption_key: EncryptionKey::Same(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+            encryption_key: EncryptionKey::Same(
+                b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                    .to_vec()
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+            ),
             ..Default::default()
         }))
         .await
@@ -459,7 +654,13 @@ mod tests {
             compressed_size: file2.metadata().await.unwrap().len(),
             decompressed_size: file2.metadata().await.unwrap().len(),
             compression: false,
-            encryption_key: EncryptionKey::Same(b"xxwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+            encryption_key: EncryptionKey::Same(
+                b"xxwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                    .to_vec()
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+            ),
             ..Default::default()
         }))
         .await
@@ -692,7 +893,13 @@ mod tests {
             compressed_size: file1_size,
             decompressed_size: file1_size,
             recipients_pubkeys: vec![pubkey],
-            encryption_key: EncryptionKey::Same(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+            encryption_key: EncryptionKey::Same(
+                b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                    .to_vec()
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+            ),
             ..Default::default()
         }))
         .await
@@ -703,7 +910,13 @@ mod tests {
             compressed_size: file2_size,
             decompressed_size: file2_size,
             recipients_pubkeys: vec![pubkey],
-            encryption_key: EncryptionKey::Same(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()),
+            encryption_key: EncryptionKey::Same(
+                b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                    .to_vec()
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+            ),
             ..Default::default()
         }))
         .await

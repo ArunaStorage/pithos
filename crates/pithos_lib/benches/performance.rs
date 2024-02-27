@@ -20,16 +20,44 @@ async fn read_writer_with_file() {
         .add_transformer(ZstdEnc::new())
         .add_transformer(ZstdEnc::new())
         .add_transformer(
-            ChaCha20Enc::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            ChaCha20Enc::new_with_fixed(
+                b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                    .to_vec()
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+            )
+            .unwrap(),
         )
         .add_transformer(
-            ChaCha20Enc::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            ChaCha20Enc::new_with_fixed(
+                b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                    .to_vec()
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+            )
+            .unwrap(),
         )
         .add_transformer(
-            ChaCha20Dec::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            ChaCha20Dec::new_with_fixed(
+                b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                    .to_vec()
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+            )
+            .unwrap(),
         )
         .add_transformer(
-            ChaCha20Dec::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            ChaCha20Dec::new_with_fixed(
+                b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                    .to_vec()
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+            )
+            .unwrap(),
         )
         .add_transformer(ZstdDec::new())
         .add_transformer(ZstdDec::new())
@@ -48,16 +76,44 @@ async fn read_writer_with_vec() {
         .add_transformer(ZstdEnc::new())
         .add_transformer(ZstdEnc::new())
         .add_transformer(
-            ChaCha20Enc::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            ChaCha20Enc::new_with_fixed(
+                b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                    .to_vec()
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+            )
+            .unwrap(),
         )
         .add_transformer(
-            ChaCha20Enc::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            ChaCha20Enc::new_with_fixed(
+                b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                    .to_vec()
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+            )
+            .unwrap(),
         )
         .add_transformer(
-            ChaCha20Dec::new_with_fixed(b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            ChaCha20Dec::new_with_fixed(
+                b"99wj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                    .to_vec()
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+            )
+            .unwrap(),
         )
         .add_transformer(
-            ChaCha20Dec::new_with_fixed(b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea".to_vec()).unwrap(),
+            ChaCha20Dec::new_with_fixed(
+                b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                    .to_vec()
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+            )
+            .unwrap(),
         )
         .add_transformer(ZstdDec::new())
         .add_transformer(ZstdDec::new())

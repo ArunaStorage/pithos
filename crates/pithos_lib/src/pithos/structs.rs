@@ -514,7 +514,6 @@ impl TableOfContents {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use std::default;
@@ -567,10 +566,8 @@ mod tests {
             block_scale: 1,
             ..default::Default::default()
         };
-        let (range, edit_list) = file_context_header.get_range_and_filter_by_range(Range {
-            from: 0,
-            to: 100,
-        });
+        let (range, edit_list) =
+            file_context_header.get_range_and_filter_by_range(Range { from: 0, to: 100 });
         assert_eq!(range.from, 0);
         assert_eq!(range.to, 65536);
         assert_eq!(edit_list, vec![0, 100]);
@@ -591,7 +588,7 @@ mod tests {
             to: 1000,
         });
         assert_eq!(range.from, 65564);
-        assert_eq!(range.to, 65564*2);
+        assert_eq!(range.to, 65564 * 2);
         assert_eq!(edit_list, vec![50, 900]);
     }
 }
