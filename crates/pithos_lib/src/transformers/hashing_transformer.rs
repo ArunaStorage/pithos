@@ -16,6 +16,7 @@ pub struct HashingTransformer<T: Digest + Send + FixedOutputReset> {
     file_queue: Option<VecDeque<(usize, u64)>>,
     msg_receiver: Option<Receiver<Message>>,
     notifier: Option<Arc<Notifier>>,
+    back_channel: Option<Sender<String>>,
 }
 
 impl<T> HashingTransformer<T>
@@ -39,8 +40,29 @@ where
             file_queue,
             msg_receiver: None,
             notifier: None,
+            back_channel: None,
         }
     }
+
+    #[tracing::instrument(level = "trace", skip(hasher))]
+    #[allow(dead_code)]
+    pub fn new_with_backchannel(hasher: T, hasher_type: String) -> (HashingTransformer<T>, Receiver<String>) {
+
+        let (sx, rx) = async_channel::bounded(1);
+
+        (HashingTransformer {
+            idx: None,
+            hasher,
+            hasher_type,
+            counter: u64::MAX,
+            file_queue: None,
+            msg_receiver: None,
+            notifier: None,
+            back_channel: Some(sx),
+        }, rx)
+    }
+
+
 
     #[tracing::instrument(level = "trace", skip(self))]
     fn process_messages(&mut self) -> Result<bool> {
@@ -142,6 +164,10 @@ where
                         TransformerType::FooterGenerator,
                         Message::Hash((hashertype.clone(), finished_hash.clone(), None)),
                     )?;
+
+                    if let Some(sx) = &self.back_channel {
+                        sx.send(hex::encode(finished_hash)).await?;
+                    }
                 }
                 //notifier.send_read_writer(Message::Hash((hashertype, finished_hash)))?; // No need to send out anymore?
                 notifier.send_next(
