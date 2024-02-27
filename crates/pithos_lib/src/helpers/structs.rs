@@ -30,6 +30,19 @@ pub enum EncryptionKey {
 }
 
 impl EncryptionKey {
+
+    pub fn new_same_key(key: Vec<u8>) -> Self {
+        EncryptionKey::Same(key)
+    }
+
+    pub fn new_data_only_key(key: Vec<u8>) -> Self {
+        EncryptionKey::DataOnly(key)
+    }
+
+    pub fn new_individual_key(key: Vec<u8>, key2: Vec<u8>) -> Self {
+        EncryptionKey::Individual((key, key2))
+    }
+
     pub fn data_encrypted(&self) -> bool {
         match self {
             EncryptionKey::None => false,
