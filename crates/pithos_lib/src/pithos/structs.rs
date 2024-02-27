@@ -416,7 +416,7 @@ impl From<FileContext> for DirContextHeader {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, Debug, Clone)]
 pub enum FileContextVariants {
     FileDecrypted(FileContextHeader),
     FileEncrypted(Vec<u8>),
@@ -456,7 +456,7 @@ impl FileContextVariants {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, Debug, Clone)]
 pub enum DirContextVariants {
     DirDecrypted(DirContextHeader),
     DirEncrypted(Vec<u8>),
@@ -494,7 +494,7 @@ impl DirContextVariants {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Debug)]
+#[derive(BorshDeserialize, BorshSerialize, Debug, Clone)]
 pub struct TableOfContents {
     pub magic_bytes: [u8; 4], // Should be 0x53, 0x2A, 0x4D, 0x18
     pub len: u32,

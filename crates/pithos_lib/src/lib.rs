@@ -22,6 +22,7 @@ mod tests {
     use crate::transformers::encrypt::ChaCha20Enc;
     use crate::transformers::filter::Filter;
     use crate::transformers::footer::FooterGenerator;
+    use crate::transformers::footer_updater::FooterUpdater;
     use crate::transformers::gzip_comp::GzipEnc;
     use crate::transformers::pithos_comp_enc::PithosTransformer;
     use crate::transformers::size_probe::SizeProbe;
@@ -1013,5 +1014,162 @@ mod tests {
             }
         }
         reader.process().await.unwrap();
+    }
+
+
+    #[tokio::test]
+    async fn e2e_pithos_rewrite_footer() {
+        let file1 = File::open("test.txt").await.unwrap();
+
+        let file1_size = file1.metadata().await.unwrap().len();
+
+        let stream1 = tokio_util::io::ReaderStream::new(file1);
+
+        let mapped = stream1.map_err(|_| {
+            Box::<(dyn std::error::Error + Send + Sync + 'static)>::from("a_str_error")
+        });
+        let mut file3 = File::create("test.txt.out.2.pto").await.unwrap();
+
+        let (sx, rx) = async_channel::bounded(10);
+
+        let privkey_bytes = BASE64_STANDARD
+            .decode("MC4CAQAwBQYDK2VuBCIEIFDnbf0aEpZxwEdy1qG4xpV8gVNq7zEREtMjLzCE6R5x")
+            .unwrap();
+        let privkey: [u8; 32] = privkey_bytes[privkey_bytes.len() - 32..]
+            .to_vec()
+            .try_into()
+            .unwrap();
+
+        let pubkey_bytes = BASE64_STANDARD
+            .decode("MCowBQYDK2VuAyEA2laqNukb4+2am7QdC6eDANu1DDuKdC5LPtYQM+XE5k8=")
+            .unwrap();
+        let pubkey: [u8; 32] = pubkey_bytes[pubkey_bytes.len() - 32..]
+            .to_vec()
+            .try_into()
+            .unwrap();
+
+        sx.send(Message::FileContext(FileContext {
+            file_path: "file1.txt".to_string(),
+            compressed_size: file1_size,
+            decompressed_size: file1_size,
+            recipients_pubkeys: vec![pubkey],
+            encryption_key: EncryptionKey::Same(
+                b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                    .to_vec()
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+            ),
+            ..Default::default()
+        }))
+        .await
+        .unwrap();
+
+        // Create a new GenericStreamReadWriter
+        let mut aswr = GenericStreamReadWriter::new_with_writer(mapped, &mut file3)
+            .add_transformer(PithosTransformer::new())
+            .add_transformer(FooterGenerator::new(None));
+        aswr.add_message_receiver(rx).await.unwrap();
+        aswr.process().await.unwrap();
+
+        let mut file3 = File::open("test.txt.out.2.pto").await.unwrap();
+
+        // Parse Footer
+        let file_meta = file3.metadata().await.unwrap();
+
+        let footer_prediction = if file_meta.len() < 65536 * 2 {
+            file_meta.len() // 131072 always fits in i64 ...
+        } else {
+            65536 * 2
+        };
+
+        // Read footer bytes in FooterParser
+        file3
+            .seek(SeekFrom::End(-(footer_prediction as i64)))
+            .await
+            .unwrap();
+        let buf = &mut vec![0; footer_prediction as usize]; // Has to be vec as length is defined by dynamic value
+        file3.read_exact(buf).await.unwrap();
+
+        let mut parser = FooterParser::new(buf).unwrap();
+        parser = parser.add_recipient(&privkey);
+        parser = parser.parse().unwrap();
+
+        // Check if bytes are missing
+        let mut missing_buf;
+        if let FooterParserState::Missing(missing_bytes) = parser.state {
+            let needed_bytes = footer_prediction + missing_bytes as u64;
+            file3
+                .seek(SeekFrom::End(-(needed_bytes as i64)))
+                .await
+                .unwrap();
+            missing_buf = vec![0; missing_bytes as usize]; // Has to be vec as length is defined by dynamic value
+            file3.read_exact(&mut missing_buf).await.unwrap();
+
+            parser = parser.add_bytes(&missing_buf).unwrap();
+            parser = parser.parse().unwrap()
+        }
+
+        // Parse the footer bytes and display Table of Contents
+        let footer: Footer = parser.try_into().unwrap();
+
+        let (_sx2, rx2) = async_channel::bounded(10);
+
+        let file3 = File::open("test.txt.out.2.pto").await.unwrap();
+
+        let mut out_file1 = File::create("test.txt.out.3.pto").await.unwrap();
+
+        let read_stream = tokio_util::io::ReaderStream::new(file3).map_err(|_| {
+            Box::<(dyn std::error::Error + Send + Sync + 'static)>::from("a_str_error")
+        });
+
+
+        let privkey_bytes_2 = BASE64_STANDARD
+        .decode("MC4CAQAwBQYDK2VuBCIEIMhHHRAu72qdkx9I4D08RD3OQniJxGUI420aPlZwAJtX")
+        .unwrap();
+    let privkey_2: [u8; 32] = privkey_bytes_2[privkey_bytes_2.len() - 32..]
+        .to_vec()
+        .try_into()
+        .unwrap();
+
+    let pubkey_bytes_2 = BASE64_STANDARD
+        .decode("MCowBQYDK2VuAyEAoqu7pzwam2uks5EseS06jQP6ISX42f613KKWm8cLM1M=")
+        .unwrap();
+    let pubkey_2: [u8; 32] = pubkey_bytes_2[pubkey_bytes_2.len() - 32..]
+        .to_vec()
+        .try_into()
+        .unwrap();
+
+        let mut reader = GenericStreamReadWriter::new_with_writer(read_stream, &mut out_file1)
+            .add_transformer(FooterUpdater::new(vec![pubkey_2], footer));
+        reader.add_message_receiver(rx2).await.unwrap();
+        reader.process().await.unwrap();
+
+        let mut file3 = File::open("test.txt.out.3.pto").await.unwrap();
+
+        // Parse Footer
+        let file_meta = file3.metadata().await.unwrap();
+
+        let footer_prediction = if file_meta.len() < 65536 * 2 {
+            file_meta.len() // 131072 always fits in i64 ...
+        } else {
+            65536 * 2
+        };
+
+        // Read footer bytes in FooterParser
+        file3
+            .seek(SeekFrom::End(-(footer_prediction as i64)))
+            .await
+            .unwrap();
+        let buf = &mut vec![0; footer_prediction as usize]; // Has to be vec as length is defined by dynamic value
+        file3.read_exact(buf).await.unwrap();
+
+        let mut parser = FooterParser::new(buf).unwrap();
+        parser = parser.add_recipient(&privkey_2);
+        parser = parser.parse().unwrap();
+
+        let footer: Footer = parser.try_into().unwrap();
+
+        assert!(footer.encryption_keys.unwrap().keys.len() > 0)
     }
 }

@@ -20,6 +20,7 @@ pub struct FooterParser<'a> {
     eof_metadata: Option<EndOfFileMetadata>,
     encryption_keys: Option<DecryptedKeys>,
     table_of_contents: Option<TableOfContents>,
+    raw_toc: Option<TableOfContents>,
     raw_encryption_packets: Option<EncryptionMetadata>,
 }
 
@@ -35,6 +36,7 @@ impl<'a> TryFrom<FooterParser<'a>> for Footer {
                 table_of_contents: value
                     .table_of_contents
                     .ok_or_else(|| anyhow!("Table of Contents not found"))?,
+                raw_toc: value.raw_toc.ok_or_else(|| anyhow!("Table of Contents not found"))?,
                 raw_encryption_packets: value.raw_encryption_packets,
             }),
             _ => Err(anyhow!("Invalid State: Footer not yet decoded")),
@@ -46,6 +48,7 @@ pub struct Footer {
     pub eof_metadata: EndOfFileMetadata,
     pub encryption_keys: Option<DecryptedKeys>,
     pub table_of_contents: TableOfContents,
+    pub raw_toc: TableOfContents,
     pub raw_encryption_packets: Option<EncryptionMetadata>,
 }
 
@@ -62,6 +65,7 @@ impl<'a> FooterParser<'a> {
             eof_metadata: None,
             encryption_keys: None,
             table_of_contents: None,
+            raw_toc: None,
             raw_encryption_packets: None,
         })
     }
@@ -184,6 +188,8 @@ impl<'a> FooterParser<'a> {
     fn parse_table_of_contents(&mut self, len_toc: u64) -> Result<()> {
         let (remaining, md) = self.buffer.split_at(self.buffer.len() - len_toc as usize);
         let mut table_of_contents: TableOfContents = borsh::from_slice(md)?;
+
+        self.raw_toc = Some(table_of_contents.clone());
 
         for (idx, dir_ctx) in table_of_contents.directories.iter_mut().enumerate() {
             if let DirContextVariants::DirEncrypted(_) = dir_ctx {

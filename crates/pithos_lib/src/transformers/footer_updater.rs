@@ -13,6 +13,7 @@ use tracing::error;
 
 pub struct FooterUpdater {
     hasher: Sha256,
+    expected_size: u64,
     counter: u64,
     additional_pubkeys: Vec<[u8; 32]>,
     old_footer: Option<Footer>,
@@ -28,6 +29,7 @@ impl FooterUpdater {
     pub fn new(pubkeys: Vec<[u8; 32]>, footer: Footer) -> FooterUpdater {
         FooterUpdater {
             hasher: Sha256::new(),
+            expected_size: footer.eof_metadata.disk_file_size,
             counter: 0,
             additional_pubkeys: pubkeys,
             old_footer: Some(footer),
@@ -72,17 +74,24 @@ impl Transformer for FooterUpdater {
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
         // Update overall hash & size counter
+        if self.counter + buf.len() as u64 > self.expected_size {
+            let to_keep = self.expected_size - self.counter;
+            buf.truncate(to_keep as usize);
+        }
         self.hasher.update(buf.as_ref());
         self.counter += buf.len() as u64;
         match self.process_messages() {
             Ok(finished) => {
                 if finished && !self.finished {
-                    let Some(Footer { mut eof_metadata, encryption_keys, table_of_contents , raw_encryption_packets}) = self.old_footer.take() else {
+                    let Some(Footer { mut eof_metadata, encryption_keys, raw_toc , raw_encryption_packets, ..}) = self.old_footer.take() else {
                         bail!("Missing old footer");
                     };
-                    let toc_bytes = borsh::to_vec(&table_of_contents)?;
-                    if eof_metadata.toc_len == toc_bytes.len() as u64 {
-                        bail!("TableOfContents length mismatch");
+                    if self.counter != eof_metadata.disk_file_size {
+                        bail!("File size mismatch");
+                    }
+                    let toc_bytes = borsh::to_vec(&raw_toc)?;
+                    if eof_metadata.toc_len != toc_bytes.len() as u64 {
+                        bail!("TableOfContents length mismatch {} != {}", eof_metadata.toc_len, toc_bytes.len());
                     }
 
                     // Update full file hash and write TableOfContents
