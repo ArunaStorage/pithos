@@ -323,7 +323,7 @@ impl FileContextHeader {
     }
 
     #[allow(dead_code)]
-    fn get_range_and_filter_by_range(&self, range: Range) -> (Range, Vec<u64>) {
+    pub fn get_range_and_filter_by_range(&self, range: Range) -> (Range, Vec<u64>) {
         let mut edit_list = vec![];
         let size = range.to - range.from;
         let mut new_range = Range { from: 0, to: 0 };
