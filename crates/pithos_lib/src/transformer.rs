@@ -23,6 +23,7 @@ pub enum TransformerType {
     Sink,
     Hashing,
     ZipEncoder,
+    FooterExtractor,
 }
 
 // Marker trait to signal that this Transformer can be a "final" destination for data

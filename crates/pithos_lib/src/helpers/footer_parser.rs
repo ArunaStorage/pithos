@@ -44,6 +44,8 @@ impl<'a> TryFrom<FooterParser<'a>> for Footer {
     }
 }
 
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Footer {
     pub eof_metadata: EndOfFileMetadata,
     pub encryption_keys: Option<DecryptedKeys>,

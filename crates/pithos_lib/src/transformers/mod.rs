@@ -14,3 +14,4 @@ pub mod pithos_comp_enc;
 pub mod zstd_comp;
 pub mod zstd_decomp;
 pub mod footer_updater;
+pub mod footer_extractor;

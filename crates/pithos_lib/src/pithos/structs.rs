@@ -104,7 +104,7 @@ impl EndOfFileMetadata {
 
 // -------------- EncryptionMetadata --------------
 
-#[derive(Debug, BorshSerialize, BorshDeserialize, Clone)]
+#[derive(Debug, BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EncryptionMetadata {
     pub magic_bytes: [u8; 4], // Should be 0x51, 0x2A, 0x4D, 0x18
     pub len: u32,             // Required for zstd skippable frame
@@ -169,12 +169,12 @@ impl
 // F0, F1, F2, F3
 // K0 -> F0, F1 -> DirOrFileIdx::File(1)
 // K2 -> F2, F3 -> DirOrFileIdx::File(3)
-#[derive(Debug, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, BorshSerialize, BorshDeserialize, PartialEq, Eq, PartialOrd, Ord, Clone)]
 pub struct DecryptedKeys {
     pub keys: Vec<([u8; 32], DirOrFileIdx)>,
 }
 
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct EncryptionPacket {
     pub pubkey: [u8; 32],
     pub nonce: [u8; 12],
@@ -248,7 +248,7 @@ impl DecryptedKeys {
 
 // -------------- FileContextHeader --------------
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone, Eq, PartialOrd, Ord)]
 pub struct FileInfo {
     pub uid: Option<u64>,   // UserId
     pub gid: Option<u64>,   // GroupId
@@ -256,13 +256,13 @@ pub struct FileInfo {
     pub mtime: Option<u64>, // Created at
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone, Eq, PartialOrd, Ord)]
 pub struct Hashes {
     pub sha256: Option<[u8; 32]>,
     pub md5: Option<[u8; 16]>,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone)]
+#[derive(BorshSerialize, BorshDeserialize, PartialEq, Debug, Clone, Eq, PartialOrd, Ord)]
 pub struct SymlinkContextHeader {
     pub file_path: String, // FileName /foo/bar/
     pub file_info: Option<FileInfo>,
@@ -275,7 +275,7 @@ pub struct CustomRange {
     pub end: u64,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default)]
+#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FileContextHeader {
     pub file_path: String, // FilePath empty = SKIP
     pub raw_size: u64,
@@ -397,7 +397,7 @@ impl FileContextHeader {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Debug, Clone)]
+#[derive(BorshDeserialize, BorshSerialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DirContextHeader {
     pub file_path: String, // FileName /foo/bar/
     pub file_info: Option<FileInfo>,
@@ -416,7 +416,7 @@ impl From<FileContext> for DirContextHeader {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Debug, Clone)]
+#[derive(BorshDeserialize, BorshSerialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FileContextVariants {
     FileDecrypted(FileContextHeader),
     FileEncrypted(Vec<u8>),
@@ -456,7 +456,7 @@ impl FileContextVariants {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Debug, Clone)]
+#[derive(BorshDeserialize, BorshSerialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DirContextVariants {
     DirDecrypted(DirContextHeader),
     DirEncrypted(Vec<u8>),
@@ -494,7 +494,7 @@ impl DirContextVariants {
     }
 }
 
-#[derive(BorshDeserialize, BorshSerialize, Debug, Clone)]
+#[derive(BorshDeserialize, BorshSerialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TableOfContents {
     pub magic_bytes: [u8; 4], // Should be 0x53, 0x2A, 0x4D, 0x18
     pub len: u32,
