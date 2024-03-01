@@ -21,7 +21,9 @@ pub struct CompressionInfo {
     pub chunk_infos: Option<Vec<u32>>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, BorshDeserialize, BorshSerialize, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, Eq, PartialEq, Hash, BorshDeserialize, BorshSerialize, PartialOrd, Ord,
+)]
 pub enum DirOrFileIdx {
     Dir(usize),
     File(usize),

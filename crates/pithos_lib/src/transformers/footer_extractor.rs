@@ -75,21 +75,20 @@ impl Transformer for FooterExtractor {
 
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
-
         let Ok(finished) = self.process_messages() else {
             return Err(anyhow!("HashingTransformer: Error processing messages"));
         };
 
         if self.detected {
             self.buffer.put(buf);
-        }else{
+        } else {
             for (idx, byte) in buf.iter().enumerate() {
                 if self.sequence_start == ZSTD_MAGIC_BYTES_SKIPPABLE_2.len() as u8 {
                     self.sequence_start = 0;
                     self.buffer.put(ZSTD_MAGIC_BYTES_SKIPPABLE_2.as_slice());
                     self.buffer.put(&buf[idx..]);
                     break;
-                }else if byte == &ZSTD_MAGIC_BYTES_SKIPPABLE_2[self.sequence_start as usize] {
+                } else if byte == &ZSTD_MAGIC_BYTES_SKIPPABLE_2[self.sequence_start as usize] {
                     self.sequence_start += 1;
                 }
             }
@@ -101,8 +100,7 @@ impl Transformer for FooterExtractor {
                 parser = parser.add_recipient(key);
             }
             parser = parser.parse()?;
-            self.footer_sender
-                .try_send(parser.try_into()?)?;
+            self.footer_sender.try_send(parser.try_into()?)?;
             if let Some(notifier) = &self.notifier {
                 notifier.send_next(
                     self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
@@ -110,7 +108,7 @@ impl Transformer for FooterExtractor {
                 )?;
             }
         }
-        
+
         Ok(())
     }
 

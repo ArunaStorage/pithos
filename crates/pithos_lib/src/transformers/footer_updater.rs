@@ -83,7 +83,14 @@ impl Transformer for FooterUpdater {
         match self.process_messages() {
             Ok(finished) => {
                 if finished && !self.finished {
-                    let Some(Footer { mut eof_metadata, encryption_keys, raw_toc , raw_encryption_packets, ..}) = self.old_footer.take() else {
+                    let Some(Footer {
+                        mut eof_metadata,
+                        encryption_keys,
+                        raw_toc,
+                        raw_encryption_packets,
+                        ..
+                    }) = self.old_footer.take()
+                    else {
                         bail!("Missing old footer");
                     };
                     if self.counter != eof_metadata.disk_file_size {
@@ -91,7 +98,11 @@ impl Transformer for FooterUpdater {
                     }
                     let toc_bytes = borsh::to_vec(&raw_toc)?;
                     if eof_metadata.toc_len != toc_bytes.len() as u64 {
-                        bail!("TableOfContents length mismatch {} != {}", eof_metadata.toc_len, toc_bytes.len());
+                        bail!(
+                            "TableOfContents length mismatch {} != {}",
+                            eof_metadata.toc_len,
+                            toc_bytes.len()
+                        );
                     }
 
                     // Update full file hash and write TableOfContents

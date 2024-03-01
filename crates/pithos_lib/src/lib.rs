@@ -19,6 +19,7 @@ mod tests {
     use crate::streamreadwrite::GenericStreamReadWriter;
     use crate::transformer::ReadWriter;
     use crate::transformers::decrypt::ChaCha20Dec;
+    use crate::transformers::decrypt_with_parts::ChaCha20DecParts;
     use crate::transformers::encrypt::ChaCha20Enc;
     use crate::transformers::filter::Filter;
     use crate::transformers::footer::FooterGenerator;
@@ -34,6 +35,7 @@ mod tests {
     use bytes::Bytes;
     use digest::Digest;
     use futures::{StreamExt, TryStreamExt};
+    use itertools::repeat_n;
     use md5::Md5;
     use tokio::fs::File;
     use tokio::io::{AsyncReadExt, AsyncSeekExt};
@@ -1017,7 +1019,6 @@ mod tests {
         reader.process().await.unwrap();
     }
 
-
     #[tokio::test]
     async fn e2e_pithos_rewrite_footer() {
         let file1 = File::open("test.txt").await.unwrap();
@@ -1124,22 +1125,21 @@ mod tests {
             Box::<(dyn std::error::Error + Send + Sync + 'static)>::from("a_str_error")
         });
 
-
         let privkey_bytes_2 = BASE64_STANDARD
-        .decode("MC4CAQAwBQYDK2VuBCIEIMhHHRAu72qdkx9I4D08RD3OQniJxGUI420aPlZwAJtX")
-        .unwrap();
-    let privkey_2: [u8; 32] = privkey_bytes_2[privkey_bytes_2.len() - 32..]
-        .to_vec()
-        .try_into()
-        .unwrap();
+            .decode("MC4CAQAwBQYDK2VuBCIEIMhHHRAu72qdkx9I4D08RD3OQniJxGUI420aPlZwAJtX")
+            .unwrap();
+        let privkey_2: [u8; 32] = privkey_bytes_2[privkey_bytes_2.len() - 32..]
+            .to_vec()
+            .try_into()
+            .unwrap();
 
-    let pubkey_bytes_2 = BASE64_STANDARD
-        .decode("MCowBQYDK2VuAyEAoqu7pzwam2uks5EseS06jQP6ISX42f613KKWm8cLM1M=")
-        .unwrap();
-    let pubkey_2: [u8; 32] = pubkey_bytes_2[pubkey_bytes_2.len() - 32..]
-        .to_vec()
-        .try_into()
-        .unwrap();
+        let pubkey_bytes_2 = BASE64_STANDARD
+            .decode("MCowBQYDK2VuAyEAoqu7pzwam2uks5EseS06jQP6ISX42f613KKWm8cLM1M=")
+            .unwrap();
+        let pubkey_2: [u8; 32] = pubkey_bytes_2[pubkey_bytes_2.len() - 32..]
+            .to_vec()
+            .try_into()
+            .unwrap();
 
         let mut reader = GenericStreamReadWriter::new_with_writer(read_stream, &mut out_file1)
             .add_transformer(FooterUpdater::new(vec![pubkey_2], footer));
@@ -1173,7 +1173,6 @@ mod tests {
 
         assert!(footer.encryption_keys.unwrap().keys.len() > 0)
     }
-
 
     #[tokio::test]
     async fn e2e_pithos_extractor() {
@@ -1269,10 +1268,43 @@ mod tests {
         let (extractor, rcv) = FooterExtractor::new(Some(privkey));
 
         GenericStreamReadWriter::new_with_writer(mapped, &mut vec)
-            .add_transformer(extractor).process().await.unwrap();
-
+            .add_transformer(extractor)
+            .process()
+            .await
+            .unwrap();
 
         let extracted_footer = rcv.recv_blocking().unwrap();
         assert_eq!(extracted_footer, footer);
+    }
+
+    #[tokio::test]
+    async fn e2e_test_parts_decryptor() {
+        let file = File::open("test.txt").await.unwrap();
+        let file2 = vec![];
+
+        let mut repeated: Vec<u64> = repeat_n(65564u64, 77).collect();
+        repeated.push(50860);
+
+        // Create a new GenericReadWriter
+        GenericReadWriter::new_with_writer(file, file2)
+            .add_transformer(
+                ChaCha20Enc::new_with_fixed(
+                    b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                        .to_vec()
+                        .try_into()
+                        .unwrap(),
+                )
+                .unwrap(),
+            )
+            .add_transformer(ChaCha20DecParts::new_with_lengths(
+                b"wvwj3485nxgyq5ub9zd3e7jsrq7a92ea"
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+                repeated,
+            ))
+            .process()
+            .await
+            .unwrap();
     }
 }

@@ -46,23 +46,26 @@ where
 
     #[tracing::instrument(level = "trace", skip(hasher))]
     #[allow(dead_code)]
-    pub fn new_with_backchannel(hasher: T, hasher_type: String) -> (HashingTransformer<T>, Receiver<String>) {
-
+    pub fn new_with_backchannel(
+        hasher: T,
+        hasher_type: String,
+    ) -> (HashingTransformer<T>, Receiver<String>) {
         let (sx, rx) = async_channel::bounded(1);
 
-        (HashingTransformer {
-            idx: None,
-            hasher,
-            hasher_type,
-            counter: u64::MAX,
-            file_queue: None,
-            msg_receiver: None,
-            notifier: None,
-            back_channel: Some(sx),
-        }, rx)
+        (
+            HashingTransformer {
+                idx: None,
+                hasher,
+                hasher_type,
+                counter: u64::MAX,
+                file_queue: None,
+                msg_receiver: None,
+                notifier: None,
+                back_channel: Some(sx),
+            },
+            rx,
+        )
     }
-
-
 
     #[tracing::instrument(level = "trace", skip(self))]
     fn process_messages(&mut self) -> Result<bool> {

@@ -36,14 +36,15 @@ impl<'a> TryFrom<FooterParser<'a>> for Footer {
                 table_of_contents: value
                     .table_of_contents
                     .ok_or_else(|| anyhow!("Table of Contents not found"))?,
-                raw_toc: value.raw_toc.ok_or_else(|| anyhow!("Table of Contents not found"))?,
+                raw_toc: value
+                    .raw_toc
+                    .ok_or_else(|| anyhow!("Table of Contents not found"))?,
                 raw_encryption_packets: value.raw_encryption_packets,
             }),
             _ => Err(anyhow!("Invalid State: Footer not yet decoded")),
         }
     }
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Footer {

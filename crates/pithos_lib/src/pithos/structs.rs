@@ -275,7 +275,9 @@ pub struct CustomRange {
     pub end: u64,
 }
 
-#[derive(BorshSerialize, BorshDeserialize, Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(
+    BorshSerialize, BorshDeserialize, Debug, Clone, Default, PartialEq, Eq, PartialOrd, Ord,
+)]
 pub struct FileContextHeader {
     pub file_path: String, // FilePath empty = SKIP
     pub raw_size: u64,
