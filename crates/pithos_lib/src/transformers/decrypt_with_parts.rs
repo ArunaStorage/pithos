@@ -16,6 +16,10 @@ use std::sync::Arc;
 use tracing::debug;
 use tracing::error;
 
+const ENCRYPTION_BLOCK_SIZE: usize = 65_536;
+const CIPHER_DIFF: usize = 28;
+const CIPHER_SEGMENT_SIZE: usize = ENCRYPTION_BLOCK_SIZE + CIPHER_DIFF;
+
 pub struct ChaCha20DecParts {
     input_buffer: BytesMut,
     output_buffer: BytesMut,
@@ -32,8 +36,8 @@ impl ChaCha20DecParts {
     #[allow(dead_code)]
     pub fn new_with_lengths(key: [u8; 32], lengths: Vec<u64>) -> Self {
         ChaCha20DecParts {
-            input_buffer: BytesMut::with_capacity(5 * 65536),
-            output_buffer: BytesMut::with_capacity(5 * 65536),
+            input_buffer: BytesMut::with_capacity(5 * CIPHER_SEGMENT_SIZE),
+            output_buffer: BytesMut::with_capacity(5 * CIPHER_SEGMENT_SIZE),
             decryption_key: key,
             skip_me: false,
             notifier: None,
@@ -93,8 +97,22 @@ impl Transformer for ChaCha20DecParts {
         }
 
         loop {
-            if let Some(len) = self.chunk_lengths.front() {
-                if self.input_buffer.len() >= *len as usize {
+            if let Some(len) = self.chunk_lengths.front_mut() {
+                if *len as usize >= CIPHER_SEGMENT_SIZE
+                    && self.input_buffer.len() >= CIPHER_SEGMENT_SIZE
+                {
+                    buf.put(decrypt_chunk(
+                        &self.input_buffer.split_to(CIPHER_SEGMENT_SIZE),
+                        &self.decryption_key,
+                    )?);
+                    *len -= CIPHER_SEGMENT_SIZE as u64;
+                    if *len == 0 {
+                        self.chunk_lengths.pop_front();
+                        break;
+                    }
+                } else if (*len as usize) < CIPHER_SEGMENT_SIZE
+                    && self.input_buffer.len() >= *len as usize
+                {
                     buf.put(decrypt_chunk(
                         &self.input_buffer.split_to(*len as usize),
                         &self.decryption_key,

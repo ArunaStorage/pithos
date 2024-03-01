@@ -1282,8 +1282,7 @@ mod tests {
         let file = File::open("test.txt").await.unwrap();
         let file2 = vec![];
 
-        let mut repeated: Vec<u64> = repeat_n(65564u64, 77).collect();
-        repeated.push(50860);
+        let repeated: Vec<u64> = vec![65564u64 * 60, 65564 * 16, 65564, 50860];
 
         // Create a new GenericReadWriter
         GenericReadWriter::new_with_writer(file, file2)
