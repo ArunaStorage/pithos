@@ -152,7 +152,7 @@ where
             Digest::update(&mut self.hasher, &buf);
         }
 
-        if buf.is_empty() && finished {
+        if finished {
             if let Some(notifier) = self.notifier.clone() {
                 if self.file_queue.is_some() {
                     self.next_file(&[]).await?;

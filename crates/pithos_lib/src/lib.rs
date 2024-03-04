@@ -35,7 +35,6 @@ mod tests {
     use bytes::Bytes;
     use digest::Digest;
     use futures::{StreamExt, TryStreamExt};
-    use itertools::repeat_n;
     use md5::Md5;
     use tokio::fs::File;
     use tokio::io::{AsyncReadExt, AsyncSeekExt};
