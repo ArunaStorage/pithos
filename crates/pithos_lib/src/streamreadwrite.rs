@@ -243,10 +243,6 @@ impl<
 
             let completed = self.process_messages().await?;
 
-            if read_buf.is_empty() && completed {
-                break;
-            }
-
             if let Some(context) = &file_ctx {
                 self.size_counter += read_bytes;
                 if self.size_counter > context.compressed_size as usize {
@@ -289,6 +285,10 @@ impl<
 
             for t in self.transformers.iter_mut() {
                 t.process_bytes(&mut read_buf).await?;
+            }
+
+            if read_buf.is_empty() && completed {
+                break;
             }
             read_bytes = 0;
         }

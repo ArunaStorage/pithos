@@ -17,6 +17,7 @@ pub struct HashingTransformer<T: Digest + Send + FixedOutputReset> {
     msg_receiver: Option<Receiver<Message>>,
     notifier: Option<Arc<Notifier>>,
     back_channel: Option<Sender<String>>,
+    finished: bool,
 }
 
 impl<T> HashingTransformer<T>
@@ -41,6 +42,7 @@ where
             msg_receiver: None,
             notifier: None,
             back_channel: None,
+            finished: false,
         }
     }
 
@@ -62,6 +64,7 @@ where
                 msg_receiver: None,
                 notifier: None,
                 back_channel: Some(sx),
+                finished: false,
             },
             rx,
         )
@@ -98,6 +101,7 @@ where
     }
 
     async fn next_file(&mut self, init_next: &[u8]) -> Result<()> {
+        self.finished = false;
         if let Some(queue) = self.file_queue.as_mut() {
             if let Some((idx, _)) = queue.pop_front() {
                 let finished_hash = self.hasher.finalize_reset().to_vec();
@@ -157,20 +161,23 @@ where
                 if self.file_queue.is_some() {
                     self.next_file(&[]).await?;
                 } else {
-                    let finished_hash = self.hasher.finalize_reset().to_vec();
-                    let hashertype = match self.hasher_type.as_str() {
-                        "sha256" => HashType::Sha256,
-                        "md5" => HashType::Md5,
-                        a => HashType::Other(a.to_string()),
-                    };
-                    notifier.send_all_type(
-                        TransformerType::FooterGenerator,
-                        Message::Hash((hashertype.clone(), finished_hash.clone(), None)),
-                    )?;
+                    if !self.finished {
+                        let finished_hash = self.hasher.finalize_reset().to_vec();
+                        let hashertype = match self.hasher_type.as_str() {
+                            "sha256" => HashType::Sha256,
+                            "md5" => HashType::Md5,
+                            a => HashType::Other(a.to_string()),
+                        };
+                        notifier.send_all_type(
+                            TransformerType::FooterGenerator,
+                            Message::Hash((hashertype.clone(), finished_hash.clone(), None)),
+                        )?;
 
-                    if let Some(sx) = &self.back_channel {
-                        sx.send(hex::encode(finished_hash)).await?;
-                    }
+                        if let Some(sx) = &self.back_channel {
+                            sx.try_send(hex::encode(finished_hash))?;
+                        }
+                        self.finished = true;
+                    }   
                 }
                 //notifier.send_read_writer(Message::Hash((hashertype, finished_hash)))?; // No need to send out anymore?
                 notifier.send_next(
