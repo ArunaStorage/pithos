@@ -36,7 +36,7 @@ impl AsyncSenderSink {
                 match rx.try_recv() {
                     Ok(Message::Finished) => {
                         if let Some(notifier) = &self.notifier {
-                            notifier.send_read_writer(Message::Finished)?;
+                            notifier.send_read_writer(Message::Completed)?;
                         }
                         debug!("finished");
                         break;
