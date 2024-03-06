@@ -22,7 +22,6 @@ const CIPHER_SEGMENT_SIZE: usize = ENCRYPTION_BLOCK_SIZE + CIPHER_DIFF;
 
 pub struct ChaCha20DecParts {
     input_buffer: BytesMut,
-    output_buffer: BytesMut,
     notifier: Option<Arc<Notifier>>,
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
@@ -37,7 +36,6 @@ impl ChaCha20DecParts {
     pub fn new_with_lengths(key: [u8; 32], lengths: Vec<u64>) -> Self {
         ChaCha20DecParts {
             input_buffer: BytesMut::with_capacity(5 * CIPHER_SEGMENT_SIZE),
-            output_buffer: BytesMut::with_capacity(5 * CIPHER_SEGMENT_SIZE),
             decryption_key: key,
             skip_me: false,
             notifier: None,
@@ -122,11 +120,12 @@ impl Transformer for ChaCha20DecParts {
                     break;
                 }
             } else {
+                self.input_buffer.clear();
                 break;
             }
         }
 
-        if finished && self.input_buffer.is_empty() && self.output_buffer.is_empty() {
+        if finished && self.input_buffer.is_empty() {
             if let Some(notifier) = &self.notifier {
                 notifier.send_next(
                     self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
