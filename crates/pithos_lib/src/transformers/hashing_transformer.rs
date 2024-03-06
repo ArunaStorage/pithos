@@ -71,11 +71,14 @@ where
     }
 
     #[tracing::instrument(level = "trace", skip(self))]
-    fn process_messages(&mut self) -> Result<bool> {
+    fn process_messages(&mut self) -> Result<(bool, bool)> {
         if let Some(rx) = &self.msg_receiver {
             loop {
                 match rx.try_recv() {
-                    Ok(Message::Finished) | Ok(Message::ShouldFlush) => return Ok(true),
+                    Ok(Message::Finished) => {
+                        return Ok((true, false));
+                    }
+                    Ok(Message::ShouldFlush) => return Ok((false, true)),
                     Ok(Message::FileContext(ctx)) => {
                         if !ctx.is_dir && ctx.symlink_target.is_none() {
                             if let Some(queue) = self.file_queue.as_mut() {
@@ -97,7 +100,7 @@ where
                 }
             }
         }
-        Ok(false)
+        Ok((false, false))
     }
 
     async fn next_file(&mut self, init_next: &[u8]) -> Result<()> {
@@ -143,7 +146,7 @@ where
 
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
-        let Ok(finished) = self.process_messages() else {
+        let Ok((finished, should_flush)) = self.process_messages() else {
             return Err(anyhow!("[HashingTransformer] Error processing messages"));
         };
         self.counter -= buf.len() as u64;
@@ -156,34 +159,36 @@ where
             Digest::update(&mut self.hasher, &buf);
         }
 
-        if finished {
+        if finished || should_flush {
             if let Some(notifier) = self.notifier.clone() {
                 if self.file_queue.is_some() && self.back_channel.is_none() {
                     self.next_file(&[]).await?;
                 } else {
-                    if !self.finished {
-                        let finished_hash = self.hasher.finalize_reset().to_vec();
-                        let hashertype = match self.hasher_type.as_str() {
-                            "sha256" => HashType::Sha256,
-                            "md5" => HashType::Md5,
-                            a => HashType::Other(a.to_string()),
-                        };
-                        notifier.send_all_type(
-                            TransformerType::FooterGenerator,
-                            Message::Hash((hashertype.clone(), finished_hash.clone(), None)),
-                        )?;
+                    if finished {
+                        if !self.finished {
+                            let finished_hash = self.hasher.finalize_reset().to_vec();
+                            let hashertype = match self.hasher_type.as_str() {
+                                "sha256" => HashType::Sha256,
+                                "md5" => HashType::Md5,
+                                a => HashType::Other(a.to_string()),
+                            };
+                            notifier.send_all_type(
+                                TransformerType::FooterGenerator,
+                                Message::Hash((hashertype.clone(), finished_hash.clone(), None)),
+                            )?;
 
-                        if let Some(sx) = &self.back_channel {
-                            sx.try_send(hex::encode(finished_hash))?;
+                            if let Some(sx) = &self.back_channel {
+                                sx.try_send(hex::encode(finished_hash))?;
+                            }
+                            self.finished = true;
                         }
-                        self.finished = true;
-                    }   
+                        notifier.send_next(
+                            self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
+                            Message::Finished,
+                        )?;
+                    }
                 }
                 //notifier.send_read_writer(Message::Hash((hashertype, finished_hash)))?; // No need to send out anymore?
-                notifier.send_next(
-                    self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
-                    Message::Finished,
-                )?;
             }
         }
         Ok(())

@@ -227,7 +227,7 @@ impl Transformer for ChaCha20Dec {
             while self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
                 self.check_decrypt_chunk()?;
             }
-        } 
+        }
         if finished && !self.finished {
             trace!(finished, self.finished);
             if !self.input_buffer.is_empty() {
