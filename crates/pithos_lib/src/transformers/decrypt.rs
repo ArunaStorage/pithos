@@ -133,7 +133,6 @@ impl ChaCha20Dec {
             }
         }
         Ok(())
-        //bail!("Could not decrypt chunk")
     }
 
     pub fn next_file(&mut self) -> Result<()> {
@@ -228,7 +227,8 @@ impl Transformer for ChaCha20Dec {
             while self.input_buffer.len() / CIPHER_SEGMENT_SIZE > 0 {
                 self.check_decrypt_chunk()?;
             }
-        } else if finished && !self.finished {
+        } 
+        if finished && !self.finished {
             trace!(finished, self.finished);
             if !self.input_buffer.is_empty() {
                 if self.input_buffer.len() > 28 {

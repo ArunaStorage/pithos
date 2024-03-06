@@ -109,6 +109,19 @@ impl Transformer for ZstdDec {
         let Ok((should_flush, finished)) = self.process_messages() else {
             return Err(anyhow!("Error processing messages"));
         };
+
+        if !buf.is_empty() && self.probe_result == ProbeResult::Unknown {
+            self.probe_decompression(
+                buf.get(0..4)
+                    .ok_or_else(|| anyhow!("Missing bytes"))?
+                    .try_into()?,
+            )
+            .await?;
+        }
+        if self.skip_me || self.probe_result == ProbeResult::NoCompression {
+            debug!("skipped zstd decoder");
+            return Ok(());
+        }
         if should_flush {
             self.internal_buf.write_buf(buf).await?;
             while !buf.is_empty() {
@@ -121,18 +134,6 @@ impl Transformer for ZstdDec {
             self.prev_buf.put(self.internal_buf.get_ref().as_slice());
             self.internal_buf = ZstdDecoder::new(Vec::with_capacity(RAW_FRAME_SIZE + CHUNK));
             buf.put(self.prev_buf.split().freeze());
-            return Ok(());
-        }
-        if !buf.is_empty() && self.probe_result == ProbeResult::Unknown {
-            self.probe_decompression(
-                buf.get(0..4)
-                    .ok_or_else(|| anyhow!("Missing bytes"))?
-                    .try_into()?,
-            )
-            .await?;
-        }
-        if self.skip_me || self.probe_result == ProbeResult::NoCompression {
-            debug!("skipped zstd decoder");
             return Ok(());
         }
 
