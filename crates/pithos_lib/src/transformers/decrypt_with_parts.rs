@@ -106,7 +106,7 @@ impl Transformer for ChaCha20DecParts {
                     *len -= CIPHER_SEGMENT_SIZE as u64;
                     if *len == 0 {
                         self.chunk_lengths.pop_front();
-                        break;
+                        continue;
                     }
                 } else if (*len as usize) < CIPHER_SEGMENT_SIZE
                     && self.input_buffer.len() >= *len as usize
