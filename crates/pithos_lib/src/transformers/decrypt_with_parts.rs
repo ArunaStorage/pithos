@@ -50,7 +50,7 @@ impl ChaCha20DecParts {
         if let Some(rx) = &self.msg_receiver {
             loop {
                 match rx.try_recv() {
-                    Ok(Message::ShouldFlush) | Ok(Message::Finished) => return Ok(true),
+                    Ok(Message::Finished) => return Ok(true),
                     Ok(Message::Skip) => {
                         self.skip_me = true;
                     }
