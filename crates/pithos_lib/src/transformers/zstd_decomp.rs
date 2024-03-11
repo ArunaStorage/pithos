@@ -119,6 +119,15 @@ impl Transformer for ZstdDec {
             .await?;
         }
         if self.skip_me || self.probe_result == ProbeResult::NoCompression {
+            if finished {
+                if let Some(notifier) = &self.notifier {
+                    notifier.send_next(
+                        self.idx.ok_or_else(|| anyhow!("Missing idx"))?,
+                        Message::Finished,
+                    )?;
+                }
+                self.finished = true;
+            }
             debug!("skipped zstd decoder");
             return Ok(());
         }
