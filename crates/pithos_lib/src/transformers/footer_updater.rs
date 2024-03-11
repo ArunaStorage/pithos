@@ -97,6 +97,7 @@ impl Transformer for FooterUpdater {
                         bail!("File size mismatch");
                     }
                     let toc_bytes = borsh::to_vec(&raw_toc)?;
+                    self.counter += toc_bytes.len() as u64;
                     if eof_metadata.toc_len != toc_bytes.len() as u64 {
                         bail!(
                             "TableOfContents length mismatch {} != {}",
@@ -121,8 +122,10 @@ impl Transformer for FooterUpdater {
                     let enc_meta_bytes = borsh::to_vec(&enc_meta)?;
                     eof_metadata.encryption_len = enc_meta_bytes.len() as u64;
                     self.hasher.update(enc_meta_bytes.as_slice());
+                    self.counter += enc_meta_bytes.len() as u64;
                     buf.put(enc_meta_bytes.as_slice());
 
+                    self.counter += 73; // EOF segment
                     // Write EndOfFileMetadata
                     eof_metadata.disk_file_size = self.counter;
                     let mut eof_meta_bytes = borsh::to_vec(&eof_metadata)?;
