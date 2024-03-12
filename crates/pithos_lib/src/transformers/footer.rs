@@ -339,6 +339,8 @@ impl Transformer for FooterGenerator {
                     let mut toc_bytes = borsh::to_vec(&toc)?;
                     eof_meta.toc_len = toc_bytes.len() as u64;
 
+                    self.counter += toc_bytes.len() as u64;
+
                     // Inject TableOfContents bytes length into serialized TableOfContents
                     LittleEndian::write_u32_into(
                         &[(toc_bytes.len() - 8).try_into()?],
@@ -356,11 +358,13 @@ impl Transformer for FooterGenerator {
                     ))?;
                     let enc_meta_bytes = borsh::to_vec(&enc_meta)?;
                     eof_meta.encryption_len = enc_meta_bytes.len() as u64;
+                    self.counter += enc_meta_bytes.len() as u64;
                     self.hasher.update(enc_meta_bytes.as_slice());
                     buf.put(enc_meta_bytes.as_slice());
 
                     // Write EndOfFileMetadata
                     eof_meta.raw_file_size = self.raw_counter;
+                    self.counter += 73;
                     eof_meta.disk_file_size = self.counter;
                     let mut eof_meta_bytes = borsh::to_vec(&eof_meta)?;
                     self.hasher.update(eof_meta_bytes.as_slice());

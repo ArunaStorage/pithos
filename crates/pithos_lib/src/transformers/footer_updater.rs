@@ -29,7 +29,10 @@ impl FooterUpdater {
     pub fn new(pubkeys: Vec<[u8; 32]>, footer: Footer) -> FooterUpdater {
         FooterUpdater {
             hasher: Sha256::new(),
-            expected_size: footer.eof_metadata.disk_file_size,
+            expected_size: footer.eof_metadata.disk_file_size
+                - footer.eof_metadata.toc_len
+                - footer.eof_metadata.encryption_len
+                - 73,
             counter: 0,
             additional_pubkeys: pubkeys,
             old_footer: Some(footer),
@@ -75,7 +78,7 @@ impl Transformer for FooterUpdater {
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
         // Update overall hash & size counter
         if self.counter + buf.len() as u64 > self.expected_size {
-            let to_keep = self.expected_size - self.counter;
+            let to_keep = self.expected_size.saturating_sub(self.counter);
             buf.truncate(to_keep as usize);
         }
         self.hasher.update(buf.as_ref());
@@ -93,7 +96,12 @@ impl Transformer for FooterUpdater {
                     else {
                         bail!("Missing old footer");
                     };
-                    if self.counter != eof_metadata.disk_file_size {
+                    if self.counter
+                        != eof_metadata.disk_file_size
+                            - eof_metadata.toc_len
+                            - eof_metadata.encryption_len
+                            - 73
+                    {
                         bail!("File size mismatch");
                     }
                     let toc_bytes = borsh::to_vec(&raw_toc)?;
@@ -126,7 +134,7 @@ impl Transformer for FooterUpdater {
                     buf.put(enc_meta_bytes.as_slice());
 
                     self.counter += 73; // EOF segment
-                    // Write EndOfFileMetadata
+                                        // Write EndOfFileMetadata
                     eof_metadata.disk_file_size = self.counter;
                     let mut eof_meta_bytes = borsh::to_vec(&eof_metadata)?;
                     self.hasher.update(eof_meta_bytes.as_slice());
