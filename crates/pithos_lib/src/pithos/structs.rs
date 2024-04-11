@@ -342,9 +342,9 @@ impl FileContextHeader {
                 for (i, r) in idx_list.iter().enumerate() {
                     sum += *r as u64;
                     if sum >= range.from {
-                        if start_block == 0 {
+                        if edit_list.is_empty() {
                             start_block = i as u64;
-                            edit_list.push(range.from - (sum - *r as u64));
+                            edit_list.push(range.from.saturating_sub(sum - *r as u64));
                         }
                     }
                     if sum >= range.to {
