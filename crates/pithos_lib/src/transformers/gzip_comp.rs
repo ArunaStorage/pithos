@@ -2,6 +2,7 @@ use crate::helpers::notifications::Message;
 use crate::helpers::notifications::Notifier;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
+use anyhow::bail;
 use anyhow::{anyhow, Result};
 use async_channel::Receiver;
 use async_channel::Sender;
@@ -79,8 +80,11 @@ impl Transformer for GzipEnc {
         self.size_counter += buf.len();
         self.internal_buf.write_all_buf(buf).await?;
 
-        let Ok(finished) = self.process_messages() else {
-            return Err(anyhow!("GzipEnc: Error processing messages"));
+        let finished = match self.process_messages() {
+            Ok(fin) => fin,
+            Err(e) => {
+                bail!("[GZIP_ENC] Error processing messages: {:?}", e);
+            }
         };
         if finished && self.size_counter != 0 && buf.is_empty() {
             debug!("finished");

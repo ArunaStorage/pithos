@@ -4,6 +4,7 @@ use crate::helpers::structs::ProbeResult;
 use crate::pithos::structs::ZSTD_MAGIC_BYTES_ALL;
 use crate::transformer::Transformer;
 use crate::transformer::TransformerType;
+use anyhow::bail;
 use anyhow::{anyhow, Result};
 use async_channel::Receiver;
 use async_channel::Sender;
@@ -106,8 +107,11 @@ impl Transformer for ZstdDec {
 
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
-        let Ok((should_flush, finished)) = self.process_messages() else {
-            return Err(anyhow!("Error processing messages"));
+        let (should_flush, finished) = match self.process_messages() {
+            Ok((flush, fin)) => (flush, fin),
+            Err(e) => {
+                bail!("[ZSTD_DEC] Error processing messages: {:?}", e);
+            }
         };
 
         if !buf.is_empty() && self.probe_result == ProbeResult::Unknown {

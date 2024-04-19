@@ -205,8 +205,11 @@ impl Transformer for ChaCha20Dec {
             return Ok(());
         }
 
-        let Ok((should_flush, finished)) = self.process_messages() else {
-            return Err(anyhow!("Error processing messages"));
+        let (should_flush, finished) = match self.process_messages() {
+            Ok((flush, fin)) => (flush, fin),
+            Err(e) => {
+                bail!("[CHACHA_DECRYPT] Error processing messages: {:?}", e);
+            }
         };
 
         if should_flush {
