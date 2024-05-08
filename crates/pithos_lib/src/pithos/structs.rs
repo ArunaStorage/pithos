@@ -12,6 +12,7 @@ use crypto_kx::{Keypair, PublicKey, SecretKey};
 use itertools::Itertools;
 use std::collections::HashMap;
 use std::fmt::Display;
+use serde::{Deserialize, Serialize};
 
 pub const ZSTD_MAGIC_BYTES: [u8; 4] = [0x28, 0xB5, 0x2F, 0xFD];
 pub const ZSTD_MAGIC_BYTES_SKIPPABLE_0: [u8; 4] = [0x50, 0x2A, 0x4D, 0x18];
@@ -54,7 +55,7 @@ pub const EOF_META_LEN: usize = 73;
 
 // -------------- EndOfFileMetadata --------------
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, BorshSerialize, BorshDeserialize)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, BorshSerialize, BorshDeserialize, Serialize, Deserialize)]
 pub struct EndOfFileMetadata {
     // 73 Bytes
     pub magic_bytes: [u8; 4], // Should be 0x50, 0x2A, 0x4D, 0x18
@@ -104,7 +105,7 @@ impl EndOfFileMetadata {
 
 // -------------- EncryptionMetadata --------------
 
-#[derive(Debug, BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, BorshSerialize, BorshDeserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct EncryptionMetadata {
     pub magic_bytes: [u8; 4], // Should be 0x51, 0x2A, 0x4D, 0x18
     pub len: u32,             // Required for zstd skippable frame
@@ -174,7 +175,7 @@ pub struct DecryptedKeys {
     pub keys: Vec<([u8; 32], DirOrFileIdx)>,
 }
 
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct EncryptionPacket {
     pub pubkey: [u8; 32],
     pub nonce: [u8; 12],
