@@ -7,6 +7,7 @@ use std::{fs::File, io::Read, path::PathBuf};
 pub const MAGIC_BYTES: &[u8; 7] = b"c4gh-v1";
 pub const KDF_NAMES: [&[u8]; 3] = [b"scrypt", b"bcrypt", b"none"];
 
+#[allow(dead_code)]
 pub struct RoundsWithSalt {
     pub length: u16,
     pub rounds: u32,
