@@ -1,14 +1,44 @@
 use crate::helpers::notifications::{Message, Notifier};
 use crate::transformer::{Sink, Transformer, TransformerType};
 use anyhow::{anyhow, Result};
-use async_channel::{Receiver, Sender as AsyncSender, TryRecvError};
-use hyper::body::Sender;
-use hyper::Body;
+use async_channel::{Receiver, Sender, TryRecvError};
+use bytes::Bytes;
+use hyper::body::Body;
 use std::sync::Arc;
 use tracing::{debug, error};
 
+
+pub struct PithosBody {
+    receiver: Receiver<Bytes>,
+}
+
+impl PithosBody {
+    pub fn channel() -> (Sender<Bytes>, Self) {
+        let (sender, receiver) = async_channel::bounded(1000);
+        (sender, Self { receiver })
+    }
+}
+
+impl Body for PithosBody {
+    type Data = Bytes;
+    type Error = anyhow::Error;
+    
+    fn poll_frame(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<std::result::Result<hyper::body::Frame<Self::Data>, Self::Error>>> {
+        match self.receiver.try_recv() {
+            Ok(data) => std::task::Poll::Ready(Some(Ok(hyper::body::Frame::data(data)))),
+            Err(TryRecvError::Empty) => std::task::Poll::Pending,
+            Err(TryRecvError::Closed) => std::task::Poll::Ready(None),
+        }
+    }
+
+}
+
+
 pub struct HyperSink {
-    sender: Sender,
+    sender: Sender<Bytes>,
     notifier: Option<Arc<Notifier>>,
     msg_receiver: Option<Receiver<Message>>,
     idx: Option<usize>,
@@ -18,8 +48,8 @@ impl Sink for HyperSink {}
 
 impl HyperSink {
     #[tracing::instrument(level = "trace", skip())]
-    pub fn new() -> (Self, Body) {
-        let (sender, body) = hyper::Body::channel();
+    pub fn new() -> (Self, PithosBody) {
+        let (sender, body) = PithosBody::channel();
         (
             Self {
                 sender,
@@ -61,7 +91,7 @@ impl HyperSink {
 #[async_trait::async_trait]
 impl Transformer for HyperSink {
     #[tracing::instrument(level = "trace", skip(self))]
-    async fn initialize(&mut self, idx: usize) -> (TransformerType, AsyncSender<Message>) {
+    async fn initialize(&mut self, idx: usize) -> (TransformerType, Sender<Message>) {
         self.idx = Some(idx);
         let (sx, rx) = async_channel::bounded(10);
         self.msg_receiver = Some(rx);
@@ -70,7 +100,7 @@ impl Transformer for HyperSink {
 
     #[tracing::instrument(level = "trace", skip(self, buf))]
     async fn process_bytes(&mut self, buf: &mut bytes::BytesMut) -> Result<()> {
-        self.sender.send_data(buf.split().freeze()).await?;
+        self.sender.send(buf.split().freeze()).await?;
         if buf.is_empty() {
             self.process_messages()?;
         }
