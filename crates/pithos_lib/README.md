@@ -1,95 +1,84 @@
-[![Rust](https://img.shields.io/badge/built_with-Rust-dca282.svg)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/License-MIT-brightgreen.svg)](https://github.com/arunaengine/aruna-file/blob/main/LICENSE-MIT)
-[![License](https://img.shields.io/badge/License-APACHE-brightgreen.svg)](https://github.com/arunaengine/aruna-file/blob/main/LICENSE-APACHE)
-[![Codecov](https://codecov.io/github/ArunaStorage/aruna-file/coverage.svg?branch=main)](https://codecov.io/gh/ArunaStorage/aruna-file)
-[![Dependency status](https://deps.rs/repo/github/ArunaStorage/aruna-file/status.svg)](https://deps.rs/repo/github/ArunaStorage/aruna-file)
-___
-
 # Pithos library
 
-A library for creating, handling and transforming Pithos files, an object storage optimized file format for Research Data Management (RDM).
+`pithos_lib` is the public Rust API for creating, opening, reading, extending, extracting, and adapting encrypted Pithos archives. It has no network client or transport policy.
 
-For the formal file specification click [here](../../spec/PITHOS_1.0.0_draft.md).
+## Installation
 
-## Guidance 
+Add the crate to an application using Rust 1.88 or newer:
 
-Short guidance for usage of the `PithosWriter` and similarly for the `PithosReader` custom component. 
-Both components provide convenience functionality to write individual Pithos file components or read them again efficiently.
+```toml
+[dependencies]
+pithos_lib = "0.8"
+```
 
-PithosWriter Example:
-```rust
-use x25519_dalek::{PublicKey, StaticSecret};
+## Create an archive
 
-// Create a simple Pithos file with a single entry
-let sender_key = StaticSecret::from([0u8; 32]);
-let recipient_key = PublicKey::from([1u8; 32]);
+This example encrypts a local file for its owner. The recipient public key is derived from the private key only for a self-contained example; production applications should provide the intended recipients' public keys.
 
-// Dummy input file
-let input_file = InputFile {
-    file_type: FileType::Data,
-    inner_path: "very_important.txt".to_string(),
-    data: Content::File("tests/data/t8.shakespeare.sample.txt".to_string()),
-    metadata: None,
-    encrypt: true,
-    compression_level: Some(7),
+```rust,no_run
+use pithos_lib::archive::{
+    ArchivePath, ArchiveWriter, EntryMetadata, ProcessingOptions, WriteOptions,
 };
-let temp_dir = TempDir::new().unwrap();
-let outfile = File::create(temp_dir.path().join("example.pith")).unwrap();
+use pithos_lib::crypto::PrivateKey;
+use std::fs::File;
 
-// Process
-let mut writer = PithosWriter::new(sender_key, vec![recipient_key], None, Box::new(outfile)).unwrap();
-writer.write_file_header().unwrap();
-writer.process_input(input_file).unwrap();
-writer.write_directory().unwrap();
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let owner = PrivateKey::from_private_pem_bytes(&std::fs::read("owner.pem")?)?;
+    let recipient = owner.public_key();
+    let input = File::open("report.txt")?;
+    let size = input.metadata()?.len();
+    let output = File::create("report.pith")?;
+
+    let mut writer = ArchiveWriter::create(output, WriteOptions::new(owner, vec![recipient]))?;
+    writer.add_file(
+        ArchivePath::new("report.txt")?,
+        EntryMetadata::new(0, 0, 0o644),
+        ProcessingOptions::default(),
+        Some(size),
+        input,
+    )?;
+    writer.finish()?;
+    Ok(())
+}
 ```
 
-### RO-Crate ingestion
+See [`examples/create.rs`](examples/create.rs) for the maintained version and the [CLI guide](../pithos/README.md) for a command-line workflow.
 
-Load an RO-Crate directory and process it with a configured `PithosWriter`:
+## Public API
 
-```rust
-use pithos_lib::helpers::ro_crate::read_ro_crate_directory;
+- Create archives with `archive::ArchiveWriter`, `archive::WriteOptions`, and `crypto` keys.
+- Open an immutable `archive::Archive` from a `source::ArchiveSource`, such as `source::FileSource` or `source::MemorySource`.
+- Read a complete entry with `copy_to` or a checked range with `copy_range_to`.
+- Use `fs::extract`, `fs::append_files`, `fs::grant_readers`, and `fs::ingest` for Linux host operations.
+- Use `adapters::ro_crate` for local directory/ZIP conversion and `adapters::crypt4gh::export` for Crypt4GH output.
 
+Compiled examples are included with the package: [`create`](examples/create.rs), [`open_list`](examples/open_list.rs), [`read_ranges`](examples/read_ranges.rs), [`extract`](examples/extract.rs), [`append`](examples/append.rs), [`grant_readers`](examples/grant_readers.rs), [`ro_crate`](examples/ro_crate.rs), and [`crypt4gh`](examples/crypt4gh.rs). They are local-only and return errors to their caller.
+
+Version 0.8 deliberately removes old model, helper, and wire-record access from the public API. Use the typed archive API instead. The [format draft](https://github.com/arunaengine/pithos/blob/main/spec/PITHOS_1.0.0_draft.md) is background information, not a complete interoperability guarantee.
+
+## Read and extract semantics
+
+Opening validates archive structure and accessible metadata. Payload integrity is lazy: each block is verified when it is read. `copy_to` and `copy_range_to` do not write bytes from a failed block, but a generic sink can retain earlier verified blocks if a later block fails. `PithosError::ContentUnavailable` means the entry is present but no supplied key can access its content; it is different from an integrity or corruption error.
+
+`fs::extract` is Linux-only. It walks destination components without following symlinks, stages regular-file output anonymously with Linux `O_TMPFILE`, and publishes without replacing an existing entry. The destination filesystem must support `O_TMPFILE` and `linkat(AT_EMPTY_PATH)`; extraction can therefore fail on a collision rather than overwrite a destination.
+
+## RO-Crate ingestion
+
+Load a directory or ZIP RO-Crate, then convert its retained source through a configured writer:
+
+```rust,no_run
+use pithos_lib::adapters::ro_crate::{read_ro_crate_directory, write_ro_crate};
+use pithos_lib::archive::ProcessingOptions;
+
+# fn convert<W: std::io::Write>(writer: &mut pithos_lib::archive::ArchiveWriter<W>) -> Result<(), Box<dyn std::error::Error> {
 let loaded = read_ro_crate_directory("path/to/ro-crate")?;
-writer.process_ro_crate(&loaded)?;
+write_ro_crate(writer, loaded, ProcessingOptions::default())?;
+# Ok(())
+# }
 ```
 
-ZIP archives use the same writer operation:
+The upstream parser accepts RO-Crate 1.1 and 1.2 metadata without upstream validation or warning emission; Pithos then applies its own source, path, limit, metadata, and conversion policy. Conversion stores the inspected `ro-crate-metadata.json` bytes rather than reserializing the graph. ZIP conversion streams retained members and does not extract them first.
 
-```rust
-use pithos_lib::helpers::ro_crate::read_ro_crate_zip;
+## Platform behavior
 
-let loaded = read_ro_crate_zip("path/to/ro-crate.zip")?;
-writer.process_ro_crate(&loaded)?;
-```
-
-`loaded.ro_crate` is the upstream `ro-crate-rs` graph. Conversion stores the original
-`ro-crate-metadata.json` bytes instead of reserializing that graph, and every physical regular
-data file references the metadata entry. ZIP conversion streams archive members directly and
-does not extract them first.
-
-The upstream parser accepts RO-Crate 1.1 and 1.2 metadata. Pithos uses its warning-level
-vocabulary checks, not full RO-Crate conformance validation. The upstream root deserializer is
-strict: the root Dataset must contain `@id`, `@type`, `name`, `description`, `datePublished`, and
-`license`.
-
-### Breaking migration
-
-| Removed API | Replacement |
-| --- | --- |
-| `rocrate::ROCrate` | `pithos_lib::helpers::ro_crate::RoCrate` re-export from `rocraters` |
-| `ROCrate.base_path` | `LoadedRoCrate.source` |
-| `data_entities()` | Match `GraphVector::DataEntity` in `loaded.ro_crate.graph` |
-| `contextual_entities()` | Match `GraphVector::ContextualEntity` |
-| `ROCrateBuilder` | Upstream public structs/graph construction; no Pithos compatibility builder |
-| Local validation levels/reports | Upstream read validation behavior |
-| Local directory/ZIP reader traits | `read_ro_crate_directory` and `read_ro_crate_zip` |
-
-PithosReader Example:
-```rust
-let pithos_file = PathBuf::from("example.pith");
-let mut reader = PithosReaderSimple::new(pithos_file, key_pem).unwrap();
-let (directory, _) = reader.read_directory().unwrap();
-
-println!("{:#?}", reader.read_file_paths(&directory).unwrap());
-```
+Filesystem ingestion, extraction, append, and grants are Linux-only in 0.8. Append uses a cooperating-writer advisory lock and can request `AppendDurability::SyncAll`; it attempts to truncate a failed child directory, but it cannot promise rollback after an unrecoverable host or power failure.

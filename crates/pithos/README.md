@@ -1,20 +1,58 @@
 # Pithos CLI
 
-[![Rust](https://img.shields.io/badge/built_with-Rust-dca282.svg)](https://www.rust-lang.org/)
-[![License](https://img.shields.io/badge/License-MIT-brightgreen.svg)](https://github.com/arunaengine/aruna-file/blob/main/LICENSE-MIT)
-[![License](https://img.shields.io/badge/License-APACHE-brightgreen.svg)](https://github.com/arunaengine/aruna-file/blob/main/LICENSE-APACHE)
-
-
-CLI application for handling Pithos (.pto) files.
-
+`pithos` creates, reads, and extends encrypted Pithos archives from the command line. It is the filesystem-oriented companion to the [`pithos_lib`](../pithos_lib/README.md) Rust API.
 
 ## Installation
 
-A release is published via [crates.io](crates.io) (you need to have `cargo` and the `rust-toolchain` installed see [rustup.rs](rustup.rs) for more info)
+Published releases are available from [crates.io](https://crates.io/crates/pithos). Install Rust through [rustup](https://rustup.rs/) first.
 
-```command
+```text
 cargo install pithos
 ```
 
-### Usage
+## Create and read an archive
 
+Create a directory for a key pair, then generate an owner key pair. The private key decrypts the archive; the public key identifies a recipient that may read it.
+
+```bash
+mkdir -p keys restored
+pithos --output keys keypair --prefix owner
+```
+
+Create an archive for a file or directory. This example gives the owner access and writes `research.pith`; replace `input` with your source path.
+
+```bash
+pithos --secret-key keys/owner.sec.pem --public-keys keys/owner.pub.pem --output research.pith create input
+```
+
+List its entries, extract all entries to an existing destination directory, or write one entry to standard output:
+
+```bash
+pithos --secret-key keys/owner.sec.pem read list research.pith
+pithos --secret-key keys/owner.sec.pem --output restored read all research.pith
+pithos --secret-key keys/owner.sec.pem read data research.pith report.txt > report.txt
+```
+
+`read data` also accepts `--ranges START:END,...` for half-open byte ranges. Use `read info` to inspect an entry and `read directory` to inspect every entry's metadata.
+
+## More operations
+
+- `append files` adds filesystem input to an existing archive.
+- `append readers` grants additional recipient public keys access to selected entry IDs.
+- `export --format crypt4gh` exports a readable entry as a Crypt4GH stream.
+
+Use built-in help for required arguments, available options, and the complete command reference:
+
+```text
+pithos --help
+pithos create --help
+pithos read --help
+pithos append --help
+pithos export --help
+```
+
+## Platform behavior
+
+Filesystem-facing operations are Linux-only in 0.8. New archive output, file output, export output, and extraction are staged without replacing existing destinations; they require a destination filesystem with Linux `O_TMPFILE` and `linkat(AT_EMPTY_PATH)` support. Direct append modifies an existing archive and does not require those operations.
+
+For programmatic use, see the [pithos_lib documentation](https://docs.rs/pithos_lib/) and [compiled examples](https://github.com/arunaengine/pithos/tree/main/crates/pithos_lib/examples).

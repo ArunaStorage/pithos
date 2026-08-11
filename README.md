@@ -1,9 +1,3 @@
-<!--
-<div style="display: flex; align-items: center; justify-content: center;">
-    <img src="./assets/pithos_logo.png" style="height: 8rem; width: 8rem;">
-    <p style="serif; font-size: 6rem; margin: 2rem;">Pithos</p>
-</div>
--->
 <p align="center">
     <img src="./assets/pithos_logo.png" style="height: 8rem; width: 8rem;">
 </p>
@@ -12,33 +6,54 @@
 
 <p align="center">
      <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/built_with-Rust-dca282.svg" alt="Language: Rust"></a>
-     <a href="https://github.com/arunaengine/aruna-file/blob/main/LICENSE-MIT"><img src="https://img.shields.io/badge/License-MIT-brightgreen.svg" alt="License: MIT"></a>
-     <a href="https://github.com/arunaengine/aruna-file/blob/main/LICENSE-APACHE"><img src="https://img.shields.io/badge/License-APACHE-brightgreen.svg" alt="License: Apache 2.0"></a>
-     <a href="https://codecov.io/gh/ArunaStorage/pithos"><img src="https://codecov.io/github/arunaengine/pithos/coverage.svg?branch=main" alt="Codecov"></a>
+     <a href="https://github.com/arunaengine/pithos/blob/main/LICENSE-MIT"><img src="https://img.shields.io/badge/License-MIT-brightgreen.svg" alt="License: MIT"></a>
+     <a href="https://github.com/arunaengine/pithos/blob/main/LICENSE-APACHE"><img src="https://img.shields.io/badge/License-APACHE-brightgreen.svg" alt="License: Apache 2.0"></a>
+     <a href="https://codecov.io/gh/arunaengine/pithos"><img src="https://codecov.io/github/arunaengine/pithos/coverage.svg?branch=main" alt="Codecov"></a>
 </p>
 
-<p align="center">🔑 A secure, fast and versatile package file format for object storage focused data management 📦</p>
-<div style="margin-top: 3rem"><div/>
+<p align="center">A secure archive format and Rust implementation for research-data packaging.</p>
 
-## Description
+Pithos packages files into an encrypted, chunked archive that can be read sequentially or by byte range. The Rust implementation supports streaming creation, validated opening, filesystem ingestion and extraction, archive extension, RO-Crate conversion, and Crypt4GH export.
 
-Pithos (a large ancient greek storage container) is a packaging file format for arbitrary data that enhances the use of Object Storage for (research) data management. This is done by combining multiple existing file standards with new enhancements. A format specification can be found [[here]](./spec/PITHOS_1.0.0_draft.md).
+## Get started
 
-## Features
+Install the command-line tool with Rust's package manager:
 
-- **Encryption**: Pithos implements fast ChaCha20-Poly1305 encryption and enables data exchange compatible to the Crypt4GH standard used for sensitive medical data.
-- **Smart Compression**: Via compression probing Pithos can automatically detect and apply fast ZStandard compression for compressible data and optionally skip it when the data is incompressible.
-- **Metadata**: Pithos not only includes technical metadata like file size and checksums but can also embed any semantic metadata directly in the file.
-- **Indexing**: A built in index allows for fast random access of arbitrary ranges in encrypted and compressed files.
-- **RO-Crate ingestion**: Directories and ZIP archives can be converted to Pithos; ZIP members are streamed without extraction.
-- **Tooling**: Pithos comes with a rich set of existing tools that simplify file handling and can additionally be handled with existing tools for the Crypt4GH and Zstandard file formats.
+```bash
+cargo install pithos
+```
 
-Pithos comes with two main crates, a library for programmatic use and a CLI application that uses the library:
+Create a recipient key pair, then create and inspect an archive. This example assumes `input/` already contains the files to package.
 
-| crate                      |                                           version                                           |                                 docs                                 |
+```bash
+mkdir -p keys
+pithos --output keys keypair --prefix owner
+pithos --secret-key keys/owner.sec.pem --public-keys keys/owner.pub.pem --output research.pith create input
+pithos --secret-key keys/owner.sec.pem read list research.pith
+```
+
+For the complete command workflow, including extracting entries, see the [CLI guide](crates/pithos/README.md). For Rust applications, start with the [library guide](crates/pithos_lib/README.md).
+
+## What it provides
+
+- Encrypted archive entries with recipient-key access control and per-block integrity verification.
+- Content-defined chunking, optional compression, and indexed reads of complete entries or byte ranges.
+- Local filesystem operations that avoid symlink traversal and refuse to overwrite existing extracted files.
+- RO-Crate directory and ZIP conversion, plus Crypt4GH export for readable entries.
+
+The filesystem operations are Linux-only and require destination filesystem support for `O_TMPFILE` and `linkat(AT_EMPTY_PATH)`. Core archive reading and writing do not require Linux filesystem access.
+
+## Crates
+
+| crate | version | docs |
 | :------------------------- | :-----------------------------------------------------------------------------------------: | :------------------------------------------------------------------: |
-| [pithos](./crates/pithos/)       |    [![Crates.io](https://img.shields.io/crates/v/pithos.svg)](https://crates.io/crates/pithos)    |    [![Docs](https://docs.rs/pithos/badge.svg)](https://docs.rs/pithos/)    |
-| [pithos_lib](./crates/pithos_lib/)       |    [![Crates.io](https://img.shields.io/crates/v/pithos_lib.svg)](https://crates.io/crates/pithos_lib)    |    [![Docs](https://docs.rs/pithos_lib/badge.svg)](https://docs.rs/pithos_lib/)    |
+| [pithos](crates/pithos/) | [crates.io](https://crates.io/crates/pithos) | [docs.rs](https://docs.rs/pithos/) |
+| [pithos_lib](crates/pithos_lib/) | [crates.io](https://crates.io/crates/pithos_lib) | [docs.rs](https://docs.rs/pithos_lib/) |
 
+`pithos` is the command-line interface. `pithos_lib` is the public Rust API and includes [compiled examples](crates/pithos_lib/examples/). The `pithos_pyo3` workspace member is an unpublished empty Rust stub, not a Python API.
 
-For a more detailed documentation of the individual crates see [Library](./crates/pithos_lib/README.md) and [CLI](./crates/pithos/README.md)
+## Compatibility
+
+Version 0.8 is a source break from 0.7. Use the selected public API in `pithos_lib::archive`, `crypto`, `source`, `fs`, and `adapters`; old model, helper, and wire-record paths are not compatibility APIs.
+
+The [Pithos 1.0 draft](spec/PITHOS_1.0.0_draft.md) is useful format background, but it is not a complete interoperability guarantee. Current library behavior and tests define the 0.8 implementation.
