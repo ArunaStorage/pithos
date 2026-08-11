@@ -56,3 +56,23 @@ peak_alloc = "0.3.0"
 proptest = "1.6.0"
 tempfile = "3.21"
 trybuild = "1.0.104"
+
+[[bench]]
+name = "archive_path"
+harness = false
+
+[[bench]]
+name = "block_pipeline"
+harness = false
+
+[[bench]]
+name = "archive_io"
+harness = false
+
+[[bench]]
+name = "append"
+harness = false
+
+[[bench]]
+name = "adapters"
+harness = false
