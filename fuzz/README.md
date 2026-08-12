@@ -17,7 +17,8 @@ footer, checksum, consumption, and body parsing rather than stopping at the mini
 Crash artifacts and generated build output belong under `fuzz/artifacts/` and `fuzz/target/` and
 are ignored by Git. Keep any minimized regression that fixes a bug in `fuzz/corpus/<target>/`.
 
-Release-candidate smoke limits are 60 seconds, five seconds per input, and 1024 MiB RSS:
+Pull requests targeting `main` run a smoke fuzz pass for all four targets. Each target runs for
+60 seconds, with a five-second per-input timeout and a 1024 MiB RSS limit:
 
 ```bash
 cargo +nightly fuzz run header_decode -- -max_total_time=60 -timeout=5 -rss_limit_mb=1024
@@ -25,6 +26,11 @@ cargo +nightly fuzz run directory_decode -- -max_total_time=60 -timeout=5 -rss_l
 cargo +nightly fuzz run crypt4gh_decode -- -max_total_time=60 -timeout=5 -rss_limit_mb=1024
 cargo +nightly fuzz run chain_validation -- -max_total_time=60 -timeout=5 -rss_limit_mb=1024
 ```
+
+The same four targets run weekly on Sundays at 02:30 UTC for an extended 15-minute pass, with a
+10-second per-input timeout and a 1536 MiB RSS limit. The fuzz workflow can also be started
+manually with those extended settings. Failure artifacts are retained for 14 days; fuzzing does
+not persist generated corpus data.
 
 The root dependency policy does not include this package. Run its policy check separately after
 generating or updating `fuzz/Cargo.lock`:

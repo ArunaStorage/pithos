@@ -1,6 +1,7 @@
 # Benchmarks
 
-This guide is for maintainers measuring `pithos_lib` performance. Local commands provide smoke coverage; only evidence from the owner-selected self-hosted runner is suitable for release comparison.
+This guide is for maintainers measuring `pithos_lib` performance. Run comparisons locally on the
+same machine under consistent conditions.
 
 ## Quick developer smoke
 
@@ -50,44 +51,38 @@ enforces these workload shapes without runtime thresholds. The streamed-memory t
 machine-readable line containing both measured peaks, their delta, output sizes, and bound.
 
 Keys, input payloads, archive fixtures, and temporary directories are setup, not timed,
-unless creation itself is the named workload. Each release-comparable resource record is
-one `pithos-bench-v1` JSON object with exactly `workload`, `setup`,
+unless creation itself is the named workload. Each resource record is one `pithos-bench-v1`
+JSON object with exactly `workload`, `setup`,
 `peak_heap_bytes`, `archive_bytes`, `output_bytes`, `source_read_count`,
 `source_read_bytes`, `bytes_appended`, and `dedup_signal`. All six metrics must be
 finite non-negative numbers; the setup and deduplication signal are stable strings.
-Extra timing fields and `null` observations are not valid release evidence. Criterion's
+Extra timing fields and `null` observations are not valid benchmark evidence. Criterion's
 `target/criterion/**/new/estimates.json` remains the runtime distribution source.
 
-## Release workflow
+## Local comparisons
 
-The release comparison authority is:
+Measure the baseline and candidate on the same machine with the same Rust version, locked
+dependencies, power settings, and workload environment variables. Keep other system activity low.
+Do not compare results from GitHub-hosted runners or different machines.
+
+On the baseline revision, save each Criterion baseline:
 
 ```bash
-python3 .github/release/check.py benchmark compare BASELINE CURRENT REPORT.json
+for bench in archive_path block_pipeline archive_io append adapters; do
+    cargo +1.88.0 bench --locked -p pithos_lib --bench "$bench" -- --save-baseline before
+done
 ```
 
-Exit `0` means the evidence is valid and within the gate. Exit `3` means the evidence is valid
-but has a material regression and must use the protected approval path. Any other failure,
-including missing, malformed, incompatible, or invalid evidence, exits `1` for validation
-failure (invalid top-level command paths exit `2`). Its single 5% materiality threshold applies
-to Criterion median estimates and every numeric resource field; exactly 5% is allowed, while
-any value greater than 5% is a regression. Changed `dedup_signal`, changed setup, missing
-observations, or changed workload sets are also rejected. Do not use a hosted runner for a
-release comparison.
+Then switch to the candidate revision and compare against it:
 
-The baseline and current `environment/machine.txt` files must be byte-for-byte identical,
-including machine and toolchain evidence. Runner identity, workload sets, and resource setup
-must otherwise match exactly.
+```bash
+for bench in archive_path block_pipeline archive_io append adapters; do
+    cargo +1.88.0 bench --locked -p pithos_lib --bench "$bench" -- --baseline before
+done
+```
 
-This strict resource schema is a new reviewed-evidence requirement. An older owner-approved
-artifact that does not satisfy it is not silently invalidated: capture a new baseline candidate,
-review it, and use its exact artifact identity for subsequent comparisons.
-
-Dispatch the `Benchmarks` workflow with an owner-selected self-hosted runner label. For a
-comparison, provide the reviewed successful baseline workflow run ID and its exact
-`benchmark-current-<commit>-<run-id>-<attempt>` artifact name. The workflow records the runner,
-machine and toolchain details, commit, lockfile digest, benchmark stdout, and Criterion output;
-it downloads the immutable reviewed baseline artifact, compares it with current evidence, and
-uploads both a comparison artifact and the current evidence artifact. The current artifact is
-retained for 90 days and can become a reviewed baseline for a later run. Use
-`capture_baseline` only to create a baseline candidate; it creates no release disposition.
+Set `PITHOS_BENCH_100K=1` or `PITHOS_BENCH_LARGE_STREAM=1` for both runs when those optional
+workloads are relevant. Review Criterion's terminal comparison and
+`target/criterion/**/change/estimates.json`; also compare the emitted `pithos-bench-v1` resource
+records. Recreate the saved baseline when the toolchain, dependencies, machine, or workload
+settings change.

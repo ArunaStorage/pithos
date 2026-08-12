@@ -21,4 +21,4 @@
 - Before finishing Rust changes, run `cargo +stable fmt --all -- --check` and `cargo +stable clippy --locked --workspace --all-targets --all-features -- -D warnings` when practical.
 - Focused library tests use integration targets, for example `cargo test -p pithos_lib --test reader`; focused RO-Crate coverage is `cargo test -p pithos_lib --test ro_crate_directory` (or `ro_crate_zip` / `ro_crate_conversion`). CLI smoke check: `cargo +stable run --locked -p pithos -- --help`.
 - Release/package changes also require `python3 .github/release/check.py contracts` and `python3 .github/release/check.py package check pithos_lib` (and `pithos` when affected). The package policy is a ratchet: `package update` needs `--allow-increase` to raise a budget.
-- Run benchmark comparisons only on the owner-selected self-hosted runner; `ubuntu-latest` is not comparable benchmark evidence.
+- Run benchmark baselines and candidates locally on the same machine with the same toolchain, locked dependencies, power settings, and workload environment variables; GitHub-hosted runners are not comparable benchmark evidence.
